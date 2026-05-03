@@ -328,11 +328,16 @@
 - **Depends on**: (none)
 - **Mode**: offload
 
-## Phase 11: debug-session-manager 重写 `/ccg:debug` [offload] (in_progress)
+## Phase 11: debug-session-manager 重写 `/ccg:debug` [offload] (completed)
 
-- **Started**: 2026-05-03 23:07
-- **Mode**: runner (预期 fallback)
+- **Started**: 2026-05-03 23:07 | **Completed**: 2026-05-03 23:16
+- **Mode**: runner → degraded
 - **Type**: backend
+- **Commit**: `ed3282b feat(v4-p11): debug-session-manager 重写 /ccg:debug (GSD ROI #3)`
+- **Tests**: 515/515 passed (delta +38)
+- **Outcome**: debug-session-manager + debugger 双层 subagent + debug-session.ts helper + debug.md 重写。falsifiable 硬约束 + cap 3 hypothesis 失败升级 + `.context/debug/<slug>.md` 持久化。manager 在 fresh context 跑多轮 debug，主线只接 ≤200 token 摘要（ROOT CAUSE FOUND / DEBUG COMPLETE / CHECKPOINT REACHED）。
+- **Plan**: `.claude/team-plan/phase-11-debug-session-manager-report.md`
+- **Dogfood 数据点**: 主线 context T10=49% → T11=**49%（+0%）**——11 phase 串完主线超稳
 
 - **Goal**: 重写 `templates/commands/debug.md` 为 manager + debugger 双层 fresh-context 模式，主线只接最后摘要。
 - **新增能力**:
@@ -350,7 +355,11 @@
 - **Depends on**: (none)
 - **Mode**: offload
 
-## Phase 12: 文档收尾 + 砍 impeccable + domain skills 转 hidden (pending)
+## Phase 12: 文档收尾 + 砍 impeccable + domain skills 转 hidden (in_progress)
+
+- **Started**: 2026-05-03 23:17
+- **Mode**: runner (预期 fallback)
+- **Type**: docs
 
 - **Goal**: v4.0 收尾，命令面板和 skill 体系按 04-ecosystem-scan.md 目标形态收敛。
 - **任务清单**:
