@@ -275,11 +275,16 @@
 - **来源**: 03-quality-gates.md ROI #5
 - **Depends on**: (none)
 
-## Phase 9: 会话式 UAT + cold-start smoke [offload] (in_progress)
+## Phase 9: 会话式 UAT + cold-start smoke [offload] (completed)
 
-- **Started**: 2026-05-03 22:47
-- **Mode**: runner (预期 fallback)
+- **Started**: 2026-05-03 22:47 | **Completed**: 2026-05-03 22:54
+- **Mode**: runner → degraded
 - **Type**: backend
+- **Commit**: `fad9102 feat(v4-p9): session-based UAT + cold-start smoke + max-3-loop convergence`
+- **Tests**: 420/420 passed (delta +31)
+- **Outcome**: uat-session.ts helper + verify-work.md 重写 + 31 单测。cold-start smoke 注入逻辑（git diff 命中 server/database/migrations/docker-compose 触发）+ UAT.md frontmatter 状态文件 resume + max-3-loop 收敛环（复用 Phase 6 plan-checker.ts）。
+- **Plan**: `.claude/team-plan/phase-09-uat-session-cold-start-report.md`
+- **Dogfood 数据点**: 主线 context T8=47% → T9=**48%（+1%）**
 
 - **Goal**: 改造 `templates/commands/verify-work.md`（v3.0.0 已是编排器）从纯编排器变成有 UAT.md 状态文件的会话工作流。
 - **新增机制**:
@@ -295,7 +300,11 @@
 - **Depends on**: 6, 8
 - **Mode**: offload
 
-## Phase 10: code-review --fix + worktree [offload] (pending)
+## Phase 10: code-review --fix + worktree [offload] (in_progress)
+
+- **Started**: 2026-05-03 22:55
+- **Mode**: runner (预期 fallback；worktree 涉及 git 工程关键路径，需小心)
+- **Type**: backend
 
 - **Goal**: `/ccg:review` 加 `--fix` 闭环修复模式，新建 `code-fixer` agent，worktree 隔离 + transactional cleanup。
 - **新增能力**:
