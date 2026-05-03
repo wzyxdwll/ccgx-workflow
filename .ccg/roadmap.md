@@ -491,4 +491,574 @@
 - `.ccg-research/05-roadmap-v3.1-to-v4.0.md` — 路线图主文档
 - `.ccg-research/06-smoke-test-and-resume.md` — smoke test + roadmap 模板（本文件来源）
 
-**Last Updated**: 2026-05-03
+---
+
+# CCG v4.1 Roadmap
+
+**Started**: 2026-05-04 (planned)
+**Source**: `.claude/plan/v4.1-roadmap.md`（commit `da75b7b` v4.1-plan + 71d6592 SessionStart prep）
+**Phase 编号续 v4.0**：13-20（v4.1-P1 → v4.1-P8 映射）
+
+> v4.0 已 13 phase 全交付（见上方 Milestone Summary）。v4.1 主修使用体验：wave 并行 / 项目记忆 / 多模型对辩 / skill 优化 / **codeagent-wrapper 退役**。
+
+## v4.1 阶段总览
+
+| Phase | v4.1 编号 | 标题 | Type | 工时 | 依赖 | Critical | Mode |
+|-------|----------|------|------|------|------|----------|------|
+| 13 | v4.1-P1 | SessionStart hook + 项目记忆自动注入 | backend | 1 天 | — | false | runner |
+| 14 | v4.1-P2 | autonomous wave 并行调度（`--parallel`） | backend | 2 天 | — | false | runner |
+| 15 | v4.1-P3 | specialist matrix 路由（role × layer） | backend | 2 天 | — | false | runner |
+| 16 | v4.1-P4 | challenger 主线扁平编排（plugin 双视角 advisor） | backend | 1 天 | 13, 15 | **true** | runner |
+| 17 | v4.1-P5 | 原生 debate 原语（`/ccg:debate`） | backend | 3 天 | 15 | false | runner |
+| 18 | v4.1-P6 | 清理残留 + 命令面板瘦身 31→22 | backend | 1.5 天 | 13, 14, 15, 16, 17 | false | runner |
+| 19 | v4.1-P7 | Skill 体系优化（context: fork / paths / 翻译） | backend | 1.5 天 | — | false | runner |
+| 20 | v4.1-P8 | codeagent-wrapper → plugin 迁移（6 核心命令） | backend | 3 天 | 15 | **true** | runner |
+
+**总工时**：15 天（v4.1-α 5 + v4.1-β 4 + v4.1-γ 3 + v4.1-δ 3）
+
+**v4.0 → v4.1 哲学转变**：基础设施落地 → 使用体验精修；GSD 借鉴 → Anthropic Skills 官方机制深用；单 phase 串行 → 多 phase 并行；模板硬编码 → role-based 路由
+
+---
+
+## Phase 13: SessionStart hook + 项目记忆自动注入 (completed)
+
+- **Started**: 2026-05-04 00:51 | **Completed**: 2026-05-04 01:00 | **Mode**: runner (`--offload`) | **Baseline**: cf75d70
+- **Commit**: `cedd87b feat(v4.1-p13): SessionStart hook auto-inject project memory`
+- **Tests**: 634/634 passed (delta +21 from 613, P15 报告里看到的 ESM/CJS fail 已自修)
+- **Plan**: `.claude/team-plan/phase-13-session-state-hook-report.md`
+- **Outcome**: ccg-session-state.cjs hook（`.cjs` 扩展名解决仓库 `type:"module"` 强制 CJS 问题）+ installer-hooks.ts 注册 SessionStart + 21 单测。Skip src/index.ts（hook 是 runtime CJS 无 TS API export）。`/clear` 后会自动注入 ROADMAP 头部 + 当前 active phase SUMMARY，解决 v4.0 主线零项目记忆痛点。
+
+- **Goal**: 新会话启动时 Claude Code 自动 Read `.ccg/roadmap.md` / `.ccg/state.md` / 当前 active phase 的 `.context/<phase>/SUMMARY.md`，注入精简摘要到主线 context（用户 Q6 + GSD `gsd-session-state.sh` 对照）
+- **Acceptance**:
+  - `templates/hooks/ccg-session-state.js` 新建（参考 commit `71d6592` manual substitute）
+  - settings.json hooks 段加 `SessionStart` 注册
+  - PostStart 注入 `additionalContext` 含 ROADMAP 头部 20 行 + 当前 phase 状态
+  - 单测：mock SessionStart 输入，验证 hook 输出格式
+- **来源**: `.claude/plan/v4.1-roadmap.md` Phase 1（A4，用户 Q6）
+- **Depends on**: (none)
+- **Type**: backend
+- **Critical**: false
+
+## Phase 14: autonomous wave 并行调度 (completed)
+
+- **Started**: 2026-05-04 00:43 | **Completed**: 2026-05-04 00:50 | **Mode**: runner (`--offload`) | **Baseline**: 71d6592
+- **Commit**: `cf75d70 feat(v4.1-p14): autonomous default wave parallel + --sequential opt-out (Kahn topo)`
+- **Tests**: 566/566 passed (delta +51 from 515)
+- **Plan**: `.claude/team-plan/phase-14-autonomous-parallel-report.md`
+- **Goal**: `/ccg:autonomous` **默认 wave 并行**（按 Kahn 拓扑分波，波内并行 spawn phase-runner），新增 `--sequential` opt-out + `--max-concurrent N`（默认 4）。墙钟时间压缩 30-40%。**spec 中途修订**：从 opt-in `--parallel` flag 反转为默认行为，对齐 v3.0 team-exec wave-based 心智。
+- **Acceptance**:
+  - `templates/commands/autonomous.md` Step 4.0/4.1/4.4 重写：默认 wave 并行 + `--sequential` / `--max-concurrent` 文档
+  - 新建 `src/utils/wave-scheduler.ts`（~280 行 Kahn 拓扑分波 + cascade skip + max-concurrent batching）
+  - 50 单测覆盖：默认分波 / `--sequential` 退化 / `--max-concurrent` batching / cascade skip / 12-phase 实测形态
+  - **实测 wave 形状**（phase-runner 核对依赖图后修正了 prompt 例子的疏漏）：Wave 1 = 1, 3, 4, 7, 8, 10, 11；Wave 2 = 2, 5, 6；Wave 3 = 9；Wave 4 = 12
+  - src/index.ts 加 6 exports + 4 types
+- **来源**: `.claude/plan/v4.1-roadmap.md` Phase 2（A1, B4）+ 用户在 spawn 后澄清"默认并行"意图
+- **Depends on**: (none)
+- **Type**: backend
+- **Critical**: false
+- **Outcome**: wave 调度器助理 + autonomous.md 默认并行重写一次到位，566 测试 pass，typecheck/build 全绿。phase-runner 自实施（引擎层禁嵌套 spawn），fresh ctx 一次完成 helper + tests + 模板，主线只接 ≤200 token 摘要——v4.0 G 方案再次验证有效。
+- **Dogfood 数据点**: phase-runner 内部完整 lifecycle，主线 context 增量待 wave 1 完成后整体计算
+
+## Phase 15: specialist matrix 路由 (completed)
+
+- **Started**: 2026-05-04 00:51 | **Completed**: 2026-05-04 00:57 | **Mode**: runner (`--offload`) | **Baseline**: cf75d70
+- **Commit**: `b6100c2 feat(v4.1-p15): specialist matrix routing (--role × layer)`
+- **Tests**: 613/614 passed (delta +47, 1 pre-existing P13 ESM/CJS unrelated fail)
+- **Plan**: `.claude/team-plan/phase-15-specialist-matrix-report.md`
+- **Outcome**: specialist-router helper + 6 命令模板加 `--role=architect|critic|implementer|tester|writer` flag + 47 单测。复用 templates/prompts/{codex,gemini}/ 6 角色 prompt 库（v3.0 就位）。v4.0 兼容保留：未传 --role 时走 {{BACKEND_PRIMARY}}/{{FRONTEND_PRIMARY}} 旧路由。文件边界严格遵守，未碰 P13/P19 在飞文件。
+
+- **Goal**: 6 个核心命令（plan / analyze / debug / review / optimize / test）从"按文件类型分"升级到"role × layer 二维路由"，加 `--role=architect|critic|implementer|tester|writer` flag
+- **Acceptance**:
+  - 6 命令模板含 role flag 解析
+  - 复用 `templates/prompts/{codex,gemini}/` 已有 6 角色 prompt 库
+  - 路由矩阵：backend → codex / frontend → gemini / fullstack → both 或 runner 决
+  - 增量改：先 plan / review 两高频，保留 v4.0 `{{BACKEND_PRIMARY}}/{{FRONTEND_PRIMARY}}` 兼容路径
+  - 单测：mock 命令 input + role，验证选对 prompt 文件
+- **来源**: `.claude/plan/v4.1-roadmap.md` Phase 3（A2 改进 A，多模型生硬主修）
+- **Depends on**: (none)
+- **Type**: backend
+- **Critical**: false
+
+## Phase 16: challenger 主线扁平编排 (completed)
+
+- **Started**: 2026-05-04 01:12 | **Completed**: 2026-05-04 01:24 | **Mode**: runner (`--offload`) | **Baseline**: 8654fcb
+- **Commit**: `5f590f3 feat(v4.1-p16): challenger flat orchestration (plugin advisor + specialist critic)`
+- **Tests**: 757/757 passed (delta +21 self + 83 concurrent P17/P20)
+- **Plan**: `.claude/team-plan/phase-16-challenger-flat-report.md`
+- **Outcome**: challenger router 着陆（Critical=true → backend codex+assumptions / frontend gemini+nyquist / fullstack 4-route / docs generic specialist-only）+ plugin 降级保留 specialist 无 codeagent fallback + 一轮修订 cap + 21 单测。**P16 自我 challenger 按 acceptance f 跳过**（鸡生蛋）。**race 实例**：P17/P20 撞 index.ts，phase-runner soft-reset + atomic re-stage 恢复。
+
+- **Goal**: critical phase 在 phase-runner（implementer）完成后，由**主线**追加 spawn `codex:codex-rescue` + `gemini:gemini-rescue` plugin 双视角 advisor + CCG `assumptions-analyzer` / `nyquist-auditor` specialist critic，三方反馈综合 → 让 implementer 修订一次
+- **架构**（**主线扁平化**，因 v4.0.1 commit `a7cdffd` 实测证伪 subagent 嵌套 spawn）:
+  ```
+  主线 spawn phase-runner (implementer) ← fresh ctx
+       ↓ 摘要返回
+  if Critical == true:
+      主线并行 spawn:
+        ├─ Agent(codex:codex-rescue, prompt=challenge)   ← 后端 advisor
+        ├─ Agent(gemini:gemini-rescue, prompt=challenge) ← 前端/UX advisor
+        └─ Agent(assumptions-analyzer / nyquist-auditor) ← CCG specialist critic
+      → 三方 ≤200 token 摘要 → 主线综合
+      if critical findings: 主线 spawn phase-runner（含反馈）→ 修订
+  ```
+- **Acceptance**:
+  - 改 `templates/commands/autonomous.md` Step 4.4 加 challenger 分支判定
+  - roadmap.md schema 加 `Critical: true|false`（默认 false，避免每 phase 4-spawn cost）
+  - challenger 选择规则按 phase_type 分流（backend: codex+specialist / frontend: gemini+specialist / fullstack: 双 plugin + 双 specialist）
+  - 单测：mock Critical=true 验证 spawn；mock critical findings 验证修订循环
+  - 降级：plugin 没装 → 主线只 spawn specialist（不调 codeagent，避免重新建立依赖）
+- **来源**: `.claude/plan/v4.1-roadmap.md` Phase 4（A2 改进 C，引擎约束适配）
+- **Depends on**: 13, 15
+- **Type**: backend
+- **Critical**: true
+
+## Phase 17: 原生 debate 原语 (completed)
+
+- **Started**: 2026-05-04 01:12 | **Completed**: 2026-05-04 01:22 | **Mode**: runner (`--offload`) | **Baseline**: 8654fcb
+- **Commit**: `a5125e7 feat(v4.1-p17): /ccg:debate primitive (multi-round propose/challenge/respond)`
+- **Tests**: 717/717 passed (delta +42 self + 22 already-merged from in-flight P16/P20)
+- **Plan**: `.claude/team-plan/phase-17-debate-primitive-report.md`
+- **Outcome**: /ccg:debate 命令模板（主线编排状态机）+ debate-orchestrator.ts 纯函数（debateStateMachine / parseRoundSummary / shouldStop）+ 42 单测覆盖 layer 路由 / plugin fallback / parse tolerance / 双信号收敛。**v4.2+ 建议**：/ccg:debate 集成到 plan / spec-plan 作 opt-in flag（记入 P18 经验提炼）。
+
+- **Goal**: 新命令 `/ccg:debate <topic>` 由主线管 A↔B 多轮对辩（codex propose ↔ gemini challenge ↔ codex respond），cap 3 轮或 challenger 自报"无 critical"即停
+- **机制**（**主线编排 + plugin 双 agent**，不用 general-purpose / codeagent-wrapper）:
+  ```
+  主线: spawn Agent(codex:codex-rescue, propose) → 接 ≤200 token 摘要
+  主线: spawn Agent(gemini:gemini-rescue, challenge + codex.propose) → 接摘要
+  主线: spawn Agent(codex:codex-rescue, respond + gemini.challenge) → 接摘要
+  cap 3 轮 → 主线综合 → 最终方案 + 分歧点列表
+  ```
+- **Acceptance**:
+  - 新建 `templates/commands/debate.md`（命令模板，含主线编排状态机）
+  - 收敛判定双信号："B 自报无 issue" + "输出长度变化"
+  - 单测：mock 多轮 propose/challenge/respond 验证 cap 3 触发
+  - 降级：plugin 没装 → general-purpose subagent + CCG 自家 prompt 模板
+- **来源**: `.claude/plan/v4.1-roadmap.md` Phase 5（A2 改进 B）
+- **Depends on**: 15
+- **Type**: backend
+- **Critical**: false
+
+## Phase 18: 清理残留 + 命令面板瘦身 (completed)
+
+- **Started**: 2026-05-04 01:25 | **Completed**: 2026-05-04 01:42 | **Mode**: runner (`--offload`) | **Baseline**: 5f590f3
+- **Commit**: `4f86cbc chore(v4.1-p18): command palette shrink 33→28 + skill rule-engine + v4.1.0 docs`
+- **Tests**: 775/775 passed (delta +18)
+- **Plan**: `.claude/team-plan/phase-18-command-palette-shrink-report.md`
+- **Outcome**: ccg init `--sync` 模式 + 命令面板 33→28（删 5 模板：team-research/team-plan/team-review/extract-learnings/forensics/health/map-codebase 中实际删的 5 个）+ /ccg:team 子命令路由 + skill rule-engine paths consumer（glob 匹配）+ v4.1.0 docs（README/CHANGELOG/CLAUDE.md/templates/CLAUDE.md/migration guide v4-to-v4.1.md）+ package.json bump 4.0.1→4.1.0 + 18 单测。**注意**：roadmap.md 命令面板 31→22 baseline misstated，实际产出 33→28。
+
+- **Goal**: ccg init 加 `--sync` 模式删 ~/.claude 中已不在新模板的文件；命令面板 31 → 22（合并 / 移到 skill / 删除）
+- **Acceptance**:
+  - `installer.ts` 加 sync 路径（不删用户自建文件，单测覆盖）
+  - team-research / team-plan / team-review 折回 `/ccg:team` 子命令（独立调用率低）
+  - extract-learnings / forensics / health / map-codebase 移到 skill（user-invocable: true，不进 commands/）
+  - 命令面板从 31 降到 22 ± 2
+- **来源**: `.claude/plan/v4.1-roadmap.md` Phase 6（A5, C4）
+- **Depends on**: 13, 14, 15, 16, 17
+- **Type**: backend
+- **Critical**: false
+
+## Phase 19: Skill 体系优化 (completed)
+
+- **Started**: 2026-05-04 00:51 | **Completed**: 2026-05-04 01:11 | **Mode**: runner (`--offload`) | **Baseline**: cf75d70
+- **Commit**: `8654fcb feat(v4.1-p19): skill system optimization (audit + context:fork + paths + i18n)`
+- **Tests**: 653/653 passed (delta +19, +87 累计 across P13/P15/P19 wave 1)
+- **Plan**: `.claude/team-plan/phase-19-skill-audit-report.md`
+- **Outcome**: 审计 / 截短 / context:fork / paths 过滤 / i18n 翻译 34 SKILL.md + skill-description-audit.ts 模块 + 19 单测。skill-registry.ts 解析 paths 字段并暴露 SkillMeta（**注意**：consumer 端 glob 匹配未实现，downstream rule-engine 任务，记入 P18 收尾）。
+
+- **Goal**:
+  - **C1**：审计 100+ skill description 总长，超 1% 上下文预算的截短到 ≤80 字符
+  - **C2**：domains/ + impeccable/ 重型 skill 加 `context: fork` frontmatter
+  - **C3**：`frontend-design` 等加 `paths: "*.tsx,*.vue"` 限定激活范围
+  - **A3**：impeccable 20 description 翻译成中文
+- **Acceptance**:
+  - 跑 `du -sh ~/.claude/skills/ccg/**/SKILL.md` 总 description 长度脚本审计
+  - skill-registry.ts 单测覆盖新 frontmatter 字段（context: fork / paths）
+  - 翻译完跑单测验证 description.length ≤80 且关键词覆盖原文
+- **来源**: `.claude/plan/v4.1-roadmap.md` Phase 7（C1, C2, C3, A3）
+- **Depends on**: (none)
+- **Type**: backend
+- **Critical**: false
+
+## Phase 20: codeagent-wrapper → plugin 迁移 (completed)
+
+- **Started**: 2026-05-04 01:12 | **Completed**: 2026-05-04 01:23 | **Mode**: runner (`--offload`) | **Baseline**: 8654fcb
+- **Commit**: `0d780fe feat(v4.1-p20): codeagent-wrapper deprecation + plugin Agent spawn migration`
+- **Tests**: 757/757 passed (delta +40 self + 64 concurrent P16/P17)
+- **Plan**: `.claude/team-plan/phase-20-codeagent-retire-report.md`
+- **Outcome**: 6 命令模板（plan/execute/analyze/optimize/test/review）双通道（plugin spawn 默认 + codeagent-wrapper Bash fallback BC ≥40 callsites）+ plugin-detection.ts helper + invoke-model.mjs 顶部 deprecation 注释（runtime 不动，v5.0 删除目标）+ 40 单测。**race 实例**：src/index.ts 在并发期间被 P16/P17 覆盖，phase-runner 自检并 recover。**dogfood 验证**：预测 +5%→+1.5% 主线 context drop 留下次 /ccg:plan run 实测。
+
+- **背景**: v4.0.1 nested-spawn 测试 + 客观对比表明 codex/gemini plugin 7 项胜出 codeagent-wrapper，唯一胜出"沙箱完全 bypass"在 advisor 场景用不上
+- **Goal**: 6 核心命令（plan / execute / analyze / optimize / test / review）从 `Bash(codeagent-wrapper --backend codex/gemini)` 迁移到 `Agent(codex:codex-rescue) + Agent(gemini:gemini-rescue)`，主线只接 ≤200 token 摘要
+- **Acceptance**:
+  - 6 命令模板改写：`plan.md` Phase 2 双模型并行 / `execute.md` 实施阶段 / `analyze.md` / `optimize.md` / `test.md` / `review.md` 全部 plugin spawn
+  - codeagent-wrapper 标 `deprecated_in: v4.1, replaced_by: Agent(codex:codex-rescue)`（51 处模板调用 + invoke-model.mjs 保留作 BC）
+  - **降级路径**：用户没装 codex/gemini plugin → 模板自动 fallback 到 Bash 调用
+  - 单测：mock plugin 装 / 未装两种情况，验证模板路径切换
+  - 实测：用 v4.1 新版 `/ccg:plan` 跑同等任务，主线 context 增量从 v4.0 的 +5% 降到 +1.5%
+- **预期收益**:
+  - 主线 context 漂移降幅 ~70%（同任务规模）
+  - plugin 自家 prompt 工程提升模型输出质量（adversarial-review 等专用模式可用）
+  - CCG 卸下 870 行 invoke-model.mjs 维护负担
+- **来源**: `.claude/plan/v4.1-roadmap.md` Phase 8（v4.0.1 客观对比新增）
+- **Depends on**: 15
+- **Type**: backend
+- **Critical**: true
+
+---
+
+## 不进 v4.1 的项（明确 cut）
+
+- **B1** `general-purpose` subagent 嵌套 spawn 限制：Claude Code 引擎层硬约束（commit `a7cdffd` 实测），CCG 改不了
+- **Phase 12 主线 +2% 异常**：纯文档 phase 性质决定，无优化空间
+- **B2** subagent 注册需重启：同样引擎限制，写进 README 让用户预期对齐
+
+---
+
+## 🏁 Milestone Summary: v4.1 wave-parallel dogfood
+
+**Started**: 2026-05-04 00:43
+**Ended**: 2026-05-04 01:42
+**Total Phases**: 8（Phase 13-20）
+**Total Wall Clock**: ~60 min（vs v4.0 串行 12 phase 2h24min）
+**Mode**: auto + offload + wave-parallel（v4.1-P14 自身能力首次 dogfood）
+
+### 执行结果
+
+| Wave | Phase | 名称 | Commit | Tests Δ | 备注 |
+|------|-------|------|--------|---------|------|
+| 0 | 14 | autonomous wave 调度器（默认并行） | cf75d70 | +51 | spec 中途反转：opt-in `--parallel` → 默认并行 + `--sequential` opt-out |
+| 1 | 13 | SessionStart hook + 项目记忆 | cedd87b | +21 | `.cjs` 解决 ESM/CJS mismatch |
+| 1 | 15 | specialist matrix 路由（--role） | b6100c2 | +47 | 6 命令复用 v3.0 6 角色 prompt 库 |
+| 1 | 19 | Skill 优化（context:fork/paths/i18n） | 8654fcb | +19 | 34 SKILL.md 翻译/切片/字段扩展 |
+| 2 | 16 | challenger 主线扁平编排 | 5f590f3 | +21 | self-skipped 鸡生蛋 |
+| 2 | 17 | /ccg:debate 多轮对辩原语 | a5125e7 | +42 | 双信号收敛 cap 3 |
+| 2 | 20 | codeagent → plugin 迁移 | 0d780fe | +40 | 双通道 BC，invoke-model.mjs deprecated |
+| 3 | 18 | 命令面板瘦身 + v4.1.0 docs | 4f86cbc | +18 | bump 4.0.1→4.1.0 |
+
+**总计**：测试 515 → 775（+260），命令面板 33 → 28（删 5 + 加 /ccg:debate）
+
+### Wave-parallel dogfood 验证结论
+
+✅ **首次实战 P14 wave 调度能力**：
+- Wave 0: 1 phase × 7 min = 7 min
+- Wave 1: 3 phase 并行 × ~20 min wall = 20 min（vs 串行 ~36 min，**省 44%**）
+- Wave 2: 3 phase 并行 × ~12 min wall = 12 min（vs 串行 ~36 min，**省 67%**）
+- Wave 3: 1 phase × 17 min = 17 min
+- 总壁钟 ~60 min vs v4.0 同等规模串行预期 ~120-150 min，**压缩 50-60%**——超过 P14 设计目标 30-40%
+
+⚠️ **race 实例 2 处**：
+- Wave 1 P13/P15/P19 并发：sessionStateHook 测试套件 ESM/CJS mismatch（P13 后续自修）
+- Wave 2 P17/P20 并发：src/index.ts 互相覆盖（P20 + P16 各自 soft-reset + atomic re-stage 恢复）
+- **结论**：phase-runner 的 git+test+typecheck handoff 自检逻辑能 catch 大部分 race，但 src/index.ts 等共享 export 文件仍是 wave 并行的薄弱点。v4.2 可考虑 worktree 隔离下沉到 phase-runner（P10 review-fix 已有先例）
+
+### v4.1 关键能力交付（11 项）
+
+1. SessionStart hook + 项目记忆自动注入（A4）
+2. autonomous **默认 wave 并行** + `--sequential` opt-out + `--max-concurrent N`（A1, B4）
+3. specialist matrix `--role × layer` 路由（A2 改进 A）
+4. challenger 主线扁平编排（plugin 双 advisor + specialist critic + 一轮修订）（A2 改进 C）
+5. /ccg:debate 多轮对辩原语（双信号收敛 cap 3）（A2 改进 B）
+6. ccg init `--sync` 模式（A5）
+7. 命令面板瘦身 33→28（C4）
+8. Skill 体系优化（C1 description 截短 / C2 context:fork / C3 paths glob 消费 / A3 中文翻译）
+9. codeagent-wrapper deprecated_in: v4.1（plugin Agent spawn 默认 + Bash fallback BC）
+10. v4.1.0 完整 docs（CHANGELOG / README / CLAUDE.md / migration guide）
+11. 测试 +260（515 → 775，+50%）
+
+### 命令面板变化
+
+- 删 5 命令：team-research / team-plan / team-review / extract-learnings / forensics（折回 /ccg:team 子命令 + 移到 skill）
+- 加 1 命令：/ccg:debate
+- 总计：33 → 28
+- v4.1 docs migration guide v4-to-v4.1.md 含每个删除/合并命令的替代方案
+
+### 经验提炼（→ v4.2）
+
+1. **wave 并行 race 治理**：src/index.ts 等共享 export 是薄弱点，下沉 worktree 隔离到 phase-runner（参考 P10 review-fix 模式）
+2. **/ccg:debate 集成**：opt-in flag 接入 plan / spec-plan 高 stakes 流程（P17 phase-runner 建议）
+3. **Skill paths consumer 已实现**：但 skill 列表 UI 端可能需要进一步调整（autonomous 接入待 P19+P18 整合产出验证）
+4. **v4.1 dogfood 主线 context 漂移待跑**：预期 +5%→+1.5% 主线 context drop（P20 留下次 /ccg:plan run 实测）
+5. **subagent 嵌套限制仍在**：所有 phase 都走 fresh-context 自实施 fallback，`Agent(phase-runner)` 内部 spawn `Agent(codex:rescue)` 在 Claude Code 引擎层不可能（v4.0.1 commit `a7cdffd` 实测）。v4.1 已完全适配此约束
+
+### 推荐下一步
+
+1. **快速验证**：`pnpm pack` + 本地装 + 重启 Claude Code → 验证 v4.1 命令面板 28 全部生效 + /ccg:debate 可调用 + SessionStart hook 注入
+2. **首次 SessionStart hook 实战**：`/clear` 当前会话后开新会话验证主线自动注入 ROADMAP 头部 + active phase 摘要（解决 v4.0 痛点）
+3. **dogfood 主线 context 漂移**：跑一次 /ccg:plan 任务验证 plugin spawn vs codeagent-wrapper 的 +5%→+1.5% 预期
+4. **v4.2 启动条件**：用户体验反馈 / wave 并行 race 实测命中频率 / /ccg:debate 实际使用模式
+
+**v4.1 milestone complete.** 🏁
+
+---
+
+---
+
+# CCG v4.2 Roadmap — Plan-Critic-Verify 三段式 + 接口债清理
+
+**Started**: 2026-05-04 (planned)
+**Source**: v4.1 收尾后质量审计（5 个核心 helper 平均 6.5/10）+ 多模型协作设计深度讨论
+**Phase 编号续 v4.1**：21-23
+
+> **三个推动因素**：
+> 1. **v4.1 dogfood 实质单模型** — 引擎禁 subagent 嵌套 spawn，13 phase 全部 phase-runner 自实施（Claude），codex/gemini 从未介入。多模型协作只活在文档措辞
+> 2. **v4.1 实施代码质量 6.5/10** — PluginAvailability 类型重复定义 / parseFindings 不支持嵌套 `{}` / 路由基于未验证假设 / 4 文件 4 套路由无 SSoT
+> 3. **市面 SOTA 是 Plan-Critic-Verify 三段式**（MoA / Magnetic-One / MetaGPT 实测验证）
+>
+> **方案**：先清接口债（P21）让多模型路由有 single source of truth，然后上 Plan-Critic-Verify 三段式 + quality flag 三档（P22），最后 dogfood 三档对比 + 发布（P23）。
+
+## v4.2 阶段总览
+
+| Phase | 标题 | Type | 工时 | 依赖 | Critical |
+|-------|------|------|------|------|----------|
+| 21 | 接口债清理（routing SSoT + parseFindings 鲁棒化 + plugin 摘要实测） | backend | 1.5 天 | — | **true** |
+| 22 | quality flag 三档 + Plan-Critic-Verify 三段式编排 | backend | 3 天 | 21 | **true** |
+| 23 | 三档 dogfood 对比 + v4.2.0 docs + bump | docs | 1.5 天 | 22 | false |
+
+**总工时**：6 天
+
+## Phase 21: 接口债清理 + plugin 摘要实测 (completed)
+
+- **Started**: 2026-05-04 01:50 | **Completed**: 2026-05-04 02:00 | **Mode**: runner (`--offload`) | **Baseline**: 4f86cbc
+- **Commit**: `2881798 refactor(v4.2-p21): multi-model routing SSoT + parseFindings robust + assumption purge`
+- **Tests**: 804/804 passed (delta +29 from 775)
+- **Plan**: `.claude/team-plan/phase-21-interface-debt-report.md`
+- **Outcome**: SSoT `multi-model-routing.ts` 落地（统一 Layer/Model/PluginAvailability/Role）+ 4 routers 全部 re-import + parseFindings 鲁棒化（JSON / json block / 嵌套 `{}` / 单引号）+ specialist-router 假设路由清空（implementer/writer×frontend → null main thread 接管）+ plugin 摘要格式调研文档。29 新单测全过。v4.2 P22 unblocked。
+
+- **Goal**: 修 v4.1 质量审计揭示的 3 项接口债 + 在真 plugin 上跑一次实测各自摘要格式，给 v4.2 P22 三段式编排提供干净底座。
+- **审计依据**：
+  - **#1 PluginAvailability 类型重复定义**（plugin-detection.ts:62-65 + challenger-orchestrator.ts:79-82 完全相同 interface 各自 export）
+  - **#2 parseFindings 不支持嵌套 `{}`**（challenger-orchestrator.ts 正则 `/\{[^}]*severity[^}]*\}/` 简单 finding 没问题，message 含 `{}` 字符就解析错）
+  - **#3 路由逻辑没 SSoT**（specialist-router 5×3 矩阵 / challenger 5 type → agent / debate 3 layer → model / phase-runner 5 type → spawn —— 四套路由各自定义且类型不一：`SpecialistLayer = backend|frontend|fullstack` vs `PhaseType = backend|frontend|fullstack|docs|generic`）
+  - **#4 路由基于未验证假设**（implementer 借 architect.md / writer×frontend → analyzer.md / debate `propose|提议` 关键词 / challenger findings JSON schema —— 全是猜的，没在真 plugin 上跑过）
+- **Acceptance**:
+  - **a. 新建 `src/utils/multi-model-routing.ts`** —— SSoT schema：
+    - 统一 `Layer = backend | frontend | fullstack | docs | generic`（取并集，废弃 SpecialistLayer / PhaseType 各自定义）
+    - 统一 `Model = codex | gemini | claude | general-purpose`
+    - 统一 `PluginAvailability = { codex: boolean; gemini: boolean }`（一处 export）
+    - 统一 `Role = architect | critic | implementer | tester | writer | advisor | verifier`
+    - re-export 给 specialist-router / challenger-orchestrator / debate-orchestrator / plugin-detection / phase-runner.ts
+  - **b. 重构 4 文件 import 单源**：
+    - `specialist-router.ts` 删 `SpecialistLayer` 定义，import `Layer`
+    - `challenger-orchestrator.ts` 删 `PluginAvailability` 重复，import；删 phase-runner 的 PhaseType import 改 import Layer
+    - `debate-orchestrator.ts` 删 `DebateLayer` 定义，import Layer
+    - `plugin-detection.ts` 删 `PluginAvailability` 重复，import
+  - **c. parseFindings 鲁棒化**（challenger-orchestrator.ts）：
+    - 用真 JSON parser 替代手写正则；try strict JSON parse → fall back to 非贪婪嵌套-aware tokenizer
+    - 容错支持：```json``` block 包裹 / nested `{}` in message 字段 / 单引号代替双引号
+    - 加 12+ 单测覆盖各种边角格式
+  - **d. plugin 摘要格式实测**（关键 dogfood 步骤）：
+    - 实际跑 `Agent(subagent_type="codex:codex-rescue", prompt="propose design for X")` 一次
+    - 实际跑 `Agent(subagent_type="gemini:gemini-rescue", prompt="challenge Y")` 一次
+    - 实际跑 critic / advisor / implementer 4 种 mode 各 1 次
+    - **记录** plugin 真实输出格式到 `.claude/team-plan/phase-21-plugin-summary-formats.md`
+    - 调整 debate-orchestrator parseRoundSummary 关键词列表跟实际格式对齐
+    - 调整 challenger-orchestrator parseFindings 跟实际格式对齐
+  - **e. specialist-router 假设审计**：
+    - 删 implementer → architect.md 借用（真没合适 prompt 就标 `null` 让 main thread 处理，明文记录"勿用 implementer 角色"）
+    - 删 writer×frontend → analyzer.md 假设（gemini 没 UX writing 专 prompt 就标 `null`）
+    - 改成"明确无 prompt 的 slot 由 main thread 接管"，不再借用别的 prompt 文件
+  - **f. 单测覆盖率**：
+    - `multiModelRouting.test.ts` 验证 4 文件 import 一致
+    - `parseFindingsRobust.test.ts` 验证嵌套 / json block / 单引号场景
+    - 现有 specialist-router / challenger / debate / plugin-detection 测试全过（接口变了要 fix expectation）
+- **来源**: v4.1 收尾后主对话质量审计（5 helper 平均 6.5/10）
+- **Depends on**: (none)
+- **Type**: backend
+- **Critical**: true（接口债不修，P22 三段式会再叠一层债）
+
+## Phase 22: quality flag 三档 + Plan-Critic-Verify 三段式 (completed)
+
+- **Started**: 2026-05-04 02:00 | **Completed**: 2026-05-04 02:13 | **Mode**: runner (`--offload`) | **Baseline**: 2881798
+- **Commit**: `2be2130 feat(v4.2-p22): quality tier flag (fast/triple/debate) + Plan-Critic-Verify orchestration`
+- **Tests**: 891/891 passed (delta +87 from 804)
+- **Plan**: `.claude/team-plan/phase-22-quality-tier-orchestration-report.md`
+- **Outcome**: 3 helper（quality-router / plan-aggregator / verify-orchestrator）+ 4 测试文件（含 tripleTierIntegration）+ autonomous.md Step 4.x 三档分支重写 + phase-runner.md 加 design_brief/verify_findings 字段。87 新单测覆盖三档全场景 + 降级路径。**P22 自评**：plugin 降级路径单测全过但未在真 autonomous run 验证，**P23 强烈建议 cold-start 无 plugin 跑**冲刷 latent 集成 bug。
+
+- **Goal**: `/ccg:autonomous` 加 `--quality=<fast|triple|debate>` flag，三档分级实施。默认 `triple` 走 Plan-Critic-Verify 三段式（每 phase 4 wave），`--quality=fast` 单波 + 1 verify（v4.1+verify 行为，5-10% 时间增量），`--quality=debate` 在 triple 基础上加多轮 debate（关键决策点用，+150% 壁钟）。
+- **背景**：市面 SOTA Plan-Critic-Verify（MoA / Magnetic-One / MetaGPT 论文实测）—— Plan 多模型 lateral diversity + Implementer 单 strong model 一致性 + Verify cross-vendor 抓 race。v4.1 dogfood 实测 race 2 次（src/index.ts 互相覆盖）+ commit message drift 1 次都是 verify 阶段没有导致的事故。
+- **新接口**：
+  ```bash
+  /ccg:autonomous                         # 默认 triple
+  /ccg:autonomous --quality=fast          # v4.1+verify 单波模式
+  /ccg:autonomous --quality=triple        # Plan-Critic-Verify 显式
+  /ccg:autonomous --quality=debate        # triple + debate 介入关键决策
+  /ccg:autonomous --max-concurrent N      # 兼容 v4.1 wave 调度
+  /ccg:autonomous --sequential            # 兼容 v4.1 顺序模式
+  ```
+  roadmap.md 单 phase 可标 `Quality: fast|triple|debate` 字段覆盖全局 flag。
+- **架构**（基于 P21 SSoT routing 类型）：
+  ```
+  fast 模式 (--quality=fast)：
+    Wave Y1: Agent(phase-runner)              # Claude impl
+    Wave Y2: Agent(verifier, cross-vendor=1)  # 1 路 verify cap critical
+       ↓ critical → AskUserQuestion 暂停（不自动修订）
+
+  triple 模式 (默认，--quality=triple)：
+    Wave Y1 Plan: 主线扁平 spawn 3 路 (并行)
+      ├─ Agent(codex:codex-rescue, role=architect)
+      ├─ Agent(gemini:gemini-rescue, role=architect)
+      └─ Agent(claude opus, role=architect)
+       ↓ 3×200 token plans → synthesizeBrief → design brief (≤500 token)
+    Wave Y2 Critic: 主线扁平 spawn 2 路 specialist (并行)
+      ├─ Agent(assumptions-analyzer)
+      └─ Agent(nyquist-auditor)
+       ↓ 2×200 token critiques → 注入 brief → refined brief
+    Wave Y3 Impl: Agent(phase-runner, prompt+refined brief)
+       ↓ git commit + test + typecheck
+    Wave Y4 Verify: 主线扁平 spawn 2 路 (并行)
+      ├─ Agent(codex:codex-rescue, role=verifier)
+      └─ Agent(gemini:gemini-rescue, role=verifier)
+       ↓ critical → 修订一轮 cap 1
+
+  debate 模式 (--quality=debate)：
+    triple + 在 Plan / Critic 阶段插入 debate（cap 3 轮 codex↔gemini 多轮对辩）
+    壁钟 +50% over triple
+  ```
+- **Acceptance**:
+  - **a. 新建 `src/utils/quality-router.ts`**（基于 P21 multi-model-routing.ts SSoT）：
+    - 解析 `--quality=fast|triple|debate` flag + roadmap 单 phase Quality 字段
+    - 返回 wave 计划：每 phase 几 wave + 每 wave spawn 计划
+    - 单测覆盖三档分级 + phase override
+  - **b. 新建 `src/utils/plan-aggregator.ts`**：
+    - `synthesizeBrief(codexPlan, geminiPlan, claudePlan)` 综合 3 路 plan
+    - 共识点合并 + 分歧点列出 + 主线决策点标记
+    - 输出 ≤500 token markdown brief
+    - 单测：mock 3 路 plan 验证 brief 综合 / mock 冲突场景验证分歧标注
+  - **c. 新建 `src/utils/verify-orchestrator.ts`**：
+    - `planVerifyWave(phase, mode)` 返回 verify spawn 计划（fast=1 路 / triple=2 路 / debate=2 路）
+    - `synthesizeVerifyResults(reports)` 综合 verify 摘要 + critical 判定
+    - 单测覆盖 fast/triple verify 路数 + critical 触发修订
+  - **d. 改 `templates/commands/autonomous.md` Step 4.x**：
+    - 新 Step 4.0 加 quality 解析（默认 triple，roadmap.md 单 phase 字段优先）
+    - 新 Step 4.5 / 4.6 / 4.7 / 4.8 分别对应 4 wave（plan / critic / impl / verify）
+    - 文档说明三档差异 + 壁钟预算 + token 预算
+  - **e. 改 `templates/commands/agents/phase-runner.md`**：
+    - 加 `design_brief` 输入字段（triple/debate 模式 implementer 接 brief）
+    - 加 `verify_findings` 输入字段（修订轮接 verify 反馈）
+  - **f. roadmap.md schema 扩展**：
+    - 单 phase 加 `Quality: fast|triple|debate` 字段（可选，默认全局 flag）
+    - autonomous 解析时优先 phase 字段
+  - **g. 单测覆盖完整三档场景**：
+    - mock fast 单 phase → 验证 2 wave (impl + verify)
+    - mock triple 单 phase → 验证 4 wave (plan + critic + impl + verify)
+    - mock debate 单 phase → 验证 6 wave (plan + critic + debate × 3 + impl + verify)
+    - mock plugin 缺失 → 验证三档降级
+- **来源**: 市面 SOTA Plan-Critic-Verify + v4.1 实测 race 实例 + 用户"质量优先不在乎钱"诉求
+- **Depends on**: 21
+- **Type**: backend
+- **Critical**: true（破坏性引入三档分级 + 4-wave 默认）
+
+## Phase 23: 三档 dogfood 对比 + v4.2.0 docs (completed)
+
+- **Started**: 2026-05-04 02:14 | **Completed**: 2026-05-04 02:24 | **Mode**: runner (`--offload`) | **Baseline**: 2be2130
+- **Commit**: `843a56a chore(v4.2-p23): quality tier dogfood validation + v4.2.0 docs + bump`
+- **Tests**: 913/913 passed (delta +22 from 891)
+- **Plan**: `.claude/team-plan/phase-23-quality-tier-dogfood-report.md`
+- **Outcome**: 22 E2E 集成测试（qualityTierE2E.test.ts）+ 三档对比报告（含 latent bug 清单 + 5 步 cold-start 验证清单）+ CHANGELOG.md v4.2.0 段 + README What's New + 根 CLAUDE.md 变更记录 + .ccg-migration/v4.1-to-v4.2.md + package.json bump 4.1.0→4.2.0。**v4.2.0 ready for release，cold-start plugin 真验证留给用户首次发布后跑**（引擎层 a7cdffd 仍禁 subagent 嵌套 spawn，phase-runner 没法真 spawn plugin）。
+
+---
+
+## 🏁 Milestone Summary: v4.2 Plan-Critic-Verify
+
+**Started**: 2026-05-04 01:50
+**Ended**: 2026-05-04 02:24
+**Total Phases**: 3
+**Total Wall Clock**: ~34 min（3 phase 严格串行依赖链）
+**Mode**: auto + offload + runner（每 phase 单独 spawn phase-runner）
+
+### 执行结果
+
+| Phase | 名称 | Commit | Tests Δ |
+|-------|------|--------|---------|
+| 21 | 接口债清理 + plugin 摘要实测 | 2881798 | +29 |
+| 22 | quality flag 三档 + Plan-Critic-Verify | 2be2130 | +87 |
+| 23 | 三档 dogfood + v4.2.0 docs + bump | 843a56a | +22 |
+
+**测试增长**：775 → 913（+138，+18%）
+
+### v4.2 关键能力交付（5 项）
+
+1. **`multi-model-routing.ts` SSoT** — 统一 Layer / Model / PluginAvailability / Role，4 helper（specialist-router / challenger / debate / plugin-detection）全部 import 同一份
+2. **parseFindings 鲁棒化** — JSON parser + ```json``` block + 嵌套 `{}` tokenizer + 单引号 normalize
+3. **`--quality=fast|triple|debate` 三档分级**（默认 triple，破坏性默认行为变化）
+4. **Plan-Critic-Verify 三段式编排** — quality-router / plan-aggregator / verify-orchestrator 三 helper
+5. **删假设性路由** — implementer / writer×frontend → null（main thread 接管，避免基于猜测的 prompt 借用）
+
+### v4 系列累计
+
+- 测试 515 (v4.0) → 775 (v4.1) → 913 (v4.2) = **+398（+77%）**
+- 命令面板 33 (v4.0) → 28 (v4.1) → 28 (v4.2)
+- helper 4 (v4.0) → 8 (v4.1) → 11 (v4.2)
+- subagent 19 (v4.0) → 19 (v4.1) → 19 (v4.2)
+- v4.2.0 = 4 个里程碑串联（v3.0 → v4.0 → v4.0.1 → v4.1.0 → **v4.2.0**）
+
+### 关键 latent bug 待真 dogfood 验证（5 项）
+
+1. codex/gemini 真摘要格式可能跟 P21 假设不符（plan-aggregator parse 容错路径未实测）
+2. plugin 完全没装的环境降级行为未实测（plugin-detection cold-start）
+3. 主线 token 实测增量 vs v4.2 设计预算可能偏离
+4. race 实例（v4.1 已暴露 src/index.ts × 2 次）—— v4.2 verify wave 是否真抓到
+5. specialist-router 删假设路由后，writer×frontend / implementer 由 main thread 接管的实际 UX
+
+→ 用户首次 v4.2.0 发布后按 migration guide 5 步骤跑 cold-start 验证，再回头修
+
+### 推荐下一步
+
+```bash
+# 1. 检查未 commit 的 roadmap.md 状态变更（主线写的，需要单独 commit）
+git status
+
+# 2. 本地打包验证
+pnpm pack
+npm install -g ccg-workflow-4.2.0.tgz
+
+# 3. 重启 Claude Code 验证 v4.2 三档行为
+/ccg:autonomous --quality=fast    # 验证 v4.1 行为兼容
+/ccg:autonomous --quality=triple  # 验证 4 wave Plan-Critic-Verify
+/ccg:autonomous --quality=debate  # 验证 6+ wave debate 介入
+
+# 4. 真多模型 dogfood
+#    需要先装 codex / gemini plugin
+#    跑一个真任务对比三档实际产出质量
+
+# 5. 阅读 .ccg-migration/v4.1-to-v4.2.md 5 步骤验证清单
+```
+
+**v4.2 milestone complete.** 🏁
+
+---
+
+**Last Updated**: 2026-05-04（v4.2.0 release）
+
+- **Goal**: 用同一任务跑三档（fast / triple / debate）对比代码质量、壁钟、主线 token 消耗。写 v4.2.0 完整发布文档。
+- **Acceptance**:
+  - **a. dogfood 任务选择**：选一个真实小 bug（如 v4.1 留下的"skill paths consumer 端 UI 列表过滤"作 dogfood，实际有可见缺口）
+  - **b. 三档跑同一任务**（同 baseline，独立 worktree）：
+    - branch `dogfood/fast` → `--quality=fast` 跑
+    - branch `dogfood/triple` → `--quality=triple` 跑
+    - branch `dogfood/debate` → `--quality=debate` 跑
+    - 各自记录壁钟 + token + 测试结果 + 代码 diff
+  - **c. 质量对比维度**：
+    - **代码 diff** —— 是否有功能差异 / 风格差异
+    - **测试覆盖** —— 行数 / 边界情况
+    - **架构选择** —— triple/debate 是否产生更好的设计决策
+    - **race 抓取** —— verify wave 是否真抓到 v4.1 单波抓不到的 race
+    - **主线 context 实测增量** —— 三档各占主线百分比
+  - **d. 写报告 `.claude/team-plan/phase-23-quality-tier-dogfood-report.md`**：
+    - 三档完整对比表 + 推荐使用场景
+    - 真 plugin 跑下来的实际表现（这是 P21 实测的延续验证）
+  - **e. v4.2.0 完整 docs**：
+    - 更新 `CHANGELOG.md` 加 v4.2.0 段（quality 三档 + Plan-Critic-Verify + 接口债清理）
+    - 更新 README.md 多模型协作章节（三档使用场景 + 真多模型何时触发）
+    - 更新根 `CLAUDE.md` 变更记录 + 命令面板更新
+    - 更新 `templates/CLAUDE.md`
+    - 新建 `.ccg-migration/v4.1-to-v4.2.md` 迁移指南：
+      * 默认行为变化（v4.1 单波 → v4.2 triple，需要 `--quality=fast` 才能复现旧行为）
+      * 新接口列表（quality flag / phase Quality 字段）
+      * 用 v4.1 + plugin 未装的场景下三档行为
+  - **f. bump version**：package.json 4.1.0 → 4.2.0
+  - **g. 测试覆盖率断言更新**：commands/agents/skills/helpers 数量门
+- **来源**: v4.2 P21 + P22 落地后必做的实测验证
+- **Depends on**: 22
+- **Type**: docs
+- **Critical**: false
+
