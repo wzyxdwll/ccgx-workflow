@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.DS_Store
+*.tgz
+.context/jobs/
+.ccg/state.md
+*.log
+coverage/
+.idea/
+.vscode/
