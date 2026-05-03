@@ -159,7 +159,16 @@
 - **来源**: `.ccg-research/02-subagent-matrix.md` ROI #1
 - **Depends on**: (none)
 
-## Phase 4: Scope Reduction Detection (pending)
+## Phase 4: Scope Reduction Detection (completed)
+
+- **Started**: 2026-05-03 22:07 | **Completed**: 2026-05-03 22:12
+- **Mode**: runner → degraded (fallback)
+- **Type**: backend
+- **Commit**: `ce88bac feat(v4-p4): Scope Reduction Detection (plan-checker dim 7b)`
+- **Tests**: 311/311 passed (delta +18)
+- **Outcome**: scope-reduction helper + 18 单测 + 3 模板补丁 (team-reviewer / plan-checker / spec-plan)。3-way matrix（req-match + no-stage = BLOCKER；req-match + v2-staged = NONE；no-match = WARNING）避免合理 v1 渐进交付误报。
+- **Plan**: `.claude/team-plan/phase-04-scope-reduction-detection-report.md`
+- **Dogfood 数据点**: 主线 context T3=44% → T4=**45%（+1%）**
 
 - **Goal**: 在 `team-reviewer.md` / `spec-plan.md` / `plan-checker.md` 加扫描规则——命中 "v1 / 简化 / 静态先 / 未来增强 / placeholder / 暂时硬编码 / 后续连接 / 不连接" 关键词即 BLOCKER（不接受 warning 降级）。
 - **Acceptance**:
@@ -169,7 +178,11 @@
 - **来源**: `.ccg-research/03-quality-gates.md` ROI #1（GSD 真实事故 D-26 反推）
 - **Depends on**: (none)
 
-## Phase 5: 命令收敛第一波 [offload] (pending)
+## Phase 5: 命令收敛第一波 [offload] (in_progress)
+
+- **Started**: 2026-05-03 22:13
+- **Mode**: runner (预期 fallback；破坏性变更需小心)
+- **Type**: backend
 
 - **Goal**: 命令面板 35 → 30，删 / 合并使用率低或重叠的命令。
 - **删除**: `frontend.md` / `backend.md` / `feat.md` / `forensics.md` / `extract-learnings.md`
