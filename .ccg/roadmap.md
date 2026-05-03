@@ -11,25 +11,32 @@
 
 ## 阶段总览
 
-| Phase | 里程碑 | 标题 | 工时 | 依赖 | 模式 |
-|-------|--------|------|------|------|------|
-| 1 | v3.1 | 主线 ≤15% frontmatter 约束 | 0.5 天 | — | foreground (强制 offload) |
-| **1.5** | **v3.1** | **codex:rescue progress.json 协议（可见性基础设施）** | **1 天** | **1** | **foreground (不能 offload)** |
-| 2 | v3.1 | `.context/<phase>/{CONTEXT,SUMMARY}.md` phase 状态机 | 1 天 | 1, 1.5 | foreground |
-| 3 | v3.1 | codebase-mapper agent 移植 | 0.5 天 | 1.5 | foreground |
-| 4 | v3.1 | Scope Reduction Detection（plan-checker 维度 7b） | 0.5 天 | 1.5 | foreground |
-| 5 | v3.1 | 命令收敛第一波（删 5 命令 / 合并 verify-*） | 1.5 天 | 1, 1.5 | offload |
-| 6 | v3.2 | plan-checker 5 维度（1/2/5/7b/10）+ max-3-loop | 2 天 | 4, 1.5 | offload |
-| 7 | v3.2 | 异步三件套 `/ccg:status` `/ccg:result` `/ccg:cancel` | 2 天 | 1.5 | foreground |
-| 8 | v3.2 | verifier Level 4 数据流 + override + deferred 过滤 | 1 天 | 1.5 | foreground |
-| 9 | v3.2 | 会话式 UAT + cold-start smoke + 自动收敛 | 2-3 天 | 6, 8, 1.5 | offload |
-| 10 | v4.0 | code-review --fix --auto + worktree 隔离 | 3-4 天 | 1.5 | offload |
-| 11 | v4.0 | debug-session-manager 重写 `/ccg:debug` | 3 天 | 1.5 | offload |
-| 12 | v4.0 | 文档收尾 + 砍 impeccable + domain skills 转 hidden | 3 天 | 1-11 | foreground |
+| Phase | 里程碑 | 标题 | Type | 工时 | 依赖 | 模式 |
+|-------|--------|------|------|------|------|------|
+| 1 | v3.1 | 主线 ≤15% frontmatter 约束 | backend | 0.5 天 | — | foreground (强制 offload) |
+| **1.5** | **v3.1** | **phase-runner subagent 协议 + 类型路由（G 方案）** | **backend** | **0.5 天** | **1** | **foreground (主线自实现)** |
+| 2 | v3.1 | `.context/<phase>/{CONTEXT,SUMMARY}.md` phase 状态机 | backend | 1 天 | 1, 1.5 | runner |
+| 3 | v3.1 | codebase-mapper agent 移植 | backend | 0.5 天 | 1.5 | runner |
+| 4 | v3.1 | Scope Reduction Detection（plan-checker 维度 7b） | backend | 0.5 天 | 1.5 | runner |
+| 5 | v3.1 | 命令收敛第一波（删 5 命令 / 合并 verify-*） | backend | 1.5 天 | 1, 1.5 | runner |
+| 6 | v3.2 | plan-checker 5 维度（1/2/5/7b/10）+ max-3-loop | backend | 2 天 | 4, 1.5 | runner |
+| 7 | v3.2 | 异步三件套 `/ccg:status` `/ccg:result` `/ccg:cancel` | backend | 2 天 | 1.5 | runner |
+| 8 | v3.2 | verifier Level 4 数据流 + override + deferred 过滤 | backend | 1 天 | 1.5 | runner |
+| 9 | v3.2 | 会话式 UAT + cold-start smoke + 自动收敛 | backend | 2-3 天 | 6, 8, 1.5 | runner |
+| 10 | v4.0 | code-review --fix --auto + worktree 隔离 | backend | 3-4 天 | 1.5 | runner |
+| 11 | v4.0 | debug-session-manager 重写 `/ccg:debug` | backend | 3 天 | 1.5 | runner |
+| 12 | v4.0 | 文档收尾 + 砍 impeccable + domain skills 转 hidden | docs | 3 天 | 1-11 | foreground |
 
-**总工时**：~3-4 周（+1 天 Phase 1.5）
+**总工时**：~3-4 周（含 Phase 1.5 0.5 天）
 
-**关于 Phase 1.5 的定位**：dogfood 反馈驱动新增——Phase 1 派发后主线对 codex:rescue 任务零可见，体验差。Phase 1.5 引入 `progress.json` 心跳协议作为后续所有 offload phase 的前置基础设施。**不能自己 offload**（否则黑箱跑黑箱），必须 foreground 主线实现。
+**关于 Phase 1.5（G 方案）**：双反馈驱动—— (1) Phase 1 dogfood 暴露 codex 沙箱 ACL + 主线零可见性问题；(2) 用户洞察 autonomous 硬编码 `Agent(codex:rescue)` 绕过 CCG 类型路由。**G 方案**用 Claude Code 原生 fresh-context subagent 包裹，0 行 codeagent 改动，自动按 Type 路由前端→gemini / 后端→codex。Phase 1.5 自身必须 foreground（主线写自己的协议，不能用还没造出来的协议）。
+
+**关于 Type 字段**：CCG 项目自身几乎全是 backend（TypeScript installer + Markdown templates），仅 Phase 12 含 docs 性质工作。autonomous spec 设计层面**必须**支持 frontend/fullstack 类型路由（CCG 卖点），dogfood 完整测一遍 backend 路由即可，frontend 路由由单测覆盖。
+
+**模式说明**：
+- **foreground** — 主线直接做，不 spawn 子 agent
+- **runner** — spawn `Agent(general-purpose)` 跑 phase-runner 协议，子 agent 内部按 Type 选 codex/gemini rescue
+- ~~**offload**~~ — v3.0 路径（直接 spawn codex:rescue），Phase 1.5 后**不再使用**
 
 ---
 
@@ -49,40 +56,56 @@
 - **Outcome**: 4 templates frontmatter 加字段，11 个新测试全过，191/191 全量回归 + typecheck PASS。codex 沙箱 ACL 阻塞 commit/test，主线接手补完，暴露 v3.0 offload 路径在工程闭环上的真问题（记入 Phase 12 经验提炼）。
 - **Dogfood 数据点**: 主线 context T0=31% → T1=33%（+2% 增量，1 phase 内可控）
 
-## Phase 1.5: codex:rescue progress.json 协议（可见性基础设施）(pending)
+## Phase 1.5: phase-runner subagent 协议 + 类型路由（G 方案）(pending)
 
-- **Goal**: 后台 offload 任务对主线可见（心跳 / 进度 / ETA），消除"黑箱等待"体验。**dogfood 反馈驱动新增**——Phase 1 派发后主线对 codex:rescue 任务零可见，每次只能等副作用文件出现，体验差。本 phase 是后续所有 offload phase 的前置基础设施。
+- **Goal**: 用 Claude Code 原生 fresh-context subagent 包裹 codex/gemini rescue，让普通 subagent 在沙箱外补 git/test/handoff，主线只接 ≤200 token 摘要；同时修复 autonomous 路由 bug（按 phase Type 字段路由前端→gemini / 后端→codex）。**dogfood 双反馈驱动**：
+  1. Phase 1 暴露 codex:rescue 后台沙箱限制（git/spawn ACL）+ 主线零可见性
+  2. 用户洞察 autonomous Step 4.2 硬编码 `Agent(codex:rescue)` 绕过 CCG `{{FRONTEND_PRIMARY}}/{{BACKEND_PRIMARY}}` 路由设计
+- **架构（G 方案）**：
+  ```
+  主线 → Agent(general-purpose, "phase-runner") [fresh context, 全权限]
+           ├─ 按 phase Type 决定 spawn codex:rescue 或 gemini:rescue
+           ├─ 内部 polling 等子任务报告完成
+           ├─ 接手 handoff: git commit + pnpm test + pnpm typecheck（沙箱外做）
+           ├─ 失败处理：自己修 / 让 codex/gemini 重做 / 升级主线
+           └─ 返回主线 ≤200 token 摘要
+        → 主线读摘要 + 推进 roadmap，不读 transcript
+  ```
 - **Acceptance**:
-  - **协议层**：定义 `.context/jobs/<task_id>/progress.json` schema：
-    ```json
-    {
-      "task_id": "task-...",
-      "phase_id": "phase-XX",
-      "status": "running" | "done" | "failed",
-      "current_step": "<人类可读>",
-      "files_modified": <int>,
-      "files_planned": <int>,
-      "started_at": "<ISO8601>",
-      "last_update": "<ISO8601>",
-      "elapsed_sec": <int>,
-      "estimated_remaining_sec": <int> | null,
-      "notes": "<可选>"
-    }
+  - **a. phase-runner 子 agent 模板**：新增 `templates/agents/phase-runner-prompt.md`（subagent prompt 框架，含 lifecycle / type 路由 / handoff / 摘要格式）
+  - **b. autonomous spec 改写**：`templates/commands/autonomous.md` Step 4.2 第 2 路从硬编码 `Agent(codex:rescue)` 改为 `Agent(general-purpose, prompt=phase-runner-template)`
+  - **c. 类型路由**：phase-runner 模板里读 phase Type 字段（backend/frontend/fullstack/docs/generic），决定底层 spawn `codex:codex-rescue` 还是 `gemini:gemini-rescue`：
+    - `backend` → codex（默认 BACKEND_PRIMARY）
+    - `frontend` → gemini（默认 FRONTEND_PRIMARY）
+    - `fullstack` → 串行跑 backend 部分 + frontend 部分（或并行，子 agent 自决）
+    - `docs` / `generic` → 用 BACKEND_PRIMARY
+    - 模型选择遵循 CCG `{{FRONTEND_PRIMARY}}/{{BACKEND_PRIMARY}}` 模板变量（v2.1.0+ 路由）
+  - **d. roadmap.md schema 扩展**：12 个 phase 详细描述加 `Type:` 字段（backend / frontend / fullstack / docs / generic），autonomous 解析时读取
+  - **e. 摘要协议**：phase-runner 返回主线的字符串严格格式：
     ```
-  - **生产端**：`templates/commands/autonomous.md` 修改 codex:rescue 调用 prompt 模板，强制要求子任务"每 30s 写 .context/jobs/<task_id>/progress.json"，含步骤模板（`prepare → research → plan → impl → test → report`）映射到 current_step 字段
-  - **消费端**：新增 `templates/scripts/progress-reader.mjs`（Node 脚本，主线 polling 时调用），输入 task_id，输出格式化进度行：`⏳ Phase N/12 · <step> · <files_modified>/<files_planned> files · <elapsed> · <eta> · context <main_pct>%`
-  - **autonomous spec 集成**：Step 4.3 polling 循环改为读 progress.json 而非 spawn agent --status；每 30s 主线打印进度行（覆盖刷新）
-  - **statusline 集成**：`templates/hooks/ccg-statusline.js` 检测 `.context/jobs/active.json`（指向当前 active task 的指针文件），存在时状态行追加 `codex [P<N>: <files_modified>/<files_planned>]` 段
-  - **active 指针管理**：autonomous 在 spawn 时写 `.context/jobs/active.json` = `{"task_id": "...", "phase_id": "..."}`；phase 完成时清空
-  - **心跳超时（5min 无更新）**：autonomous 主线检测 `last_update` 超过 5 分钟，AskUserQuestion 提示"取消 / 等 / 强制 fail"
-  - **单元测试**：
-    - `progressReader.test.ts`：mock progress.json，验证输出格式
-    - `progressSchema.test.ts`：schema 验证（缺字段、非法值）
-    - `statuslineProgress.test.ts`：mock active.json，验证 statusline 追加段
-  - **dogfood 验证**：本 phase 完成后，跑 Phase 2 应能看到实时进度行刷新
-- **来源**: dogfood 反馈（Phase 1 体验暴露黑箱问题）
+    STATUS: completed | partial | failed
+    COMMIT: <sha7>
+    TESTS: <stat>
+    NOTES: <一行关键发现>
+    HANDOFF_TAKEN: [git_commit, test_run, ...]
+    ```
+    主线只信摘要里的字段，不去读子 agent transcript（transcript 不进主线 context）
+  - **f. 心跳超时**：主线 spawn phase-runner 后，如果 15 分钟内无 completion 通知 → AskUserQuestion 提示"等 / 强制 fail / 重 spawn"
+  - **g. statusline 增强（可选）**：`templates/hooks/ccg-statusline.js` 检测当前会话有未完成 phase-runner 时，状态行追加 `runner: P<N>` 段（不强求，next phase 跑通即可）
+  - **h. 单元测试**：
+    - `phaseRunnerPrompt.test.ts`：mock phase metadata 含 type=backend/frontend，验证模板渲染选对模型
+    - `summaryParser.test.ts`：mock 摘要字符串，验证主线提取 STATUS/COMMIT/TESTS 字段
+    - `typeRouter.test.ts`：5 种 Type 全覆盖
+  - **i. dogfood 验证**：本 phase 完成后，立即用 G 方案跑 Phase 2，主线 context 增量 ≤ 0.5%
+- **不做**:
+  - 不改 codeagent-wrapper / invoke-model.mjs（v3.0 KISS 保持）
+  - 不加 jobs.mjs / progress-reader.mjs（F 方案废弃）
+  - 不依赖 codex:rescue plugin 自己解决沙箱（plugin 沙箱由 phase-runner 在外面补）
+- **来源**: dogfood 反馈（Phase 1）+ 用户洞察（subagent 代理 handoff + 路由 bug）
 - **Depends on**: 1
-- **Mode**: foreground（这个 phase 不能 offload，否则又是黑箱跑黑箱）
+- **Mode**: foreground（这个 phase 自己实现 phase-runner 协议，不能用还没造出来的协议）
+- **Type**: backend
+- **工作量**: 0.5 天
 
 ## Phase 2: `.context/<phase>/{CONTEXT,SUMMARY}.md` phase 状态机 (pending)
 
