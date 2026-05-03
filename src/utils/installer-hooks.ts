@@ -32,7 +32,15 @@ interface HookContext {
  * Hook scripts shipped under templates/hooks/. Filenames are also the
  * sentinel substrings used to find/clean entries in settings.json.
  */
-const HOOK_FILES = ['ccg-context-monitor.js', 'ccg-statusline.js', 'ccg-session-state.cjs'] as const
+// `ccg-commit-msg-review.cjs` is shipped but intentionally NOT registered in
+// settings.json — it is a git commit-msg hook, not a Claude Code hook. Users
+// activate it explicitly per-repo (see templates/hooks/README-commit-msg-review.md).
+const HOOK_FILES = [
+  'ccg-context-monitor.js',
+  'ccg-statusline.js',
+  'ccg-session-state.cjs',
+  'ccg-commit-msg-review.cjs',
+] as const
 
 const POST_TOOL_MATCHER = 'Bash|Edit|Write|MultiEdit|Agent|Task'
 const POST_TOOL_TIMEOUT_SEC = 10

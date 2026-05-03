@@ -79,6 +79,7 @@
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm build",
     "test": "vitest run",
+    "regen-fixtures": "tsx scripts/regen-fixtures.ts",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
     "docs:dev": "vitepress dev docs",

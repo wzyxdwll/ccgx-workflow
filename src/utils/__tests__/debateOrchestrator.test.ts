@@ -12,6 +12,12 @@ import {
 const REPO_ROOT = resolve(__dirname, '..', '..', '..')
 const DEBATE_TEMPLATE = resolve(REPO_ROOT, 'templates', 'commands', 'debate.md')
 
+// Fixtures-driven (CCG v4.3 P28): real subagent round summaries
+const FIXTURES_PATH = resolve(REPO_ROOT, 'tests', 'fixtures', 'ground-truth', 'agent-summaries.sample.json')
+const AGENT_FIXTURES = JSON.parse(readFileSync(FIXTURES_PATH, 'utf8')) as {
+  debateRoundSummaries: Record<string, string>
+}
+
 // ---------------------------------------------------------------------------
 // 1. debateStateMachine — round-by-round plan
 // ---------------------------------------------------------------------------
@@ -353,5 +359,51 @@ describe('templates/commands/debate.md', () => {
   it('mentions debate-orchestrator helper or shouldStop convergence', () => {
     const content = readFileSync(DEBATE_TEMPLATE, 'utf8')
     expect(content).toMatch(/debate-orchestrator|debateStateMachine|shouldStop/)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 7. Fixtures-driven tests (CCG v4.3 P28)
+//
+// Replace inline propose/challenge/respond mock strings with real-shaped
+// fixtures from agent-summaries.sample.json. Catches schema drift between
+// what subagents actually return and what parser expects.
+// ---------------------------------------------------------------------------
+
+describe('parseRoundSummary — fixtures-driven (P28)', () => {
+  it('parses fixture: propose_round → propose field extracted', () => {
+    const s = parseRoundSummary(AGENT_FIXTURES.debateRoundSummaries.propose_round)
+    expect(s.parsed).toBe(true)
+    expect(s.propose).toBeDefined()
+    expect(s.propose).toMatch(/Redis/)
+    expect(s.notes).toBeDefined()
+  })
+
+  it('parses fixture: challenge_round → challenge field extracted', () => {
+    const s = parseRoundSummary(AGENT_FIXTURES.debateRoundSummaries.challenge_round)
+    expect(s.parsed).toBe(true)
+    expect(s.challenge).toBeDefined()
+    expect(s.challenge).toMatch(/bottleneck|write/i)
+  })
+
+  it('parses fixture: respond_round → respond field extracted', () => {
+    const s = parseRoundSummary(AGENT_FIXTURES.debateRoundSummaries.respond_round)
+    expect(s.parsed).toBe(true)
+    expect(s.respond).toBeDefined()
+    expect(s.respond).toMatch(/write-back|cache/i)
+  })
+
+  it('parses fixture: convergence_signal → notes flag stop semantics', () => {
+    const s = parseRoundSummary(AGENT_FIXTURES.debateRoundSummaries.convergence_signal)
+    expect(s.parsed).toBe(true)
+    // Either CHALLENGE or NOTES carries the agreement signal
+    const allText = `${s.challenge ?? ''}${s.notes ?? ''}`
+    expect(allText).toMatch(/Agreement|consensus|no.*new/i)
+  })
+
+  it('shouldStop fires on fixture-derived convergence_signal at round 2', () => {
+    const r1 = parseRoundSummary(AGENT_FIXTURES.debateRoundSummaries.propose_round)
+    const r2 = parseRoundSummary(AGENT_FIXTURES.debateRoundSummaries.convergence_signal)
+    expect(shouldStop([r1, r2], 5)).toBe(true)
   })
 })

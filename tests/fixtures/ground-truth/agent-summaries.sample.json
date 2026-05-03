@@ -1,0 +1,21 @@
+{
+  "_comment": "Sample agent summary strings (raw text returned by subagents) for parser fixtures. Each entry mirrors a real subagent return; parsers must handle these schemas robustly.",
+  "challengerSummaries": {
+    "complete_with_critical": "STATUS: complete\nFINDINGS: [{\"severity\":\"critical\",\"category\":\"assumption\",\"message\":\"phase-runner cannot spawn codex:codex-rescue — engine restriction confirmed by v4.0.1 commit a7cdffd\"},{\"severity\":\"major\",\"category\":\"design\",\"message\":\"fallback path docs lag implementation\"}]\nNOTES: deep audit done; recommend revising phase-runner Type field semantics",
+    "complete_no_findings": "STATUS: complete\nFINDINGS: []\nNOTES: no critical issues; advance",
+    "complete_lenient_format": "STATUS: complete\nFINDINGS: [{severity:\"critical\", category:\"boundary\", message:\"off-by-one in Kahn topo when phase has zero deps\"}]\nNOTES: ok",
+    "error_spawn_failed": "STATUS: error\nNOTES: codex:rescue plugin spawn refused — plugin likely not installed; degrade to general-purpose"
+  },
+  "verifySummaries": {
+    "complete_critical_drift": "STATUS: complete\nFINDINGS: [{\"severity\":\"critical\",\"category\":\"race\",\"message\":\"commit drift detected between phase-runner self-impl and main thread state\"}]\nNOTES: needs revision; phase-runner must commit before returning summary",
+    "complete_clean": "STATUS: complete\nFINDINGS: []\nNOTES: looks good; tests pass; typecheck pass",
+    "complete_mixed": "STATUS: complete\nFINDINGS: [{\"severity\":\"critical\",\"category\":\"race\",\"message\":\"x\"},{\"severity\":\"major\",\"category\":\"perf\",\"message\":\"y\"}]\nNOTES: split severity",
+    "error_crashed": "STATUS: error\nNOTES: gemini:rescue spawned but crashed with EACCES on workdir"
+  },
+  "debateRoundSummaries": {
+    "propose_round": "STATUS: completed\nPROPOSE: use Redis cache layer with write-through and TTL=300s\nNOTES: trade-off latency vs. freshness; pick freshness",
+    "challenge_round": "STATUS: completed\nCHALLENGE: Redis bottleneck on writes — write-through doubles latency in worst case\nNOTES: no critical issue if write rate < 1k/s",
+    "respond_round": "STATUS: completed\nRESPOND: switch to write-back cache with periodic flush\nNOTES: agreed; converging",
+    "convergence_signal": "STATUS: completed\nCHALLENGE: Agreement reached on Redis approach; no new findings\nNOTES: ready to commit"
+  }
+}

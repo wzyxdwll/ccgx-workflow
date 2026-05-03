@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   parseVerifyReport,
@@ -6,6 +8,12 @@ import {
   synthesizeVerifyResults,
   type VerifyReport,
 } from '../verify-orchestrator'
+
+// Fixtures-driven (CCG v4.3 P28): real verifier subagent reports
+const FIXTURES_PATH = resolve(__dirname, '..', '..', '..', 'tests', 'fixtures', 'ground-truth', 'agent-summaries.sample.json')
+const AGENT_FIXTURES = JSON.parse(readFileSync(FIXTURES_PATH, 'utf8')) as {
+  verifySummaries: Record<string, string>
+}
 
 const PLUGINS_BOTH = { codex: true, gemini: true }
 const PLUGINS_NONE = { codex: false, gemini: false }
@@ -235,5 +243,60 @@ describe('synthesizeVerifyFeedback', () => {
     const fb = synthesizeVerifyFeedback([r])
     expect(fb).toContain('crit msg')
     expect(fb).not.toContain('maj msg')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 5. Fixtures-driven tests (CCG v4.3 P28)
+//
+// Real verify subagent reports from agent-summaries.sample.json — guards
+// against the dogfood quality gap where inline mocks all agreed but real
+// shapes diverged (commit drift detection, error-state crashes, etc.).
+// ---------------------------------------------------------------------------
+
+describe('parseVerifyReport — fixtures-driven (P28)', () => {
+  it('parses fixture: complete_critical_drift (real "commit drift" critical)', () => {
+    const r = parseVerifyReport('codex:rescue', AGENT_FIXTURES.verifySummaries.complete_critical_drift)
+    expect(r.status).toBe('complete')
+    expect(r.criticals).toHaveLength(1)
+    expect(r.criticals[0].category).toBe('race')
+    expect(r.criticals[0].message).toMatch(/commit drift/i)
+  })
+
+  it('parses fixture: complete_clean → no findings', () => {
+    const r = parseVerifyReport('gemini:rescue', AGENT_FIXTURES.verifySummaries.complete_clean)
+    expect(r.status).toBe('complete')
+    expect(r.criticals).toHaveLength(0)
+    expect(r.majors).toHaveLength(0)
+  })
+
+  it('parses fixture: complete_mixed → splits critical from major', () => {
+    const r = parseVerifyReport('codex:rescue', AGENT_FIXTURES.verifySummaries.complete_mixed)
+    expect(r.criticals).toHaveLength(1)
+    expect(r.majors).toHaveLength(1)
+  })
+
+  it('parses fixture: error_crashed → status=error preserved', () => {
+    const r = parseVerifyReport('gemini:rescue', AGENT_FIXTURES.verifySummaries.error_crashed)
+    expect(r.status).toBe('error')
+    expect(r.notes).toMatch(/crashed|spawn/i)
+  })
+
+  it('synthesizeVerifyResults on fixture-built reports → correct decision', () => {
+    const drift = parseVerifyReport('codex:rescue', AGENT_FIXTURES.verifySummaries.complete_critical_drift)
+    const clean = parseVerifyReport('gemini:rescue', AGENT_FIXTURES.verifySummaries.complete_clean)
+    const crashed = parseVerifyReport('gemini:rescue', AGENT_FIXTURES.verifySummaries.error_crashed)
+
+    expect(synthesizeVerifyResults([drift, clean])).toBe('revise')
+    expect(synthesizeVerifyResults([clean, clean])).toBe('advance')
+    expect(synthesizeVerifyResults([drift, crashed])).toBe('escalate')
+  })
+
+  it('synthesizeVerifyFeedback on fixture critical → contains real-shape message', () => {
+    const drift = parseVerifyReport('codex:rescue', AGENT_FIXTURES.verifySummaries.complete_critical_drift)
+    const fb = synthesizeVerifyFeedback([drift])
+    expect(fb).toContain('Verify 反馈')
+    expect(fb).toContain('commit drift')
+    expect(fb).toContain('codex:rescue')
   })
 })

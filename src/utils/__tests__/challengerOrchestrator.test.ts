@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   decideFromSummaries,
@@ -7,6 +9,11 @@ import {
   type ChallengeInput,
   type ChallengerSummary,
 } from '../challenger-orchestrator'
+
+const FIXTURES_PATH = resolve(__dirname, '..', '..', '..', 'tests', 'fixtures', 'ground-truth', 'agent-summaries.sample.json')
+const AGENT_FIXTURES = JSON.parse(readFileSync(FIXTURES_PATH, 'utf8')) as {
+  challengerSummaries: Record<string, string>
+}
 
 const PLUGINS_BOTH = { codex: true, gemini: true }
 const PLUGINS_NONE = { codex: false, gemini: false }
@@ -291,5 +298,63 @@ describe('synthesizeRevisionFeedback', () => {
     // Should contain both critical messages but not the major one
     expect(fb).toContain('(race)')
     expect(fb).toContain('(assumption)')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 6. Fixtures-driven tests (CCG v4.3 P28)
+//
+// Goal: replace inline mock JSON with real-shaped subagent summaries from
+// tests/fixtures/ground-truth/agent-summaries.sample.json. This guards against
+// the "mock-self-consistent ≠ real-correct" failure mode (e.g., codex:codex-rescue
+// vs codex:rescue, v4.2.3 fix).
+// ---------------------------------------------------------------------------
+
+describe('parseChallengerSummary — fixtures-driven (P28)', () => {
+  it('parses fixture: complete_with_critical (real subagent shape with engine-restriction note)', () => {
+    const text = AGENT_FIXTURES.challengerSummaries.complete_with_critical
+    const s = parseChallengerSummary('assumptions-analyzer', text)
+    expect(s.status).toBe('complete')
+    expect(s.findings.length).toBeGreaterThanOrEqual(1)
+    const critical = s.findings.find(f => f.severity === 'critical')
+    expect(critical).toBeDefined()
+    // Reality check: the fixture references the real codex:rescue name (not the
+    // v4.2.0 codex:codex-rescue typo). Parser does not normalize names.
+    expect(critical!.message).toMatch(/codex:codex-rescue|codex:rescue/)
+    expect(s.notes.length).toBeGreaterThan(0)
+  })
+
+  it('parses fixture: complete_no_findings → empty findings array', () => {
+    const text = AGENT_FIXTURES.challengerSummaries.complete_no_findings
+    const s = parseChallengerSummary('codex:rescue', text)
+    expect(s.status).toBe('complete')
+    expect(s.findings).toEqual([])
+  })
+
+  it('parses fixture: complete_lenient_format (single-quoted JSON-ish payload)', () => {
+    const text = AGENT_FIXTURES.challengerSummaries.complete_lenient_format
+    const s = parseChallengerSummary('nyquist-auditor', text)
+    expect(s.status).toBe('complete')
+    expect(s.findings).toHaveLength(1)
+    expect(s.findings[0].severity).toBe('critical')
+    expect(s.findings[0].category).toBe('boundary')
+  })
+
+  it('parses fixture: error_spawn_failed → status=error preserved', () => {
+    const text = AGENT_FIXTURES.challengerSummaries.error_spawn_failed
+    const s = parseChallengerSummary('codex:rescue', text)
+    expect(s.status).toBe('error')
+    expect(s.notes).toMatch(/spawn refused|plugin/)
+  })
+
+  it('decideFromSummaries on fixture-built summaries reflects real-shape decisions', () => {
+    const critical = parseChallengerSummary('codex:rescue', AGENT_FIXTURES.challengerSummaries.complete_with_critical)
+    const clean = parseChallengerSummary('assumptions-analyzer', AGENT_FIXTURES.challengerSummaries.complete_no_findings)
+    expect(decideFromSummaries([critical, clean])).toBe('revise')
+
+    const error = parseChallengerSummary('codex:rescue', AGENT_FIXTURES.challengerSummaries.error_spawn_failed)
+    expect(decideFromSummaries([error, clean])).toBe('escalate')
+
+    expect(decideFromSummaries([clean])).toBe('advance')
   })
 })

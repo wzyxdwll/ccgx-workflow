@@ -1,0 +1,83 @@
+{
+  "_comment": "Snapshot of SkillInfo[] from sampleSkillList (CCG v4.3 P28 fixtures). Paths anonymized: real ~/.claude/skills/ccg/... → <HOME>/.claude/skills/ccg/...",
+  "skills": [
+    {
+      "name": "ccg:verify",
+      "path": "<HOME>/.claude/skills/ccg/tools/verify/SKILL.md",
+      "userInvocable": true,
+      "category": "tool"
+    },
+    {
+      "name": "ccg:gen-docs",
+      "path": "<HOME>/.claude/skills/ccg/tools/gen-docs/SKILL.md",
+      "userInvocable": true,
+      "category": "tool"
+    },
+    {
+      "name": "ccg:health",
+      "path": "<HOME>/.claude/skills/ccg/tools/health/SKILL.md",
+      "userInvocable": true,
+      "category": "tool"
+    },
+    {
+      "name": "ccg:map-codebase",
+      "path": "<HOME>/.claude/skills/ccg/tools/map-codebase/SKILL.md",
+      "userInvocable": true,
+      "category": "tool"
+    },
+    {
+      "name": "ccg:forensics",
+      "path": "<HOME>/.claude/skills/ccg/tools/forensics/SKILL.md",
+      "userInvocable": true,
+      "category": "tool"
+    },
+    {
+      "name": "ccg:extract-learnings",
+      "path": "<HOME>/.claude/skills/ccg/tools/extract-learnings/SKILL.md",
+      "userInvocable": true,
+      "category": "tool"
+    },
+    {
+      "name": "ccg:domain-security",
+      "path": "<HOME>/.claude/skills/ccg/domains/security/SKILL.md",
+      "userInvocable": false,
+      "category": "domain"
+    },
+    {
+      "name": "ccg:domain-architecture",
+      "path": "<HOME>/.claude/skills/ccg/domains/architecture/SKILL.md",
+      "userInvocable": false,
+      "category": "domain"
+    },
+    {
+      "name": "ccg:domain-ai",
+      "path": "<HOME>/.claude/skills/ccg/domains/ai/SKILL.md",
+      "userInvocable": false,
+      "category": "domain"
+    },
+    {
+      "name": "impeccable:polish",
+      "path": "<HOME>/.claude/skills/ccg/impeccable/polish/SKILL.md",
+      "userInvocable": true,
+      "category": "impeccable"
+    },
+    {
+      "name": "impeccable:audit",
+      "path": "<HOME>/.claude/skills/ccg/impeccable/audit/SKILL.md",
+      "userInvocable": true,
+      "category": "impeccable"
+    },
+    {
+      "name": "ccg:multi-agent",
+      "path": "<HOME>/.claude/skills/ccg/orchestration/multi-agent/SKILL.md",
+      "userInvocable": false,
+      "category": "orchestration"
+    },
+    {
+      "name": "ccg:override-refusal",
+      "path": "<HOME>/.claude/skills/ccg/tools/override-refusal/SKILL.md",
+      "userInvocable": true,
+      "category": "tool"
+    }
+  ]
+}
