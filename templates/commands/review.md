@@ -1,9 +1,23 @@
 ---
 description: '多模型代码审查：无参数时自动审查 git diff，双模型交叉验证；--adversarial 加敌对审查；--fix 闭环修复'
-argument-hint: "[代码或描述] [--adversarial] [--fix [--all] [--auto]]"
+argument-hint: "[代码或描述] [--adversarial] [--fix [--all] [--auto]] [--role=architect|critic|implementer|tester|writer]"
 ---
 
 # Review - 多模型代码审查
+
+## Role-based routing（v4.1 specialist matrix）
+
+可选 `--role=<name>` 叠加 role 维度路由：
+
+| Role × Layer  | architect      | critic              | implementer | tester        | writer          |
+| ------------- | -------------- | ------------------- | ----------- | ------------- | --------------- |
+| **backend**   | codex/architect.md | codex/reviewer.md (adversarial) | codex/architect.md | codex/tester.md | claude（主线）  |
+| **frontend**  | gemini/architect.md | gemini/reviewer.md (adversarial) | gemini/architect.md | gemini/tester.md | gemini/analyzer.md |
+| **fullstack** | codex+gemini/architect.md | both reviewer.md (adversarial) | runner 决 | runner 决 | claude |
+
+**未传 --role 时按 v4.0 双模型路由（{{BACKEND_PRIMARY}}/{{FRONTEND_PRIMARY}} reviewer.md）**——完全兼容现有 `--adversarial` / `--fix` 行为。`--role=critic` 等价于隐式 `--adversarial`（语义同义）。详见 `src/utils/specialist-router.ts`。
+
+---
 
 双模型并行审查，交叉验证综合反馈。无参数时自动审查当前 git 变更。
 

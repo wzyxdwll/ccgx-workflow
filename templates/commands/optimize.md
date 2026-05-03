@@ -1,5 +1,6 @@
 ---
 description: '多模型性能优化：{{BACKEND_PRIMARY}} 后端优化 + {{FRONTEND_PRIMARY}} 前端优化'
+argument-hint: "<优化目标> [--role=architect|critic|implementer|tester|writer]"
 ---
 
 # Optimize - 多模型性能优化
@@ -9,8 +10,20 @@ description: '多模型性能优化：{{BACKEND_PRIMARY}} 后端优化 + {{FRONT
 ## 使用方法
 
 ```bash
-/optimize <优化目标>
+/optimize <优化目标> [--role=<name>]
 ```
+
+## Role-based routing（v4.1 specialist matrix）
+
+可选 `--role=<name>` 叠加 role 维度路由：
+
+| Role × Layer  | architect      | critic              | implementer | tester        | writer          |
+| ------------- | -------------- | ------------------- | ----------- | ------------- | --------------- |
+| **backend**   | codex/architect.md | codex/reviewer.md (adversarial) | codex/architect.md | codex/tester.md | claude  |
+| **frontend**  | gemini/architect.md | gemini/reviewer.md (adversarial) | gemini/architect.md | gemini/tester.md | gemini/analyzer.md |
+| **fullstack** | codex+gemini/architect.md | both reviewer.md (adversarial) | runner 决 | runner 决 | claude |
+
+**未传 --role 时按 v4.0 双模型并行（{{BACKEND_PRIMARY}}/{{FRONTEND_PRIMARY}} optimizer.md），完全兼容**。`--role=critic` 触发"性价比反对意见"——挑战通用优化套路（如盲目缓存 / over-engineering）。详见 `src/utils/specialist-router.ts`。
 
 ## 上下文
 

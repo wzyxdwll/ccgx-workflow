@@ -1,5 +1,6 @@
 ---
 description: '多模型测试生成：智能路由 {{BACKEND_PRIMARY}} 后端测试 / {{FRONTEND_PRIMARY}} 前端测试'
+argument-hint: "<测试目标> [--role=architect|critic|implementer|tester|writer]"
 ---
 
 # Test - 多模型测试生成
@@ -9,8 +10,20 @@ description: '多模型测试生成：智能路由 {{BACKEND_PRIMARY}} 后端测
 ## 使用方法
 
 ```bash
-/test <测试目标>
+/test <测试目标> [--role=<name>]
 ```
+
+## Role-based routing（v4.1 specialist matrix）
+
+可选 `--role=<name>` 叠加 role 维度路由（默认 `tester`，可显式覆盖）：
+
+| Role × Layer  | architect      | critic              | implementer | tester        | writer          |
+| ------------- | -------------- | ------------------- | ----------- | ------------- | --------------- |
+| **backend**   | codex/architect.md | codex/reviewer.md (adversarial) | codex/architect.md | codex/tester.md | claude  |
+| **frontend**  | gemini/architect.md | gemini/reviewer.md (adversarial) | gemini/architect.md | gemini/tester.md | gemini/analyzer.md |
+| **fullstack** | codex+gemini/architect.md | both reviewer.md (adversarial) | runner 决（per-file） | runner 决（per-file） | claude |
+
+**未传 --role 时按 v4.0 智能路由（后端 → {{BACKEND_PRIMARY}}/tester.md，前端 → {{FRONTEND_PRIMARY}}/tester.md，全栈并行），完全兼容**。`--role=critic` 触发"测试用例反例挖掘"——专门构造打破现有测试假设的边界条件。详见 `src/utils/specialist-router.ts`。
 
 ## 上下文
 

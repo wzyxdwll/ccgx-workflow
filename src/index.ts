@@ -60,3 +60,14 @@ export type {
   ScheduleOptions,
   WaveSchedule,
 } from './utils/wave-scheduler'
+export {
+  parseRoleFlag,
+  promptFilePath,
+  routeSpecialist,
+} from './utils/specialist-router'
+export type {
+  SpecialistLayer,
+  SpecialistModel,
+  SpecialistRole,
+  SpecialistRoute,
+} from './utils/specialist-router'

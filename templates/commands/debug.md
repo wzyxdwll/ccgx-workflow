@@ -1,9 +1,23 @@
 ---
 description: '多模型调试（v4.0 manager + debugger 双层 fresh-context）：科学方法 hypothesis 链 + 持久 session + cap 3 升级'
-argument-hint: "<问题描述> [--mode=find_root_cause_only|find_and_fix]"
+argument-hint: "<问题描述> [--mode=find_root_cause_only|find_and_fix] [--role=architect|critic|implementer|tester|writer]"
 ---
 
 # Debug - 多模型调试（v4.0 重写）
+
+## Role-based routing（v4.1 specialist matrix）
+
+可选 `--role=<name>` 叠加 role 维度路由（debug-session-manager 内 spawn 的 debugger 用 role 选 prompt）：
+
+| Role × Layer  | architect      | critic              | implementer | tester        | writer          |
+| ------------- | -------------- | ------------------- | ----------- | ------------- | --------------- |
+| **backend**   | codex/architect.md | codex/reviewer.md (adversarial) | codex/debugger.md | codex/tester.md | claude  |
+| **frontend**  | gemini/architect.md | gemini/reviewer.md (adversarial) | gemini/debugger.md | gemini/tester.md | gemini/analyzer.md |
+| **fullstack** | codex+gemini/architect.md | both reviewer.md (adversarial) | runner 决 | runner 决 | claude |
+
+**未传 --role 时按 v4.0 manager + debugger 双层流程**（debugger.md 默认 implementer 角色）——完全兼容。`--role=critic` 触发"反向假设"调试（强制构造反证），适合定位概率性 bug。详见 `src/utils/specialist-router.ts`。
+
+---
 
 **v4.0 重大变更**：从单次双模型并行调用 → **manager + debugger 双层 fresh-context** 模式。
 

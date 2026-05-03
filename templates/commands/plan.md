@@ -1,10 +1,42 @@
 ---
 description: '多模型协作规划 - 上下文检索 + 双模型分析 → 生成 Step-by-step 实施计划'
+argument-hint: "<规划任务> [--role=architect|critic|implementer|tester|writer]"
 ---
 
 # Plan - 多模型协作规划
 
 $ARGUMENTS
+
+---
+
+## Role-based routing（v4.1 specialist matrix）
+
+可选参数 `--role=<name>` 在 v4.0 的 backend/frontend layer 路由之上叠加 **role 维度**，自动选择更精准的 prompt 文件。**未传 `--role` 时按现状路由（{{BACKEND_PRIMARY}}/{{FRONTEND_PRIMARY}}），完全保留 v4.0 行为兼容**——无破坏性变更。
+
+**Role × Layer 路由矩阵**：
+
+| Role × Layer  | architect      | critic              | implementer | tester        | writer          |
+| ------------- | -------------- | ------------------- | ----------- | ------------- | --------------- |
+| **backend**   | codex (architect.md) | codex (reviewer.md, adversarial) | codex (architect.md) | codex (tester.md) | claude（主线）  |
+| **frontend**  | gemini (architect.md) | gemini (reviewer.md, adversarial) | gemini (architect.md) | gemini (tester.md) | gemini (analyzer.md) |
+| **fullstack** | codex+gemini (architect.md) | both debate (reviewer.md, adversarial) | runner 决（per-file） | runner 决（per-file） | claude（主线） |
+
+**判定流程**：
+
+1. **解析 layer**：根据 $ARGUMENTS 涉及文件类型推断 `backend` / `frontend` / `fullstack`（与 v4.0 现有逻辑一致）。
+2. **解析 role**：从 $ARGUMENTS 提取 `--role=<name>`（5 个合法值：`architect` / `critic` / `implementer` / `tester` / `writer`），不存在或非法值 → fallback v4.0 模型路由。
+3. **选 prompt 文件**：按矩阵查 `(role, layer)` 单元格 → ROLE_FILE 路径。
+4. **adversarial 标记**：role=critic 时，prompt 段额外注入 "deliberately hunt for flaws / contradict majority view" 指令，触发敌对审查模式。
+5. **runner 决**：fullstack × {implementer, tester} 时，per-file 选 codex 或 gemini（同 v4.0 phase-runner Type 路由逻辑）。
+
+**示例**：
+
+- `/ccg:plan 设计 OAuth2 流程 --role=architect` → 后端，调用 `~/.claude/.ccg/prompts/codex/architect.md`
+- `/ccg:plan 检查 H5 适配方案 --role=critic` → 前端，调用 `~/.claude/.ccg/prompts/gemini/reviewer.md` + adversarial 框架
+- `/ccg:plan 全栈支付改造 --role=critic` → fullstack debate，并行 codex+gemini 两边都跑 reviewer.md + adversarial
+- `/ccg:plan 生成发版说明 --role=writer` → 主线 Claude 直接处理，不 spawn 外部模型
+
+**单一真相源**：完整矩阵以 `src/utils/specialist-router.ts` 为准，单测 `src/utils/__tests__/specialistMatrix.test.ts` 锁定行为。
 
 ---
 
