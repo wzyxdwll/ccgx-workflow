@@ -138,11 +138,16 @@
 - **来源**: 05 决策 A + Top 10 ROI #3
 - **Depends on**: 1
 
-## Phase 3: codebase-mapper agent 移植 (in_progress)
+## Phase 3: codebase-mapper agent 移植 (completed)
 
-- **Started**: 2026-05-03 22:00
-- **Mode**: runner (G 方案，预期 fallback 路径)
+- **Started**: 2026-05-03 22:00 | **Completed**: 2026-05-03 22:06
+- **Mode**: runner → degraded (fallback 路径)
 - **Type**: backend
+- **Commit**: `e389bd3 feat(v4-p3): codebase-mapper agent 移植（GSD ROI #1）`
+- **Tests**: 293/293 passed (delta +42)
+- **Outcome**: codebase-mapper agent + `.context/codebase/` 7 文件契约（STACK / INTEGRATIONS / ARCHITECTURE / STRUCTURE / CONVENTIONS / TESTING / CONCERNS）+ init.md Step 1.5 4 路并行 spawn + 41 单测
+- **Plan**: `.claude/team-plan/phase-03-codebase-mapper-report.md`
+- **Dogfood 数据点**: 主线 context T2=44% → T3=**44%（+0%）**——G 方案稳定，runner 模式重复后主线零增量
 
 - **Goal**: 从 GSD 移植 `codebase-mapper`（02-subagent-matrix.md ROI #1），让 plan/execute/init 启动前有廉价 codebase 摘要。
 - **Acceptance**:
