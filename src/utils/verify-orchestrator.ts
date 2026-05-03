@@ -1,8 +1,12 @@
 /**
- * Verify Orchestrator (CCG v4.2 Phase 22).
+ * Verify Orchestrator (CCG v4.2 Phase 22; v4.2.1 Phase 24 — SSoT 化).
  *
  * fast/triple/debate 模式 verify wave 完成后，综合 verify reports 决定主线
  * 后续行为（advance / revise / escalate）。
+ *
+ * **SSoT 声明 (v4.2.1 P24)**：本模块的 `planVerifyWave()` 是 **verify wave 路由
+ * 的权威实现**。`quality-router.ts.buildVerifyWave` 必须 import 本函数后做
+ * schema adapter，不得复制实现。任何 verify 路由策略变更只在本文件改。
  *
  * 设计原则：
  *   - 纯函数；不读文件、不 spawn 子进程
@@ -11,6 +15,7 @@
  *
  * 调用方：
  *   - templates/commands/autonomous.md verify wave 完成后
+ *   - quality-router.ts.buildVerifyWave (内部 wrap 成 WavePlan schema)
  *
  * 不做：
  *   - 不实际 spawn verify agent（quality-router 出 spawn 计划，主线 LLM 派发）
@@ -83,8 +88,8 @@ const CCG_PROMPT_BASE = '~/.claude/.ccg/prompts'
  *   - triple  → dual verify (codex + gemini 并行)
  *   - debate  → dual verify
  *
- * 与 quality-router.buildVerifyWave 行为一致；这里独立 export 是因为 verify wave
- * 在主线编排里有时需独立调用（如 fast tier 改逻辑、verify-only 重试场景）。
+ * **SSoT (v4.2.1)**：quality-router.buildVerifyWave 必须 import 此函数 + 走
+ * schema adapter，不得复制路由实现。
  */
 export function planVerifyWave(
   tier: 'fast' | 'triple' | 'debate',

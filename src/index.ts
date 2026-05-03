@@ -150,6 +150,7 @@ export type {
 export {
   aggregatePlans,
   estimateBriefLength,
+  estimateTokens,
   serializeBriefForPrompt,
 } from './utils/plan-aggregator'
 export type {

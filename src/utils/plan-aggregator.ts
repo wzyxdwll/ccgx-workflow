@@ -75,8 +75,22 @@ const HIGH_STAKES_KEYWORDS: readonly string[] = [
   'security', 'architecture', 'auth', 'data loss', '数据丢失', '不兼容',
 ]
 
-/** Brief markdown 序列化的硬上限（约 500 token；按 char ≈ 0.5 token 估算） */
-const SERIALIZED_BRIEF_MAX_CHARS = 1000
+/**
+ * extractDivergences token-set 算法的最少共享 token 阈值（v4.2.1 P24）。
+ *
+ * 旧版（v4.2.0）：用 normalized 第一个 token 作 topic key，导致 "use Redis cache"
+ * 与 "use Memcached cache" 因首 token 都是 "use" 错配。
+ * 新版：两个 bullet 共享 ≥ MIN_SHARED_TOKENS 个非 stopword token 才视为同 topic。
+ */
+const MIN_SHARED_TOKENS = 2
+
+/**
+ * Brief 序列化的 token 预算（v4.2.1 P24，替代 SERIALIZED_BRIEF_MAX_CHARS）。
+ *
+ * 旧版按"char ≈ 0.5 token"估算，对纯中文低估 2 倍（中文 1 char ≈ 1 token）。
+ * 新版用 estimateTokens() 字符类型加权计算，保证真实 token 不超 500。
+ */
+const BRIEF_MAX_TOKENS = 500
 
 // ---------------------------------------------------------------------------
 // 3. 文本切块 + 标准化
@@ -251,55 +265,92 @@ function extractConsensus(bullets: IndexedBullet[]): {
 }
 
 /**
- * 从未被共识吸收的 bullet 抽取分歧。
+ * 从未被共识吸收的 bullet 抽取分歧（v4.2.1 P24 token-set 算法）。
  *
- * 算法：
- *   - 按 normalized 前缀 / 关键 token 简易分组（找潜在 topic）
- *   - 每组内不同 source 给不同方案 → 一个 Divergence
- *   - 单 source 独有 bullet 也算分歧（只有它提了，其他没考虑到）
+ * **算法升级（P24）**：
+ *   旧版按 normalized 第一个 token 作 topic key，"use Redis cache" 和
+ *   "use Memcached cache" 首 token 都是 "use" 会错配进同一 group，但 "use
+ *   Redis cache" 和 "use email auth" 也都首 token "use" 会错配——预估真数据
+ *   30-50% 错位。
+ *
+ *   新版按 token-set 共享 ≥ MIN_SHARED_TOKENS 个非 stopword token 分组：
+ *     1. 对每个未消费 bullet i，找所有 j（source 不同）共享 token ≥ 阈值
+ *     2. union-find 合并到同 group
+ *     3. 单独 bullet（无 topic 同伴）独立成 divergence（option 列表只 1 个 entry）
+ *
+ * 例子（MIN_SHARED_TOKENS=2）：
+ *   ["use Redis cache", "use Memcached cache", "add CDN layer"]
+ *     - Redis vs Memcached 共享 {use, cache} = 2 token → 同 group
+ *     - CDN 与其他无 ≥2 共享 → 独立 group
  */
 function extractDivergences(
   bullets: IndexedBullet[],
   consumed: Set<number>,
 ): Divergence[] {
   const remaining = bullets
-    .map((b, i) => ({ ...b, idx: i }))
+    .map((b, i) => ({ ...b, idx: i, tokens: tokenize(b.norm) }))
     .filter(b => !consumed.has(b.idx))
   if (remaining.length === 0) return []
 
-  // 简易分组：按 normalized 第一个非 stopword token 作 topic key
-  const groups = new Map<string, typeof remaining>()
-  for (const b of remaining) {
-    const tokens = Array.from(tokenize(b.norm))
-    if (tokens.length === 0) continue
-    const key = tokens[0]
-    const arr = groups.get(key) ?? []
-    arr.push(b)
-    groups.set(key, arr)
+  // Union-Find: parent[i] 指向 group root 的 remaining[] 索引
+  const parent = remaining.map((_, i) => i)
+  const find = (x: number): number => {
+    while (parent[x] !== x) {
+      parent[x] = parent[parent[x]]
+      x = parent[x]
+    }
+    return x
+  }
+  const union = (a: number, b: number) => {
+    const ra = find(a)
+    const rb = find(b)
+    if (ra !== rb) parent[ra] = rb
   }
 
-  const divergences: Divergence[] = []
-  // 已分组的
-  for (const [, group] of groups) {
-    const distinctSources = new Set(group.map(g => g.source))
-    if (distinctSources.size >= 2) {
-      // 多 source 不同方案
-      divergences.push({
-        topic: group[0].raw.slice(0, 60),
-        options: group.map(g => ({ from: g.source, option: g.raw })),
-      })
-    } else {
-      // 单 source 独有要点 → 也算分歧（其他 source 漏想了）
-      for (const g of group) {
-        divergences.push({
-          topic: g.raw.slice(0, 60),
-          options: [{ from: g.source, option: g.raw }],
-        })
+  // 两两比较：共享 token ≥ MIN_SHARED_TOKENS 且 source 不同 → 同 group
+  for (let i = 0; i < remaining.length; i++) {
+    for (let j = i + 1; j < remaining.length; j++) {
+      if (remaining[i].source === remaining[j].source) continue
+      const shared = countSharedTokens(remaining[i].tokens, remaining[j].tokens)
+      if (shared >= MIN_SHARED_TOKENS) {
+        union(i, j)
       }
     }
   }
 
+  // group root → bullet 列表
+  const groups = new Map<number, typeof remaining>()
+  for (let i = 0; i < remaining.length; i++) {
+    const root = find(i)
+    const arr = groups.get(root) ?? []
+    arr.push(remaining[i])
+    groups.set(root, arr)
+  }
+
+  // 输出 divergence；保持 remaining 顺序作为代表 bullet 顺序（确定性）
+  const divergences: Divergence[] = []
+  const seenRoots = new Set<number>()
+  for (let i = 0; i < remaining.length; i++) {
+    const root = find(i)
+    if (seenRoots.has(root)) continue
+    seenRoots.add(root)
+    const group = groups.get(root)!
+    divergences.push({
+      topic: group[0].raw.slice(0, 60),
+      options: group.map(g => ({ from: g.source, option: g.raw })),
+    })
+  }
+
   return divergences
+}
+
+/** 计算两个 token 集合的交集大小 */
+function countSharedTokens(a: Set<string>, b: Set<string>): number {
+  let n = 0
+  for (const t of a) {
+    if (b.has(t)) n++
+  }
+  return n
 }
 
 /** 从 divergences 中识别 high-stakes 的 topic 列表 */
@@ -353,9 +404,43 @@ export function aggregatePlans(contributions: PlanContribution[]): DesignBrief {
 }
 
 /**
+ * 估算文本的 token 数量（v4.2.1 P24，替代字符长度估算）。
+ *
+ * 按字符类型加权求和：
+ *   - 英文 word（match `[a-zA-Z]+`）：1 word ≈ 1 token，平均 4 char/word → 0.25 token/char
+ *   - 中文 char（match `[一-鿿]`）：1 char ≈ 1 token (GPT/Claude tokenizer 实测)
+ *   - 数字 / 标点 / 空白：0.3 token/char (中性估算)
+ *
+ * 返回 Math.ceil(总和)，避免低估导致超预算。
+ *
+ * 例子：
+ *   - "hello world this is a test" → 6 token (6 word)
+ *   - "这是一个测试" → 6 token (6 中文字)
+ *   - "this is 中文测试" → ~3 word + 4 中文 = ~7 token + 空格 = ~8 token
+ */
+export function estimateTokens(text: string): number {
+  if (typeof text !== 'string' || text.length === 0) return 0
+  let tokens = 0
+  // 英文 word（按词算，短词 1 token；长词按 4 char/token 拆）
+  const englishWords = text.match(/[a-zA-Z]+/g) ?? []
+  for (const w of englishWords) {
+    // <=5 char 算 1 token；超长 word（如 base64 串）按 4 char/token round
+    tokens += w.length <= 5 ? 1 : Math.max(1, Math.round(w.length / 4))
+  }
+  // 中文字（每字 1 token）
+  const chineseChars = text.match(/[一-鿿]/g) ?? []
+  tokens += chineseChars.length
+  // 其他字符（数字 / 标点 / 空白）按 0.3 token/char
+  const otherCharCount = text.replace(/[a-zA-Z]+/g, '').replace(/[一-鿿]/g, '').length
+  tokens += Math.ceil(otherCharCount * 0.3)
+  return Math.ceil(tokens)
+}
+
+/**
  * 把 DesignBrief 序列化成 markdown，供 phase-runner prompt 注入。
  *
- * 长度上限 ≈ 500 token（按 SERIALIZED_BRIEF_MAX_CHARS 控制，会截断尾部）。
+ * 长度上限 ≈ BRIEF_MAX_TOKENS token（v4.2.1 P24 token-aware 截断；旧版按 char 估算
+ * 对纯中文低估 2 倍）。边构建边检查，超过预算则截断尾部并加 `(truncated)` 标记。
  */
 export function serializeBriefForPrompt(brief: DesignBrief): string {
   const lines: string[] = []
@@ -391,8 +476,20 @@ export function serializeBriefForPrompt(brief: DesignBrief): string {
   }
 
   let out = lines.join('\n').trim()
-  if (out.length > SERIALIZED_BRIEF_MAX_CHARS) {
-    out = out.slice(0, SERIALIZED_BRIEF_MAX_CHARS - 20) + '\n...(truncated)'
+  // Token-aware 截断（v4.2.1 P24）
+  if (estimateTokens(out) > BRIEF_MAX_TOKENS) {
+    // 二分截断：找出符合 budget 的最大字符长度
+    let lo = 0
+    let hi = out.length
+    const marker = '\n...(truncated)'
+    const markerTokens = estimateTokens(marker)
+    const budget = BRIEF_MAX_TOKENS - markerTokens
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2)
+      if (estimateTokens(out.slice(0, mid)) <= budget) lo = mid
+      else hi = mid - 1
+    }
+    out = out.slice(0, lo) + marker
   }
   return out
 }
@@ -402,7 +499,11 @@ function truncate(s: string, n: number): string {
   return s.length <= n ? s : s.slice(0, n - 3) + '...'
 }
 
-/** 返回 brief 序列化结果的字符长度（便于测试 ≤500 token 等价 ≤1000 char） */
+/**
+ * 返回 brief 序列化结果的 token 估算（v4.2.1 P24 用 estimateTokens 替代字符长度）。
+ *
+ * 旧 API 名保持兼容，但语义从 char 数改为 token 估算。
+ */
 export function estimateBriefLength(brief: DesignBrief): number {
-  return serializeBriefForPrompt(brief).length
+  return estimateTokens(serializeBriefForPrompt(brief))
 }

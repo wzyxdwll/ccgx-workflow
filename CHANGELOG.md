@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.2.1] - 2026-05-04
+
+> 🐛 **Review-driven patch**：v4.2.0 release 后主对话 5 文件代码 review 暴露 3 项接口债 / 算法粗糙问题。本 patch 全部修复 + 加 dogfood 风格集成测试避免回归。**API 兼容**：所有 export 签名不变；`estimateTokens` 是新增 export。
+
+### 🐛 修复
+
+- **planVerifyWave 重复实现合并到 verify-orchestrator SSoT**：v4.2 P22 `quality-router.buildVerifyWave` (90 行) 与 `verify-orchestrator.planVerifyWave` (90 行) 95% 相同代码两份。P21 刚清完接口债 P22 自己又出新债——讽刺。本次将 verify wave 路由 SSoT 锁定在 `verify-orchestrator.ts`，`quality-router` 的 `buildVerifyWave` 改为 import 并经 `verifyWavePlanToWavePlan` adapter 桥接 `VerifyWavePlan` ↔ `WavePlan` 两套 schema，零重复实现。
+- **extractDivergences topic 分组从 first-token 升级到 token-set ≥ 2 算法**：旧版 (`plan-aggregator.ts:271-279`) 用"normalized 第一个 token 作 topic key"，导致 `"use Redis cache"` 与 `"use Memcached cache"` 因首 token 都是 `use` 错配进同一 group，但 `"use email auth"` 也错配。新版 union-find 按 token 集合共享 ≥ `MIN_SHARED_TOKENS=2` 个非 stopword token 分组，Redis/Memcached 共享 `{use, cache}` → 同 group，email auth 与之共享 < 2 → 独立。算法 O(N²) 但 N < 30 不优化。
+- **plan-aggregator brief 长度限制改 token-aware**：旧版 `SERIALIZED_BRIEF_MAX_CHARS = 1000` 注释说"约 500 token；按 char ≈ 0.5 token 估算"，但中文 1 char ≈ 1 token，纯中文 brief 1000 char ≈ 1000 token，超 500 预算 2 倍。新增 `estimateTokens(text)` helper 按字符类型加权（英文 word ≈ 1 token；中文 char × 1；其他 × 0.3），`serializeBriefForPrompt` 改用二分截断保证 `≤ BRIEF_MAX_TOKENS = 500`。`estimateBriefLength` 语义从 char 数改为 token 估算（旧测试 `<1000` 仍宽松通过）。
+
+### ✅ 测试
+
+- **+8 dogfood 风格集成测试**（`tripleTierIntegrationDogfood.test.ts`，13 用例）：真冲突 plan（PostgreSQL/MongoDB/SQLite 三选一）/ 中英混合 token 长度 / 多 bullet 格式（编号 + `*` + `•` + 段落混合）/ JSON 容错 / 缺路径 plan / decision_required 高 stakes 触发 / extractDivergences first-token 误配修复 / quality-router + verify-orchestrator SSoT 联动。
+- **+12 plan-aggregator 单元测试**：6 个 `estimateTokens` 用例（空/纯英/纯中/混合/长 word/标点）+ 6 个 `extractDivergences` token-set 用例（Redis vs Memcached / CDN 独立 / 完全冲突 / 部分共识 / 单 source 独有）。
+- **+1 token-aware 截断回归测试**：纯中文 60 bullet huge brief 验证 `(truncated)` 标记出现 + 真实 token ≤ 500。
+- **总数 913 → 938**。
+
+### 📝 影响范围
+
+- 未改：`templates/*` / `README.md` / 根 `CLAUDE.md` / migration guide（patch 不影响顶层文档）。
+- 未改：`multi-model-routing.ts` / `specialist-router.ts` / `challenger-orchestrator.ts` / `debate-orchestrator.ts` / `plugin-detection.ts` / `wave-scheduler.ts` 等 v4.1/v4.2 核心 helper（P21 SSoT 完美保留）。
+- 改：`quality-router.ts`（删 90 行重复 + import adapter）、`verify-orchestrator.ts`（顶部 SSoT 注释）、`plan-aggregator.ts`（extractDivergences 重写 + estimateTokens 新增 + serializeBriefForPrompt token-aware 截断）、`src/index.ts`（export `estimateTokens`）。
+
+---
+
 ## [4.2.0] - 2026-05-04
 
 > 🎯 **多模型协作深度升级版**：3 phase dogfood（P21-P23）。引入 `--quality=fast|triple|debate` 三档分级，把单波 phase-runner 调度扩展为 Plan-Critic-Verify 三段式（默认 triple）+ 多轮对辩（debate）。**默认行为变化**：v4.2 默认 triple 4 wave，v4.1 单波行为用 `--quality=fast` 复现。

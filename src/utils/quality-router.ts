@@ -29,6 +29,7 @@
  */
 
 import type { Layer, PluginAvailability } from './multi-model-routing'
+import { planVerifyWave, type VerifyWavePlan } from './verify-orchestrator'
 
 // ---------------------------------------------------------------------------
 // 1. Schema
@@ -271,7 +272,35 @@ function buildImplWave(index: number, phase: PhaseMeta): WavePlan {
 }
 
 /**
- * Verify wave: cross-vendor。
+ * Adapter: VerifyWavePlan (verify-orchestrator schema) → WavePlan
+ * (quality-router schema). Internal helper, not exported.
+ *
+ * verify-orchestrator 的 VerifyWavePlan 用 `mode: 'single'|'dual'` + 极简
+ * spawns（无 role）。quality-router 的 WavePlan 用 `kind: WaveKind` + role-tagged
+ * SpawnEntry。两个 schema 通过此 adapter 桥接，避免在两边各自维护路由实现。
+ */
+function verifyWavePlanToWavePlan(vwp: VerifyWavePlan, index: number): WavePlan {
+  const spawns: SpawnEntry[] = vwp.spawns.map(s => ({
+    agent: s.agent,
+    role: 'verifier',
+    rationale: s.rationale,
+    ccgPromptFile: s.ccgPromptFile,
+  }))
+  return {
+    kind: 'verify',
+    index,
+    spawns,
+    degraded: vwp.degraded,
+    degradeNote: vwp.degradeNote,
+  }
+}
+
+/**
+ * Verify wave 构造器（quality-router 视角）。
+ *
+ * **v4.2.1 P24 SSoT 化**：路由实现已下沉到 verify-orchestrator.planVerifyWave；
+ * 本函数只做 schema adapter，不再独立实现单/双 verify 逻辑。
+ *
  *   - fast tier: 单 verify，按 layer 反选（backend phase → gemini verify / 反之）
  *   - triple/debate tier: 双 verify（codex + gemini 并行）
  */
@@ -281,88 +310,8 @@ function buildVerifyWave(
   plugins: PluginAvailability,
   tier: QualityTier,
 ): WavePlan {
-  const dual = tier === 'triple' || tier === 'debate'
-  const spawns: SpawnEntry[] = []
-  let degraded = false
-  const dropped: string[] = []
-
-  if (dual) {
-    // 双 verify
-    if (plugins.codex) {
-      spawns.push({
-        agent: 'codex:codex-rescue',
-        role: 'verifier',
-        rationale: `cross-vendor verify (codex)`,
-      })
-    } else {
-      spawns.push({
-        agent: 'general-purpose',
-        role: 'verifier',
-        rationale: 'codex plugin unavailable — main-thread fallback with codex/reviewer prompt',
-        ccgPromptFile: `${CCG_PROMPT_BASE}/codex/reviewer.md`,
-      })
-      degraded = true
-      dropped.push('codex:codex-rescue')
-    }
-    if (plugins.gemini) {
-      spawns.push({
-        agent: 'gemini:gemini-rescue',
-        role: 'verifier',
-        rationale: `cross-vendor verify (gemini)`,
-      })
-    } else {
-      spawns.push({
-        agent: 'general-purpose',
-        role: 'verifier',
-        rationale: 'gemini plugin unavailable — main-thread fallback with gemini/reviewer prompt',
-        ccgPromptFile: `${CCG_PROMPT_BASE}/gemini/reviewer.md`,
-      })
-      degraded = true
-      dropped.push('gemini:gemini-rescue')
-    }
-  } else {
-    // fast: 单 verify，按 layer 反选（与 implementer 不同 vendor 抓盲点）
-    const layer = phase.phaseType
-    // backend / docs / generic → gemini verify（反选）
-    // frontend → codex verify（反选）
-    // fullstack → codex verify（默认 codex 强系统设计角度）
-    const preferred: 'codex' | 'gemini' =
-      layer === 'frontend' ? 'codex' : 'gemini'
-    const fallback: 'codex' | 'gemini' = preferred === 'codex' ? 'gemini' : 'codex'
-
-    const choose = plugins[preferred] ? preferred : plugins[fallback] ? fallback : null
-    if (choose) {
-      spawns.push({
-        agent: `${choose}:${choose}-rescue`,
-        role: 'verifier',
-        rationale: `cross-vendor verify (${choose}, layer=${layer})`,
-      })
-      // If we fell back to non-preferred plugin, mark wave-level degraded
-      if (choose !== preferred) {
-        degraded = true
-        dropped.push(`${preferred}:${preferred}-rescue (preferred unavailable)`)
-      }
-    } else {
-      spawns.push({
-        agent: 'general-purpose',
-        role: 'verifier',
-        rationale: 'both plugins unavailable — main-thread reviewer fallback',
-        ccgPromptFile: `${CCG_PROMPT_BASE}/claude/reviewer.md`,
-      })
-      degraded = true
-      dropped.push('codex:codex-rescue', 'gemini:gemini-rescue')
-    }
-  }
-
-  return {
-    kind: 'verify',
-    index,
-    spawns,
-    degraded,
-    degradeNote: degraded
-      ? `verify wave plugin(s) unavailable: ${dropped.join(', ')}`
-      : undefined,
-  }
+  const vwp = planVerifyWave(tier, phase.phaseType, plugins)
+  return verifyWavePlanToWavePlan(vwp, index)
 }
 
 /** Debate sub-wave: 单轮 propose / challenge / respond */
