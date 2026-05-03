@@ -184,11 +184,43 @@ TaskOutput({ task_id: "<task_id>", block: true, timeout: 600000 })
 - GEMINI_SESSION: <session_id>
 ```
 
-### ⛔ Phase 2 结束：计划交付（非执行）
+### 🛡 Phase 2.5：自动 plan-checker 校验（5 维度 + max-3-loop，CCG v4.0 Phase 6）
+
+写出 `.claude/plan/<功能名>.md` 后、向用户交付前，**必须**自动 spawn `plan-checker` agent 做 5 维度强校验：
+
+```
+Agent({
+  subagent_type: "plan-checker",
+  description: "Validate plan (Dim 1/2/5/7b/10)",
+  prompt: "请对 .claude/plan/<功能名>.md 做 5 维度强校验：\n- Dim 1: Requirement Coverage（roadmap requirement 是否在 plan frontmatter 声明）\n- Dim 2: Task Completeness（每 task 含 Files/Action/Verify/Done）\n- Dim 5: Scope Sanity（≤3 tasks）\n- Dim 7b: Scope Reduction（关键词扫描 + 原始需求交叉）\n- Dim 10: CLAUDE.md Compliance（不违反项目 CLAUDE.md 禁用模式）\n输出 Plan Checker Report 并给出 ✅ 放行 / ❌ 退回 verdict。"
+})
+```
+
+**max-3-loop 收敛环**：
+
+```
+loop_count = 0
+while loop_count < 3:
+    result = spawn plan-checker
+    if not result.hasBlocker:
+        break  # ✅ 放行，进入交付
+    # 退回——回 Phase 2.4 修订计划（仅针对 BLOCKER 的反馈，不要顺手改其他段）
+    重新生成 .claude/plan/<功能名>.md
+    loop_count += 1
+
+if loop_count == 3 and result.hasBlocker:
+    AskUserQuestion:
+        prompt:  "plan-checker 3 轮仍存在 BLOCKER，请选择："
+        options: ["force: 忽略 BLOCKER 强制交付（高风险）", "guide: 提供具体指导让规划再试一次", "abort: 放弃当前规划"]
+```
+
+只有 plan-checker ✅ 放行（或用户选 force）后才进入计划交付。
+
+### ⛔ Phase 3 结束：计划交付（非执行）
 
 **`/ccg:plan` 的职责到此结束，必须执行以下动作**：
 
-1. 向用户展示完整实施计划（含伪代码）
+1. 向用户展示完整实施计划（含伪代码）+ plan-checker 报告摘要（BLOCKER/WARNING 数量 + verdict）
 2. 将计划保存至 `.claude/plan/<功能名>.md`（功能名从需求中提取，如 `user-auth`、`payment-module` 等）
 3. **写 phase-scoped CONTEXT.md**（v4.0 Phase 2 状态机）：把本次 plan 的冻结决策固化到 `.context/<phase>/CONTEXT.md`，下游 `/ccg:execute` 与 `/ccg:team-exec` 仅读此文件的 YAML frontmatter 即可获得全部决策（< 200 tokens / phase）。**目录约定**：`<phase>` 取计划文件主名（如 `user-auth`），用 `sanitizePhase()` 规范化非法字符。
 

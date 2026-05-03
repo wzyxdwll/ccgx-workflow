@@ -129,7 +129,7 @@ description: '多模型分析 → 消除歧义 → 零决策可执行计划'
 
    只有 BLOCKER 数量为 0 时才进入 Step 5。
 
-5. **Update OPSX Artifacts**
+5. **Update OPSX Artifacts** (then auto plan-checker)
    - **BEFORE calling `/opsx:continue`** (internal skill call — do NOT expose this command to user), output a structured summary for OPSX context:
      ```markdown
      ## Planning Summary for OPSX
@@ -161,6 +161,38 @@ description: '多模型分析 → 消除歧义 → 零决策可执行计划'
    - **STOP**: After artifacts are generated, verify they exist and inform user:
      "Plan phase complete. Artifacts generated: specs.md, design.md, tasks.md. Run `/ccg:spec-impl` to start implementation."
      Do NOT proceed to modify source code.
+
+5.5. **自动 plan-checker 校验（5 维度 + max-3-loop，CCG v4.0 Phase 6）**
+
+   生成 OPSX artifacts 后，**必须**自动 spawn `plan-checker` agent 对 specs.md / design.md / tasks.md 做 5 维度校验：
+
+   ```
+   Agent({
+     subagent_type: "plan-checker",
+     description: "Validate OPSX plan artifacts (Dim 1/2/5/7b/10)",
+     prompt: "请对 openspec/changes/<change_id>/ 下的 specs.md / design.md / tasks.md 做 5 维度强校验：\n- Dim 1: Requirement Coverage（每条需求 ID 被某 plan/spec 声明）\n- Dim 2: Task Completeness（tasks.md 每条 task 含 Files/Action/Verify/Done）\n- Dim 5: Scope Sanity（≤3 tasks/plan）\n- Dim 7b: Scope Reduction（与 proposal.md 原始需求交叉对比）\n- Dim 10: CLAUDE.md Compliance（不违反项目 CLAUDE.md 禁用模式）\n输出 Plan Checker Report，并给出 ✅ 放行 / ❌ 退回 verdict。"
+   })
+   ```
+
+   **max-3-loop 收敛环**：
+
+   ```
+   loop_count = 0
+   while loop_count < 3:
+       result = spawn plan-checker
+       if not result.hasBlocker:
+           break  # ✅ 通过
+       # 退回 planner 修订（仅针对 BLOCKER）
+       回到 Step 5 重新调用 /opsx:continue 修订 specs/design/tasks
+       loop_count += 1
+
+   if loop_count == 3 and result.hasBlocker:
+       AskUserQuestion:
+           prompt:  "plan-checker 3 轮仍存在 BLOCKER，请选择："
+           options: ["force: 忽略 BLOCKER 强制进入实施", "guide: 提供具体指导让 planner 再试", "abort: 放弃当前 plan"]
+   ```
+
+   只有 plan-checker ✅ 放行 后才进入下一步（Context Checkpoint）。
 
 6. **Context Checkpoint**
    - Report current context usage.
