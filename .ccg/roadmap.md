@@ -300,11 +300,16 @@
 - **Depends on**: 6, 8
 - **Mode**: offload
 
-## Phase 10: code-review --fix + worktree [offload] (in_progress)
+## Phase 10: code-review --fix + worktree [offload] (completed)
 
-- **Started**: 2026-05-03 22:55
-- **Mode**: runner (预期 fallback；worktree 涉及 git 工程关键路径，需小心)
+- **Started**: 2026-05-03 22:55 | **Completed**: 2026-05-03 23:06
+- **Mode**: runner → degraded
 - **Type**: backend
+- **Commit**: `84f4ee4 feat(v4-p10): code-review --fix --auto + worktree 隔离 (gsd-code-fixer 移植)`
+- **Tests**: 477/477 passed (delta +57 — 最大单 phase 测试增量)
+- **Outcome**: review --fix --auto + code-fixer agent + worktree-helper.ts。GSD #2839/#2990 4 步 cleanup 顺序锁定（CLEANUP_STEP_ORDER 常量 + summarizeCleanup 检测乱序调用即 fail）。per-finding rollback 强制 git checkout（禁 Write）。56 单测覆盖 sentinel roundtrip + halt-on-failure + --auto cap=3 stall 检测。
+- **Plan**: `.claude/team-plan/phase-10-code-review-fix-worktree-report.md`
+- **Dogfood 数据点**: 主线 context T9=48% → T10=**49%（+1%）**——最重 phase 仍稳定
 
 - **Goal**: `/ccg:review` 加 `--fix` 闭环修复模式，新建 `code-fixer` agent，worktree 隔离 + transactional cleanup。
 - **新增能力**:
@@ -323,7 +328,11 @@
 - **Depends on**: (none)
 - **Mode**: offload
 
-## Phase 11: debug-session-manager 重写 `/ccg:debug` [offload] (pending)
+## Phase 11: debug-session-manager 重写 `/ccg:debug` [offload] (in_progress)
+
+- **Started**: 2026-05-03 23:07
+- **Mode**: runner (预期 fallback)
+- **Type**: backend
 
 - **Goal**: 重写 `templates/commands/debug.md` 为 manager + debugger 双层 fresh-context 模式，主线只接最后摘要。
 - **新增能力**:
