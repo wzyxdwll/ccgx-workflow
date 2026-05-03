@@ -2,7 +2,7 @@
 name: frontend-design
 description: "Frontend design skill fused from Impeccable + custom extensions. Covers design philosophy, anti-AI-slop patterns, typography, color (OKLCH), spatial design, motion, interaction, responsive, UX writing, state management, engineering, and 4 style variants. Includes 20 command skills for audit/critique/polish/animate/etc."
 license: "Apache 2.0 (Impeccable) + MIT (custom extensions)"
-user-invocable: true
+user-invocable: false
 disable-model-invocation: false
 ---
 

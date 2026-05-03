@@ -7,6 +7,98 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.0.0] - 2026-05-03
+
+> 🚀 **里程碑大版本**：12 phase 内部 dogfood 重塑——Context 漂移治理 + fresh-context subagent 协议 + 5 维度 plan-checker + 异步三件套 + verifier L4 + UAT 会话式 + review --fix worktree 隔离 + debug 双层 manager。**调用面零破坏**——核心命令名/语法不变，5 删 + 4 合并 + 5 新增带来更聚焦的命令面。
+
+### ✨ 新功能
+
+#### Context 漂移治理（Phase 1-3）
+
+- **`context_budget` frontmatter 硬约束**（commit `099843b`）：`workflow.md` / `execute.md` / `team-exec.md` / `autonomous.md` 4 个主编排器加 `context_budget: orchestrator-15` + `subagent_freshness: required`，硬约束主线只读元状态、不接 builder 全部 stdout。
+- **phase-runner subagent 协议（G 方案）**（commit `5f94ed4`）：主线 spawn 普通 `Agent(general-purpose)` 包裹 codex/gemini rescue，subagent 在沙箱外补 git/test/typecheck，按 phase Type 字段自动路由（backend→codex / frontend→gemini / fullstack→串行 / docs→backend default）。主线只接 ≤200 token 结构化摘要。autonomous Step 4.2 不再硬编码 `Agent(codex:rescue)`，CCG 路由设计回归正轨。
+- **`.context/<phase>/{CONTEXT,SUMMARY}.md` phase 状态机**（commit `97f3862`）：phase-scoped 状态文件，主线只读 frontmatter（< 200 tokens/phase）替代接 builder 全文输出。`phase-context.ts` helper 提供 writeContext / readContext / writeSummary / readSummaryFrontmatter / summaryTokenEstimate。
+- **codebase-mapper agent 移植**（commit `e389bd3`，GSD ROI #1）：`templates/commands/agents/codebase-mapper.md` 4 路 focus（tech / arch / quality / concerns）并行扫描，产出 `.context/codebase/{STACK,INTEGRATIONS,ARCHITECTURE,STRUCTURE,CONVENTIONS,TESTING,CONCERNS}.md` 7 文件契约。`init.md` Step 1.5 启动时自动 spawn。
+
+#### 质量门升级（Phase 4 / 6 / 8）
+
+- **Scope Reduction Detection**（commit `ce88bac`，plan-checker 维度 7b）：在 `team-reviewer.md` / `spec-plan.md` / `plan-checker.md` 加扫描规则——命中 "v1 / 简化 / 静态先 / 未来增强 / placeholder / 暂时硬编码 / 后续连接 / 不连接" 关键词即 BLOCKER。3-way matrix（req-match + no-stage = BLOCKER；req-match + v2-staged = NONE；no-match = WARNING）避免合理 v1 渐进交付误报。
+- **plan-checker 5 维度 + max-3-loop**（commit `bbab7ed`，GSD ROI #4）：`plan-checker.ts` 实现 Dim 1 Requirement Coverage / Dim 2 Task Completeness / Dim 5 Scope Sanity（≤ 3 task）/ Dim 7b Scope Reduction / Dim 10 CLAUDE.md Compliance。`/ccg:spec-plan` 和 `/ccg:plan` 写完后自动 spawn plan-checker，失败回 planner，max-3-loop 收敛超限升级用户。
+- **verifier Level 4 数据流 + override + deferred filtering**（commit `dd8b854`，GSD ROI #5）：识别动态渲染 artifact → 追溯数据源 → 区分 `FLOWING / STATIC / DISCONNECTED / HOLLOW_PROP`（fetch 真返回 vs 静态兜底 vs 硬编码 prop `[]`）。Step 3b override 机制：读 VERIFICATION.md frontmatter `overrides:`，80% token 重叠匹配命中标 `PASSED (override)`。Step 9b deferred filtering：扫 ROADMAP / 后续 phase 计划，命中关键词即标 `deferred` 不算 gap。
+
+#### 异步三件套（Phase 7）
+
+- **`/ccg:status` `/ccg:result` `/ccg:cancel`**（commit `e4bcd83`）：3 个新命令，job-id 化背景任务管理，存 `.context/jobs/<id>/{state.json, result.md, cancel.flag}`。`/ccg:status` 支持 `--wait --timeout-ms` 阻塞模式，`/ccg:result` 取最终 verdict / summary / artifacts，`/ccg:cancel` 中止活跃 job。`jobs.ts` helper + 23 单测覆盖三命令交互。
+
+#### UAT + cold-start smoke（Phase 9）
+
+- **会话式 UAT + cold-start smoke + 自动收敛**（commit `fad9102`，GSD ROI #2）：`verify-work.md` 从纯编排器升级为有 UAT.md 状态文件的会话工作流。show expected → ask if matches 逐项核对；扫 git diff 命中 `server.ts | app.ts | database/* | migrations/* | startup* | docker-compose*` 自动注入"杀进程 → 清临时态 → 冷启动 → 主查询返回数据"测试；UAT.md frontmatter `gaps: [{symptom, severity, status}]` 跨会话持久 `/clear` 后 resume；自动 diagnose → planner gaps → plan-checker → max-3-loop（复用 Phase 6 plan-checker.ts）。
+
+#### review --fix + worktree（Phase 10）
+
+- **`/ccg:review --fix --auto` + worktree 隔离 + code-fixer agent**（commit `84f4ee4`，GSD #2839/#2990 移植，GSD ROI #3）：`/ccg:review` 加 `--fix`（修 Critical+Warning） / `--fix --all`（含 Info） / `--fix --auto`（多轮收敛）。新建 `code-fixer.md` agent。**强制 git worktree 隔离**：`mktemp -d` + 临时分支 `ccg-reviewfix/<id>`，避免撞前台用户工作。**Recovery sentinel**：写 `.context/review-fix-recovery-pending.json` 中断可清理。**Transactional cleanup tail**：`merge --ff-only` → `worktree remove --force` → `branch -D` → `rm sentinel` 四步严格顺序（CLEANUP_STEP_ORDER 常量 + summarizeCleanup 检测乱序调用即 fail）。Per-finding rollback 强制 `git checkout`（禁 Write 工具）。56 单测覆盖 sentinel roundtrip + halt-on-failure + `--auto` cap=3 stall 检测。
+
+#### debug 双层 manager（Phase 11）
+
+- **debug-session-manager 重写 `/ccg:debug`**（commit `ed3282b`，GSD ROI #3）：`debug.md` 改为 spawn `debug-session-manager` agent，manager 内 spawn `debugger` 多轮循环。**持久 debug session 文件**：`.context/debug/<slug>.md` 含 hypothesis 链 / evidence / next_action / status。**科学方法**：falsifiable hypothesis + 实验设计 + 结果记录 + cap 3 hypothesis 失败升级。**三种结构化结果返回主线**：`ROOT CAUSE FOUND` / `DEBUG COMPLETE` / `CHECKPOINT REACHED`。多 mode：`find_root_cause_only` / `find_and_fix`。manager 在 fresh context 跑多轮，主线只接 ≤500 token 摘要。
+
+### 🔄 命令面板收敛（Phase 5）
+
+详见 [`.ccg-migration/v3-to-v4.md`](.ccg-migration/v3-to-v4.md) migration guide。
+
+#### A. 直接删除的 5 个命令（commit `747dd4f`）
+
+| 命令 | 替代方案 |
+|------|---------|
+| `/ccg:frontend` | `/ccg:workflow <前端任务>` |
+| `/ccg:backend` | `/ccg:workflow <后端任务>` |
+| `/ccg:feat` | `/ccg:workflow <功能描述>` |
+| `/ccg:forensics` | `/ccg:context log` + `/ccg:health` |
+| `/ccg:extract-learnings` | `/ccg:context history` |
+
+#### B. 合并 verify-\* → /ccg:verify --gate=（commit `747dd4f`）
+
+| 旧命令（v4.0 仍可用，标 deprecated_in: v4.0） | 新统一入口 |
+|-----|-----|
+| `/ccg:verify-change` | `/ccg:verify --gate=change` |
+| `/ccg:verify-quality` | `/ccg:verify --gate=quality` |
+| `/ccg:verify-security` | `/ccg:verify --gate=security` |
+| `/ccg:verify-module` | `/ccg:verify --gate=module` |
+| **新增** | `/ccg:verify --gate=all` |
+
+`/ccg:verify-work` 编排器保留独立。
+
+### 🚮 deprecated（v5.0 真正切换）
+
+- 4 个 `verify-{change,quality,security,module}` 命令仍由 Skill Registry 自动生成，但 SKILL.md frontmatter 加 `deprecated_in: v4.0` + `replaced_by: /ccg:verify --gate=<name>` 标签。**v4.0.0 全部继续可用**，**v5.0 设 `user-invocable: false` 硬下线**。
+
+### 🏗 Skill 体系收敛
+
+- **frontend-design / impeccable**：改为可选安装（init 第 4 步 confirm 提示，v2.1.11 已标记，v4.0 验证生效）+ frontend-design SKILL.md `user-invocable: false`，引流到官方 [`claude-plugins-official/frontend-design`](https://github.com/anthropics/claude-plugins-official/tree/main/skills/frontend-design) plugin
+- **domain skills（10 大领域 61 文件）**：全部 `user-invocable: false`，保留作为 reference + `rules/ccg-skill-routing.md` 关键词触发自动 Read，**不再进 `/ccg:` 命令面板**
+
+### 📊 架构数字
+
+- 命令数（user-invocable）35 → **~30**（删 5 + 合 4 verify-\* + 新增 5 异步三件套 + autonomous + verify）
+- Subagent 15 → **19**（新增 phase-runner / code-fixer / debug-session-manager / debugger）
+- 测试 168 → **515**（+347，dogfood 12 phase 沉淀）
+- npm 包体积 ~200 KB（持平 v3.0）
+
+### 🧪 dogfood 实测（v4.0 自身用 CCG autonomous 跑通）
+
+12 phase 全部用 CCG `/ccg:autonomous` + phase-runner G 方案自身长跑完成，**主线 context 漂移**：
+
+| Phase | T0 | T1 | T1.5 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 | T10 | T11 |
+|-------|----|----|------|----|----|----|----|----|----|----|----|----|------|
+| 主线 % | 31 | 33 | 36 | 44 | 44 | 45 | 46 | 46 | 47 | 47 | 48 | 49 | 49 |
+| 增量 | — | +2 | +3 | +1 | +0 | +1 | +1 | +0 | +1 | +0 | +1 | +1 | +0 |
+
+**净增量 +18%**（12 phase 平均 **+1%/phase**），GSD"主线 ≤15% / subagent fresh"论点经验证成立——前 11 phase fresh-context subagent 路径下主线增量稳定在 +1%/phase，远低于无隔离时的失控漂移。详见 `.ccg-research/05-roadmap-v3.1-to-v4.0.md` 路线图主文档与 `.ccg/roadmap.md` 12 phase 完整记录。
+
+> **v4.1 motivation**：当前 phase-runner 普通 subagent 不能嵌套 spawn `Agent(codex/gemini:rescue)`，11 个 phase 全部走 fallback（subagent 自实现而非派发）。`.ccg-research/07-multimodel-collaboration-rethink.md` 记录此约束的工程含义与下一步设计方向。
+
+---
+
 ## [3.0.0] - 2026-05-03
 
 > 🚀 **里程碑大版本**：去 Go binary、引入 wave 调度、自治长跑、上下文压力感知、专业化 agent 矩阵。50% 新功能 + 16MB → 200KB 包体积。

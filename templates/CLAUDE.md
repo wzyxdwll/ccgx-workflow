@@ -2,7 +2,7 @@
 
 > [根目录](../CLAUDE.md) > **templates**
 
-**Last Updated**: 2026-04-10
+**Last Updated**: 2026-05-03 (v4.0.0)
 
 ---
 
@@ -10,11 +10,86 @@
 
 `templates/` 是 CCG Workflow 的"弹药库"。所有安装到用户 `~/.claude/` 的素材都从这里出发，经过 `src/utils/installer.ts` 模板变量替换后写入目标位置。职责涵盖：
 
-- **29 个斜杠命令** + **7 个子智能体**（→ `~/.claude/commands/ccg/` + `~/.claude/agents/ccg/`）
+- **~34 个斜杠命令模板** + **19 个子智能体**（→ `~/.claude/commands/ccg/` + `~/.claude/agents/ccg/`）
 - **19 个专家提示词**（Claude / Codex / Gemini 三组，→ `~/.claude/.ccg/prompts/`）
 - **100+ 技能文件**（质量关卡 + 10 大域知识秘典 + impeccable + 工具，→ `~/.claude/skills/ccg/`）
 - **2 个全局规则**（→ `~/.claude/rules/`）
 - **8 种输出风格**（→ `~/.claude/output-styles/`，由菜单命令安装）
+
+---
+
+## v4.0 新协议（fresh-context subagent + .context state）
+
+v4.0 引入 4 个核心协议解决"主线 context 漂移"和"沙箱限制下 git/test 闭环"两大痛点。设计参考 `.ccg-research/` 路线图与 `.ccg/roadmap.md` 12 phase dogfood 实测。
+
+### A. phase-runner subagent 协议（autonomous 长跑骨架）
+
+主线 spawn 普通 `Agent(general-purpose)` 包裹 `codex:codex-rescue` / `gemini:gemini-rescue`：
+
+```
+主线 (autonomous) → Agent(general-purpose, "phase-runner") [fresh context, 全权限]
+                      ├─ 按 phase Type 决定 spawn codex:rescue 或 gemini:rescue
+                      ├─ 内部轮询子任务报告完成
+                      ├─ 接手 handoff: git commit + pnpm test + pnpm typecheck（沙箱外做）
+                      ├─ 失败处理：自己修 / 让 codex/gemini 重做 / 升级主线
+                      └─ 返回主线 ≤200 token 摘要
+                  → 主线读摘要 + 推进 roadmap，不读 transcript
+```
+
+类型路由（phase frontmatter `Type` 字段）：
+
+| Type | 底层 spawn |
+|------|-----------|
+| `backend` | `Agent(codex:codex-rescue)` |
+| `frontend` | `Agent(gemini:gemini-rescue)` |
+| `fullstack` | 串行：先 codex（核心 schema/逻辑）→ 再 gemini（前端联动） |
+| `docs` | codex（默认 backend） |
+| `generic` | codex（默认 backend） |
+
+详见 `templates/commands/agents/phase-runner.md`（271 行协议）+ `src/utils/phase-runner.ts` helper（113 行）。
+
+### B. .context/<phase>/{CONTEXT,SUMMARY}.md state machine
+
+phase-scoped 状态文件，主线只读 frontmatter（< 200 tokens/phase）：
+
+- **CONTEXT.md** — discuss 阶段冻结决策，下游 plan/exec 读取
+- **SUMMARY.md** — execute 完成后机器可读 frontmatter 摘要（phase / plan / provides / affects / key-files / completed）
+
+`team-exec.md` 改为只读 SUMMARY.md frontmatter，不接全 stdout。`src/utils/phase-context.ts` 提供 writeContext / readContext / writeSummary / readSummaryFrontmatter / summaryTokenEstimate。
+
+### C. .context/jobs/<id>/ 异步 job 协议
+
+job-id 化背景任务管理，schema：
+
+```
+.context/jobs/<id>/
+├── state.json    # {state, kind, started_at, phase, summary}
+├── result.md     # 最终 verdict / summary / artifacts
+└── cancel.flag   # 用户中止信号
+```
+
+主入口（如 `/ccg:codex-exec --background`）启动时分配 job-id 写状态。`/ccg:status` `/ccg:result` `/ccg:cancel` 三命令提供观测/取结果/中止。
+
+### D. .context/debug/<slug>.md debug session 持久化
+
+`/ccg:debug` 改为 spawn `debug-session-manager` agent，manager 内 spawn `debugger` 多轮循环。每轮记录 falsifiable hypothesis + evidence + next_action + status，cap 3 hypothesis 失败升级。三种结构化结果返回主线：`ROOT CAUSE FOUND` / `DEBUG COMPLETE` / `CHECKPOINT REACHED`。
+
+### E. .context/uat/UAT.md 会话式 UAT
+
+`verify-work.md` 升级为会话工作流。UAT.md frontmatter `gaps: [{symptom, severity, status}]` 跨会话持久 `/clear` 后 resume；自动 diagnose → planner gaps → plan-checker → max-3-loop 收敛环。git diff 命中 `server.ts | app.ts | database/* | migrations/* | startup* | docker-compose*` 自动注入冷启动测试。
+
+### F. .context/codebase/ 7 文件契约
+
+`codebase-mapper` agent 4 路并行扫描产出：`STACK.md` / `INTEGRATIONS.md` / `ARCHITECTURE.md` / `STRUCTURE.md` / `CONVENTIONS.md` / `TESTING.md` / `CONCERNS.md`。`init.md` Step 1.5 启动时自动 spawn。
+
+### G. v4.0 新增 4 个 subagent
+
+| Agent | 文件 | 用途 |
+|-------|------|------|
+| `phase-runner` | `commands/agents/phase-runner.md` | autonomous 长跑骨架（见 A） |
+| `code-fixer` | `commands/agents/code-fixer.md` | review --fix 闭环修复，worktree 隔离 |
+| `debug-session-manager` | `commands/agents/debug-session-manager.md` | /ccg:debug 双层 manager |
+| `debugger` | `commands/agents/debugger.md` | debug-session-manager 派生的科学方法执行者 |
 
 `commands-v2/` 和 `examples/` 目前无实际内容，详见末尾说明。
 

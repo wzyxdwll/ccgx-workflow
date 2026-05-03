@@ -9,7 +9,7 @@
 [![npm version](https://img.shields.io/npm/v/ccg-workflow.svg)](https://www.npmjs.com/package/ccg-workflow)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Compatible-green.svg)](https://claude.ai/code)
-[![Tests](https://img.shields.io/badge/Tests-139%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-515%20passed-brightgreen.svg)]()
 [![Follow on X](https://img.shields.io/badge/X-@CCG__Workflow-black?logo=x&logoColor=white)](https://x.com/CCG_Workflow)
 ![star](https://atomgit.com/fengshao1227/ccg-workflow/star/badge.svg)
 
@@ -35,8 +35,9 @@ A multi-model collaboration development system where Claude Code orchestrates Co
 
 - **Zero-config model routing** — Frontend tasks automatically go to Gemini, backend tasks to Codex. No manual switching.
 - **Security by design** — External models have no write access. They return patches; Claude reviews before applying.
-- **29+ slash commands** — From planning to execution, git workflow to code review, all accessible via `/ccg:*`.
+- **~30 slash commands** — From planning to execution, git workflow to code review, all accessible via `/ccg:*`.
 - **Spec-driven development** — Integrates [OPSX](https://github.com/fission-ai/opsx) to turn vague requirements into verifiable constraints, eliminating AI improvisation.
+- **Context-drift treated** (v4.0) — `context_budget` frontmatter + fresh-context subagent protocols (`phase-runner` / `debug-session-manager` / `code-fixer`) keep the main thread lean. Dogfood data: +1%/phase main-thread context drift average across 12 self-hosted phases.
 
 ## Architecture
 
@@ -107,24 +108,33 @@ Supports: npm, homebrew, curl, powershell, cmd.
 
 | Command | Description | Model |
 |---------|-------------|-------|
-| `/ccg:workflow` | Full 6-phase development workflow | Codex + Gemini |
+| `/ccg:workflow` | Full 6-phase development workflow (auto-routes frontend/backend) | Codex + Gemini |
 | `/ccg:plan` | Multi-model collaborative planning (Phase 1-2) | Codex + Gemini |
 | `/ccg:execute` | Multi-model collaborative execution (Phase 3-5) | Codex + Gemini + Claude |
 | `/ccg:codex-exec` | Codex full execution (plan → code → review) | Codex + multi-model review |
-| `/ccg:feat` | Smart feature development | Auto-routed |
-| `/ccg:frontend` | Frontend tasks (fast mode) | Gemini |
-| `/ccg:backend` | Backend tasks (fast mode) | Codex |
+| `/ccg:autonomous` | Cross-phase long-run (drives roadmap.md via phase-runner) | phase-runner |
+| `/ccg:context` | Project context management (.context/ init, log, compress, history) | Claude |
 
 ### Analysis & Quality
 
 | Command | Description | Model |
 |---------|-------------|-------|
 | `/ccg:analyze` | Technical analysis | Codex + Gemini |
-| `/ccg:debug` | Problem diagnosis + fix | Codex + Gemini |
+| `/ccg:debug` | Problem diagnosis + fix (v4.0: manager + debugger fresh-context) | debug-session-manager |
 | `/ccg:optimize` | Performance optimization | Codex + Gemini |
 | `/ccg:test` | Test generation | Auto-routed |
-| `/ccg:review` | Code review (auto git diff) | Codex + Gemini |
+| `/ccg:review` | Code review (auto git diff, v4.0: `--fix --auto` worktree loop) | Codex + Gemini + code-fixer |
+| `/ccg:verify --gate=<change\|quality\|security\|module\|all>` | Unified verify gate (v4.0 merged) | Claude |
+| `/ccg:verify-work` | Verify orchestrator + session-based UAT + cold-start smoke | Orchestrator |
 | `/ccg:enhance` | Prompt enhancement | Built-in |
+
+### Async Job Triplet (v4.0+)
+
+| Command | Description |
+|---------|-------------|
+| `/ccg:status [job-id]` | List or query a job (`--wait --timeout-ms` blocks) |
+| `/ccg:result <job-id>` | Fetch final verdict / summary / artifacts |
+| `/ccg:cancel <job-id>` | Abort an active job |
 
 ### OPSX Spec-Driven
 
@@ -161,7 +171,26 @@ Supports: npm, homebrew, curl, powershell, cmd.
 | Command | Description |
 |---------|-------------|
 | `/ccg:init` | Initialize project CLAUDE.md |
-| `/ccg:context` | Project context management (.context/ init, log, compress, history) |
+
+## What's New in v4.0
+
+> Full release notes in [CHANGELOG.md](./CHANGELOG.md#400---2026-05-03) · Upgrade guide in [.ccg-migration/v3-to-v4.md](./.ccg-migration/v3-to-v4.md)
+
+11 dogfooded improvements landed in v4.0, each verified end-to-end by running CCG on itself:
+
+1. **`context_budget` frontmatter** — 4 main orchestrators hard-cap at orchestrator-15, forbidden to slurp builder stdout
+2. **`phase-runner` subagent protocol** — autonomous spawns a fresh-context wrapper that handles git/test/typecheck outside sandbox limits, returns ≤200 token summary
+3. **`.context/<phase>/{CONTEXT,SUMMARY}.md`** — phase-scoped state files, main thread reads frontmatter only (< 200 tokens/phase)
+4. **`codebase-mapper` agent** — 4-way parallel scan produces 7-file `.context/codebase/` contract on init
+5. **Scope Reduction Detection** — plan-checker dim 7b blocks "v1 / static-first / wire-up-later" patterns when they don't match staged requirements
+6. **`plan-checker` 5 dimensions + max-3-loop** — Dim 1 Requirement Coverage / Dim 2 Task Completeness / Dim 5 Scope Sanity / Dim 7b Scope Reduction / Dim 10 CLAUDE.md Compliance
+7. **Async job triplet** — `/ccg:status` `/ccg:result` `/ccg:cancel` with job-id'd state in `.context/jobs/<id>/`
+8. **`verifier` Level 4 data-flow** — distinguishes FLOWING / STATIC / DISCONNECTED / HOLLOW_PROP, plus `overrides:` 80% match and deferred filtering
+9. **Session-based UAT + cold-start smoke** — `verify-work.md` walks gaps interactively, persists across `/clear`, auto-injects cold-start tests when git diff hits server/db/migrations
+10. **`/ccg:review --fix --auto` + worktree isolation** — `code-fixer` agent loops fixes in a temp worktree with 4-step transactional cleanup
+11. **`debug-session-manager` two-tier fresh-context** — manager + debugger run multi-round falsifiable hypotheses in isolation, return ROOT CAUSE FOUND / DEBUG COMPLETE / CHECKPOINT REACHED
+
+**Dogfood data**: All 12 v4.0 phases ran via CCG `/ccg:autonomous` on the project itself. Main-thread context drift averaged **+1%/phase** (T0=31% → T11=49%, +18% net) — empirical validation of the "subagent isolation keeps the orchestrator lean" thesis.
 
 ## Workflow Guides
 
@@ -217,9 +246,9 @@ Leverage Claude Code Agent Teams to spawn multiple Builder teammates for paralle
 
 ```
 ~/.claude/
-├── commands/ccg/       # 29+ slash commands
-├── agents/ccg/         # Sub-agents
-├── skills/ccg/         # Quality gates + multi-agent orchestration
+├── commands/ccg/       # ~30 slash commands
+├── agents/ccg/         # 19 sub-agents (incl. v4.0 phase-runner / code-fixer / debug-session-manager / debugger)
+├── skills/ccg/         # Quality gates + 10 domain knowledge bundles + multi-agent orchestration
 ├── bin/codeagent-wrapper
 └── .ccg/
     ├── config.toml     # CCG configuration
@@ -381,4 +410,4 @@ MIT
 
 ---
 
-v3.0.0 | [Issues](https://github.com/fengshao1227/ccg-workflow/issues) | [Contributing](./CONTRIBUTING.md)
+v4.0.0 | [Issues](https://github.com/fengshao1227/ccg-workflow/issues) | [Contributing](./CONTRIBUTING.md)

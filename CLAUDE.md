@@ -2,13 +2,53 @@
 
 > [根目录](../CLAUDE.md) > **skills-v2**
 
-**Last Updated**: 2026-05-03 (v3.0.0)
+**Last Updated**: 2026-05-03 (v4.0.0)
 
 ---
 
 ## 变更记录 (Changelog)
 
 > 完整变更历史请查看 [CHANGELOG.md](./CHANGELOG.md)
+
+### 2026-05-03 (v4.0.0) — 🚀 里程碑大版本（dogfood 12 phase 重塑）
+
+> 完整发布说明见 [CHANGELOG.md](./CHANGELOG.md#400---2026-05-03) · 升级指引见 [.ccg-migration/v3-to-v4.md](./.ccg-migration/v3-to-v4.md)
+
+#### Context 漂移治理（Phase 1-3）
+- ✨ **`context_budget` frontmatter 硬约束**（commit `099843b`）：4 个主编排器（workflow/execute/team-exec/autonomous）声明 `context_budget: orchestrator-15` + `subagent_freshness: required`，硬约束主线只读元状态
+- ✨ **phase-runner subagent 协议（G 方案）**（commit `5f94ed4`）：主线 spawn 普通 subagent 包裹 codex/gemini rescue，沙箱外补 git/test/typecheck，按 phase Type 字段路由（backend→codex / frontend→gemini / fullstack 串行 / docs→backend default），主线只接 ≤200 token 摘要
+- ✨ **`.context/<phase>/{CONTEXT,SUMMARY}.md` 状态机**（commit `97f3862`）：主线只读 frontmatter（< 200 tokens/phase）
+- ✨ **codebase-mapper agent**（commit `e389bd3`，GSD ROI #1）：4 路并行扫描，产出 `.context/codebase/{STACK,INTEGRATIONS,ARCHITECTURE,STRUCTURE,CONVENTIONS,TESTING,CONCERNS}.md` 7 文件契约
+
+#### 质量门升级（Phase 4 / 6 / 8）
+- ✨ **Scope Reduction Detection**（commit `ce88bac`）：plan-checker 维度 7b，识别 "v1 / 简化 / 静态先 / 后续连接" 关键词 → BLOCKER（与原始需求对比避免误报）
+- ✨ **plan-checker 5 维度 + max-3-loop**（commit `bbab7ed`，GSD ROI #4）：Dim 1/2/5/7b/10 收敛环
+- ✨ **verifier Level 4 数据流**（commit `dd8b854`，GSD ROI #5）：FLOWING / STATIC / DISCONNECTED / HOLLOW_PROP 区分 + Step 3b override 80% 重叠匹配 + Step 9b deferred filtering
+
+#### 异步 + UAT + review-fix + debug 重塑（Phase 7-11）
+- ✨ **异步三件套**（commit `e4bcd83`）：`/ccg:status` / `/ccg:result` / `/ccg:cancel` job-id 化背景任务，存 `.context/jobs/<id>/`
+- ✨ **会话式 UAT + cold-start smoke**（commit `fad9102`，GSD ROI #2）：UAT.md 跨会话 frontmatter resume + git diff 扫 server/database/migrations 自动注入冷启动测试
+- ✨ **/ccg:review --fix --auto + worktree 隔离**（commit `84f4ee4`，GSD #2839/#2990 移植）：code-fixer agent + 4 步 transactional cleanup（merge/remove/branch -D/rm sentinel）严格顺序
+- ✨ **debug-session-manager 双层 fresh-context**（commit `ed3282b`，GSD ROI #3）：manager + debugger 双 subagent，`.context/debug/<slug>.md` 持久 falsifiable hypothesis 链，主线只接 ROOT CAUSE FOUND / DEBUG COMPLETE / CHECKPOINT REACHED
+
+#### 命令面板收敛（Phase 5，commit `747dd4f`）
+- 🚮 **删除 5 命令**：`/ccg:frontend` / `/ccg:backend` / `/ccg:feat` / `/ccg:forensics` / `/ccg:extract-learnings`，迁移见 v3-to-v4.md
+- 🔄 **合并 4 verify-\***：`/ccg:verify-{change,quality,security,module}` → `/ccg:verify --gate=<name>`，旧命令 BC 保留标 `deprecated_in: v4.0`
+- ✨ **新增 `/ccg:verify`** 主命令 + `--gate=all` 等价 verify-work
+- 📊 命令注册表 35 → 31
+
+#### Skill 体系收敛
+- 🔄 **frontend-design / impeccable 改可选安装**（v2.1.11 标记 / v4.0 验证生效）：frontend-design SKILL.md `user-invocable: false`，引流到官方 `claude-plugins-official/frontend-design` plugin
+- 🔄 **domain skills 全 `user-invocable: false`**：10 大领域 61 文件保留作 reference，关键词路由触发自动 Read（不进命令面板）
+
+#### 架构数字
+- 命令 35 → **~30** / Subagent 15 → **19**（+phase-runner / code-fixer / debug-session-manager / debugger）/ 测试 168 → **515** / 包 ~200 KB
+
+#### dogfood 实测
+- 12 phase 全部用 CCG `/ccg:autonomous` 自身长跑完成
+- 主线 context 漂移：T0=31% → T11=49%，**净增量 +18% / 12 phase 平均 +1%/phase**
+- GSD "主线 ≤15% / subagent fresh" 论点经验证成立——前 11 phase fresh-context subagent 路径下主线增量稳定在 +1%/phase
+- 已知约束：phase-runner 普通 subagent 不能嵌套 spawn `Agent(codex/gemini:rescue)`，11 个 phase 全部走 fallback（subagent 自实现而非派发），v4.1 motivation 见 `.ccg-research/07-multimodel-collaboration-rethink.md`
 
 ### 2026-05-03 (v3.0.0) — 🚀 里程碑大版本
 
@@ -248,11 +288,11 @@
 **CCG (Claude + Codex + Gemini)** - 多模型协作系统的核心实现，提供：
 
 1. **多模型协作编排**：可配置路由 Gemini（前端）+ Codex（后端）+ Claude（编排），v2.1.0+ 支持切换
-2. **35 个斜杠命令**：开发工作流 + 自治长跑 + Git 工具 + 项目管理 + OPSX + Agent Teams + Codex 执行 + Prompt 增强 + 经验沉淀 + 健康检查 + Skill Registry 自动生成
+2. **~30 个斜杠命令**：开发工作流 + 自治长跑 + Git 工具 + 项目管理 + OPSX + Agent Teams + Codex 执行 + 异步三件套 + verify 统一入口 + Skill Registry 自动生成
 3. **19 个专家提示词**：Claude 6 个 + Codex 6 个 + Gemini 7 个
-4. **15 个子智能体**：核心 7 个 (planner / ui-ux-designer / init-architect / get-current-datetime / team-architect / team-qa / team-reviewer) + v3.0.0 specialist 矩阵 8 个 (assumptions-analyzer / pattern-mapper / plan-checker / nyquist-auditor / verifier / integration-checker / framework-selector / eval-auditor)
+4. **19 个子智能体**：核心 7 个 (planner / ui-ux-designer / init-architect / get-current-datetime / team-architect / team-qa / team-reviewer) + v3.0.0 specialist 矩阵 8 个 (assumptions-analyzer / pattern-mapper / plan-checker / nyquist-auditor / verifier / integration-checker / framework-selector / eval-auditor) + v4.0 fresh-context 协议 4 个 (phase-runner / code-fixer / debug-session-manager / debugger)
 5. **Skill Registry**：SKILL.md frontmatter 驱动，user-invocable 技能自动生成 slash commands
-6. **100+ 技能文件**：6 质量关卡 + 10 域知识秘典（61 文件）+ 20 impeccable 工具 + scrapling + override-refusal
+6. **100+ 技能文件**：6 质量关卡 + 10 域知识秘典（61 文件，全 `user-invocable: false`）+ 20 impeccable 工具（可选安装）+ scrapling + override-refusal
 7. **跨平台 CLI 工具**：一键安装（支持 macOS、Linux、Windows）
 8. **MCP 集成**：fast-context（推荐）/ ace-tool / ContextWeaver + context7（自动安装）+ Codex & Gemini MCP 同步
 9. **Agent Teams 并行实施**：Team 系列 5 个命令（含统一工作流），spawn Builder teammates 并行写代码
@@ -317,25 +357,32 @@ npx ccg-workflow menu
 | `npx ccg-workflow update` | 更新到最新版本 |
 | `npx ccg-workflow diagnose-mcp` | 诊断 MCP 配置 |
 
-### Slash Commands 接口（29 个）
+### Slash Commands 接口（~30 个）
 
 **开发工作流**：
 | 命令 | 用途 | 模型 |
 |------|------|------|
-| `/ccg:workflow` | 完整 6 阶段工作流 | Codex ∥ Gemini |
+| `/ccg:workflow` | 完整 6 阶段工作流（智能路由前端/后端，v4.0 已吸收 frontend/backend/feat） | Codex ∥ Gemini |
 | `/ccg:plan` | 多模型协作规划（Phase 1-2） | Codex ∥ Gemini |
 | `/ccg:execute` | 多模型协作执行（Phase 3-5） | Codex ∥ Gemini + Claude |
 | `/ccg:codex-exec` | Codex 全权执行计划（MCP + 代码 + 测试） | Codex + 多模型审核 |
+| `/ccg:autonomous` | 跨 phase 自治长跑（按 roadmap.md 顺序执行） | phase-runner |
 | `/ccg:context` | 项目上下文管理（.context 初始化/日志/压缩/历史） | Claude |
-| `/ccg:enhance` | 内置 Prompt 增强，将模糊需求转化为结构化任务描述 | Claude |
-| `/ccg:frontend` | 前端专项（快速模式） | Gemini |
-| `/ccg:backend` | 后端专项（快速模式） | Codex |
-| `/ccg:feat` | 智能功能开发 | 规划 → 实施 |
+| `/ccg:enhance` | 内置 Prompt 增强 | Claude |
 | `/ccg:analyze` | 技术分析（仅分析） | Codex ∥ Gemini |
-| `/ccg:debug` | 问题诊断 + 修复 | Codex ∥ Gemini |
+| `/ccg:debug` | 问题诊断 + 修复（v4.0 manager + debugger 双层 fresh-context） | debug-session-manager |
 | `/ccg:optimize` | 性能优化 | Codex ∥ Gemini |
 | `/ccg:test` | 测试生成 | 智能路由 |
-| `/ccg:review` | 代码审查（自动 git diff） | Codex ∥ Gemini |
+| `/ccg:review` | 代码审查（自动 git diff，v4.0 加 `--fix --auto` worktree 闭环） | Codex ∥ Gemini + code-fixer |
+| `/ccg:verify --gate=<change\|quality\|security\|module\|all>` | 统一 verify 入口（v4.0 合并） | Claude |
+| `/ccg:verify-work` | 变更校验编排器（按变更类型自动选门 + UAT 会话式） | 编排 |
+
+**异步三件套**（v4.0+）：
+| 命令 | 用途 |
+|------|------|
+| `/ccg:status [job-id]` | 列表 / 单查 job 状态（`--wait --timeout-ms` 阻塞） |
+| `/ccg:result <job-id>` | 取最终 verdict / summary / artifacts |
+| `/ccg:cancel <job-id>` | 中止活跃 job |
 
 **项目管理**：
 | 命令 | 用途 |
