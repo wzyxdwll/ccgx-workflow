@@ -64,6 +64,11 @@ const WORKFLOW_CONFIGS: WorkflowConfig[] = [
   cmd('verify', 9.88, 'development', '统一校验关卡', 'Unified Verify Gate', '按 --gate=change|quality|security|module|all 子门路由（v4.0 整合 4 个 verify-* 命令）', 'Unified verify gate with --gate flag (v4.0 consolidation of 4 verify-* commands)'),
   cmd('verify-work', 9.9, 'development', '变更校验编排器', 'Verify Work Orchestrator', '按变更类型自动选择 verify-{module,security,quality,change} 子门聚合报告', 'Auto-select verify-* gates by change type, aggregate report'),
 
+  // ── Async job triplet (v4.0 Phase 7) ─────────────────
+  cmd('status', 9.92, 'development', '后台任务观测', 'Background Job Status', '列出 / 单查 / 阻塞等待 .context/jobs/ 下的后台任务', 'List / inspect / wait on background jobs under .context/jobs/'),
+  cmd('result', 9.94, 'development', '取后台任务结果', 'Background Job Result', '读取 .context/jobs/<id>/result.md，输出 ≤ 200 token 摘要', 'Read .context/jobs/<id>/result.md, return ≤ 200 token summary'),
+  cmd('cancel', 9.96, 'development', '中止后台任务', 'Cancel Background Job', '写 cancel.flag，子任务下次轮询时协作式退出', 'Write cancel.flag for cooperative cancellation by child task'),
+
   // ── Init ─────────────────────────────────────────────
   cmd('init-project', 10, 'init', '项目初始化', 'Project Init', '初始化项目 AI 上下文，生成 CLAUDE.md', 'Initialize project AI context, generate CLAUDE.md', 'init'),
 
