@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.0.1] - 2026-05-04
+
+### 🔬 dogfood 验证后真相校正（不破坏 BC，仅文档/约束精化）
+
+- **引擎层硬约束实测验证**（test commit `a7cdffd`）：用 `Agent(subagent_type="phase-runner")` 真实嵌套 spawn 测试**证伪**了 v4.0 G 方案"双层包裹 codex:rescue"——Claude Code 引擎拒绝任何 subagent spawn `Agent`/`Task`，无论 frontmatter 怎么声明。
+- **真实工作模式确认**：v4.0 12 phase 全跑的 fallback 路径（subagent 自实施）**就是 v4.0 唯一可能的工作模式**，不是 fallback——主线 ≤15% / subagent fresh 论点仍然成立，但隔离层从"主线 ↔ phase-runner ↔ codex"两层校正为"主线 ↔ phase-runner"一层。
+- **phase-runner.md 文档校正**：删 frontmatter 的 `Agent` 工具声明；类型路由表从"按 type spawn 哪个 rescue"改为"按 type 选自实施工作风格"；新增"⚠️ 引擎层硬约束"段说明现状 + 改名 Phase B 段从"派发 rescue"为"实施"；challenger 钩子从"phase-runner 内 spawn"改为"主线扁平化编排"。
+- **测试断言反转**：`src/utils/__tests__/phaseRunner.test.ts` 的"declares Agent in tools list"断言反向——验证 frontmatter `tools:` 行**不**包含 Agent/Task，配套加"documents the engine-layer constraint"断言。
+- **v4.1 plan 修订**：`.claude/plan/v4.1-roadmap.md` 中 Phase 4（challenger）+ Phase 5（debate）改为主线扁平编排（spawn → 摘要 → spawn），phase frontmatter 加 `Critical: true|false` 字段决定是否触发 challenger。
+- **多模型协作再思考**：`.ccg-research/07-multimodel-collaboration-rethink.md` 加引擎层约束发现段，v4.1 改进方向 A/B/C/D 全部改为主线编排路径。
+
+### 🐛 修复
+
+- npm pack `files` 白名单漏 4 个 v4.0 新命令（verify/status/result/cancel.md）+ 5 个已删命令（frontend/backend/feat/forensics/extract-learnings.md）残留（commit `a4f205f`）。
+
+---
+
 ## [4.0.0] - 2026-05-03
 
 > 🚀 **里程碑大版本**：12 phase 内部 dogfood 重塑——Context 漂移治理 + fresh-context subagent 协议 + 5 维度 plan-checker + 异步三件套 + verifier L4 + UAT 会话式 + review --fix worktree 隔离 + debug 双层 manager。**调用面零破坏**——核心命令名/语法不变，5 删 + 4 合并 + 5 新增带来更聚焦的命令面。

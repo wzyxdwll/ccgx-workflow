@@ -25,17 +25,25 @@ describe('phase-runner.md template (Phase 1.5 acceptance a)', () => {
     expect(content).toMatch(/^---[\s\S]*?name:\s*phase-runner[\s\S]*?---/m)
   })
 
-  it('declares Agent in tools list (so it can spawn rescue subagents)', () => {
-    expect(content).toMatch(/^---[\s\S]*?tools:[^\n]*\bAgent\b[\s\S]*?---/m)
+  it('does NOT declare Agent in tools list (engine forbids subagent nest-spawn, see v4.0 dogfood validation 2026-05-04)', () => {
+    // Original v4.0 design wrote `tools: ..., Agent` but Phase test phase-runner-nested-spawn
+    // verified the Claude Code engine does not honor this for sub-agent contexts. Removed to
+    // avoid misleading future maintainers into expecting nested-spawn capability.
+    const toolsLine = content.match(/^tools:\s*(.+)$/m)?.[1] ?? ''
+    expect(toolsLine).not.toMatch(/\bAgent\b/)
+    expect(toolsLine).not.toMatch(/\bTask\b/)
   })
 
-  it('contains Type → rescue subagent routing table', () => {
-    // Backend → codex
-    expect(content).toMatch(/backend.*codex:codex-rescue/i)
-    // Frontend → gemini
-    expect(content).toMatch(/frontend.*gemini:gemini-rescue/i)
-    // Fullstack → both, sequential
-    expect(content).toMatch(/fullstack.*串行.*codex.*gemini|fullstack.*sequential/i)
+  it('documents the engine-layer constraint (subagent cannot nest-spawn Agent)', () => {
+    // Top of file should now include a section explaining why Agent isn't in tools.
+    expect(content).toMatch(/引擎层硬约束|cannot nest-spawn|不能嵌套 spawn/i)
+  })
+
+  it('contains Type → work-style guidance (no rescue routing — engine layer forbids that)', () => {
+    // After v4.1 redesign, Type guides the IMPLEMENTER's own work style, not which subagent to spawn.
+    expect(content).toMatch(/backend/i)
+    expect(content).toMatch(/frontend/i)
+    expect(content).toMatch(/fullstack/i)
   })
 
   it('defines the structured summary protocol fields', () => {

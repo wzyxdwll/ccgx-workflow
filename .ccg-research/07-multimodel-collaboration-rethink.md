@@ -351,6 +351,39 @@ CCG v3.0 有 `assumptions-analyzer` / `nyquist-auditor` / `pattern-mapper` / `pl
 
 ---
 
+## 8b. 2026-05-04 实测校正：引擎层硬约束
+
+**v4.0 dogfood 完成后追加测试**：spawn `Agent(subagent_type="phase-runner")` 让它尝试嵌套 spawn `Agent(subagent_type="codex:codex-rescue")` 验证 G 方案"双层"。
+
+**结果**（test commit `a7cdffd`）：
+
+```
+SPAWN_ATTEMPT: failed
+原因：phase-runner subagent 启动后实际工具列表里**没有 Agent/Task 工具**
+       —— 不论 frontmatter 怎么声明 (`tools: ..., Agent` 是无效声明)。
+```
+
+**意味着**：
+
+- v4.0 设计的"主线 → phase-runner → codex:rescue"双层架构在 Claude Code 引擎层根本不可能
+- 12 phase 全跑的"subagent 自实施" fallback 路径是 v4.0 唯一可能的工作模式
+- GSD `gsd-debug-session-manager` 能用 `Task` 嵌套 spawn `gsd-debugger` 是 GSD 自己定义 subagent 注册时享受的规则，**CCG 这边的 subagent 不享受**
+
+**对本文 4 个改进方向的影响（v4.1 全部主线编排）**：
+
+| 原设计 | 校正后 |
+|--------|--------|
+| 改进 A：specialist matrix 路由（在哪一层选模型）| 不变——本来就是命令模板里写 prompt 风格切换，跟 spawn 嵌套无关 |
+| 改进 B：原生 debate 原语（"一个子 agent 多轮对辩"）| **改主线编排**：A spawn → 接结果 → B spawn → 接结果 → A spawn → 接结果，cap 3 |
+| 改进 C：dedicated challenger 内置（"phase-runner 内 spawn assumptions-analyzer"）| **改主线扁平化**：implementer spawn → 接摘要 → 主线判 Critical → challenger spawn → 主线 spawn implementer 修订 |
+| 改进 D：分级触发 | 不变——本来就是主线判定 |
+
+phase 维度的"Critical 字段"从 v4.1 起作为 challenger 触发 flag。
+
+**核心论点不动**：subagent fresh-context 隔离仍然有效，"主线 ≤15% / subagent fresh"在 12 phase dogfood 中实测 +1%/phase 平均增量——只是隔离层数从 2 校正为 1。
+
+---
+
 ## 9. 总结
 
 CCG v3.0.0 多模型协作的真实形态可以总结为：

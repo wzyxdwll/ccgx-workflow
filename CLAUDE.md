@@ -2,13 +2,20 @@
 
 > [根目录](../CLAUDE.md) > **skills-v2**
 
-**Last Updated**: 2026-05-03 (v4.0.0)
+**Last Updated**: 2026-05-04 (v4.0.1)
 
 ---
 
 ## 变更记录 (Changelog)
 
 > 完整变更历史请查看 [CHANGELOG.md](./CHANGELOG.md)
+
+### 2026-05-04 (v4.0.1) — 🔬 引擎层约束实测校正
+
+- 🔬 **subagent 嵌套 spawn 实测证伪**（test commit `a7cdffd`）：`Agent(subagent_type="phase-runner")` 启动后实际工具列表**不含 Agent/Task**，无论 frontmatter 怎么声明——Claude Code 引擎硬限制（推测防递归失控）。v4.0 G 方案"双层包裹 codex:rescue"在引擎层根本不可能，dogfood 12 phase 全跑的 fallback 路径才是唯一可能的工作模式。
+- ✅ **核心论点仍成立**：主线 ≤15% / subagent fresh 经 12 phase 实测 +1%/phase，只是隔离层从"主线 ↔ phase-runner ↔ codex"两层**校正**为"主线 ↔ phase-runner"一层。
+- 📝 **文档/测试同步修正**：phase-runner.md 删 `Agent` 工具声明 + 加"⚠️ 引擎层硬约束"段；`phaseRunner.test.ts` 反转 `tools` 行 Agent 断言；CHANGELOG 加 v4.0.1 条目。
+- 📋 **v4.1 设计调整**：原计划"phase-runner 内 spawn challenger"改为**主线扁平化编排**（spawn implementer → 接 200-token 摘要 → 主线判 Critical → spawn challenger → spawn implementer 修订）。phase frontmatter 加 `Critical: true|false` 字段。
 
 ### 2026-05-03 (v4.0.0) — 🚀 里程碑大版本（dogfood 12 phase 重塑）
 
@@ -48,7 +55,7 @@
 - 12 phase 全部用 CCG `/ccg:autonomous` 自身长跑完成
 - 主线 context 漂移：T0=31% → T11=49%，**净增量 +18% / 12 phase 平均 +1%/phase**
 - GSD "主线 ≤15% / subagent fresh" 论点经验证成立——前 11 phase fresh-context subagent 路径下主线增量稳定在 +1%/phase
-- 已知约束：phase-runner 普通 subagent 不能嵌套 spawn `Agent(codex/gemini:rescue)`，11 个 phase 全部走 fallback（subagent 自实现而非派发），v4.1 motivation 见 `.ccg-research/07-multimodel-collaboration-rethink.md`
+- 已知约束（**v4.0.1 实测校正**）：**任何 subagent**（含主线注册的自定义类型 phase-runner）启动后工具列表都不含 `Agent`/`Task`——Claude Code 引擎硬限制，与 frontmatter 声明无关。v4.0 G 方案"双层包裹 codex:rescue"在引擎层根本不可能，12 个 phase 走的"subagent 自实施"是唯一可能路径，不是 fallback。GSD `gsd-debug-session-manager` 用 `Task` 工具嵌套 spawn 不直接可对照（GSD subagent 注册到的引擎可能享受不同工具白名单规则，CCG 这边没该能力）。详见 commit `a7cdffd` test phase + `.ccg-research/07-multimodel-collaboration-rethink.md`。
 
 ### 2026-05-03 (v3.0.0) — 🚀 里程碑大版本
 
