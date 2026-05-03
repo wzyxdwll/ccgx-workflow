@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.3.0] - 2026-05-04
+
+> 🎯 **动态防御机制版本**：5 phase dogfood（P25-P29 + P30 收尾）针对 v4.2.x 三连 hotfix（4.2.1 / 4.2.2 / 4.2.3）暴露的根因系统性补齐自动化拦截。**没有引入新用户面 feature**，全部是工程闭环加固——把"靠静态文档 / 未验证假设 / 漏 package.json 白名单"导致的 release-blocker 都变成自动化基础设施。
+
+### ✨ 新功能
+
+- **P25：`pipeline-check` helper**（commit `6378a6e`）：`pnpm pack` + tarball audit + 漏文件检测。直接防御 v4.2.2 `templates/commands/debate.md` 漏 `package.json` `files` 白名单导致 `/ccg:debate` 三个 release 全部不可用同型事故。
+- **P26：`ground-truth-sampler`**（commit `fbf7c3c`）：`/ccg:autonomous` Step 4.0 启动时动态采样 plugin / skill / agent 列表写 `.context/ground-truth/latest.json`，phase-runner prompt 强约束**必须 Read 之**才能引用外部接口。直接防御 v4.2.0-2.2 假设 `codex:codex-rescue` plugin subagent_type（实际 `codex:rescue`）导致三档分级在真用户 spawn 失败的同型事故——动态采样替代静态文档。
+- **P27：`interface-auditor` specialist**（commit `af31f68`）：5 检查清单 SSoT-violation / leftover / magic-string-vs-ground-truth / 未验证假设 / API drift。`/ccg:autonomous` Step 4.4 verify wave 在 `triple` / `debate` 档必跑（`fast` 不跑，节省 wall-clock）。直接防御 v4.2 P22 `buildVerifyWave` 与 P21 `planVerifyWave` 95% 重复的接口债。
+- **P28：fixtures 自动生成 + key mocks 替换**（commit `1602f0e`）：`scripts/regen-fixtures.ts` + `tests/fixtures/ground-truth/*.sample.json` 4 文件 + 替换 `challengerOrchestrator` / `debateOrchestrator` / `verifyOrchestrator` 三个测试文件的 inline mock。直接防御"inline mock 漂移真实接口"风险——`pnpm regen-fixtures` 一键从真采样器重新生成。
+- **P29：`commit-msg-review` git hook**（commit `e6b6db0` + wire-in `89034a7`）：`templates/hooks/ccg-commit-msg-review.cjs` opt-in pre-commit-msg hook，3 启发式（文件名 ⊆ staged / phase tag ↔ staged paths / 操作类型 ↔ diff）。**不自动注册**，仅安装到 `~/.claude/hooks/`，用户按 README 三种方式（per-repo symlink / Husky / `core.hooksPath`）手动启用。
+
+### 🔄 变更
+
+- **`/ccg:autonomous` 默认行为**：Step 4.0 启动时跑 `ground-truth-sampler`（多 ~50ms 开销）；Step 4.4 verify wave 在 triple/debate 档加 `interface-auditor` 第三路 spawn（fast 档不变）。
+- **`phase-runner` prompt 强约束**：涉及 plugin subagent_type / skill 名 / agent 名等外部接口时，**必须 Read** `.context/ground-truth/latest.json`，禁止从训练数据或历史文档猜测（v4.2 fix 的核心教训）。
+- **测试基线**：929 (v4.2.3) → 1078（+149，全部来自 P25-P29，无回归）。
+
+### 🐛 已知 race（待 v4.4）
+
+v4.3 wave 1 dogfood 跑时暴露**新 race 形态**——多 phase-runner 并行 commit 时**互相吸收 staged 文件**：每个 phase-runner 各自 `git add <自己的文件>`，但下一个 `git commit` 把 index 已 staged 的其他 phase 文件**一并带走**，导致 commit message ↔ diff 错配（**内容正确但归属错配**）。这与 v4.1 已知的"多 phase 写同一文件内容覆盖"是两类。
+
+P29 的 `commit-msg-review` hook 启发式 #2（phase tag ↔ staged paths）能**部分**捕获该 race（commit 含他 phase 路径会触发），但不是完整修复。**v4.4 推荐**：用 worktree 隔离每个 phase-runner（参考 GSD `code-fixer` v4.0 P10 review-fix 的 4 步 transactional cleanup 模式：merge / remove / branch -D / rm sentinel）。
+
+### ⚠️ 已知未验证项
+
+- **plugin spawn 真验证**：v4.0.1 commit `a7cdffd` 实测引擎层硬约束 phase-runner 不能 spawn `codex:rescue` / `gemini:rescue` plugin Agent。P25-P29 dogfood 在 CI 跑的全部是**集成测试式模拟**。真用户 cold-start 是首次端到端验证 plugin 路径，5 步骤验证清单见 `.ccg-migration/v4.2-to-v4.3.md`。
+- **commit-msg-review hook 真启用**：CI 不能 `git commit` 触发 hook，hook 行为完全靠 30 单测覆盖。用户首次按 README 启用是首次真链路。
+
+### 📝 影响范围
+
+- 未改：`templates/*` / `src/utils/*` 现有 helper 全部稳定（P25-P29 已落地，P30 仅写文档）。
+- 改：`package.json`（version bump）/ `CHANGELOG.md`（本段）/ `README.md`（v4.3 What's New 段）/ 根 `CLAUDE.md`（Last Updated + 变更记录）/ `.ccg-migration/v4.2-to-v4.3.md`（新建）/ `.claude/team-plan/phase-30-v43-release-report.md`（新建）。
+
+---
+
 ## [4.2.3] - 2026-05-04
 
 > 🚨 **Release-blocker hotfix #2**：v4.2.x 全 release 把 plugin subagent_type 写成 `codex:codex-rescue` / `gemini:gemini-rescue`（重复 codex/gemini 前缀），但 Claude Code plugin marketplace 实际安装的 subagent_type 是 `codex:rescue` / `gemini:rescue`。所有 v4.2 三档分级（triple/debate）和 challenger 路径在真用户环境 spawn 时都会因 subagent-not-found 失败，自动降级到 general-purpose。

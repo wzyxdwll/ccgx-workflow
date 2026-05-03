@@ -1131,3 +1131,133 @@ npm install -g ccg-workflow-4.2.0.tgz
 - **Type**: docs
 - **Critical**: false
 
+
+---
+
+# CCG v4.3 Roadmap — Reality-Anchored Phase-Runner（动态防御机制）
+
+**Started**: 2026-05-04 (planned)
+**Source**: v4.2.x cold-start dogfood 暴露 phase-runner 写代码 8 类错误模式（详见主对话 review）；用户问"phase-runner 写代码错误率"+"静态文档维护不现实" → 选**全动态防御**路线
+**Phase 编号续 v4.2**：25-30
+
+> **核心问题**：v4.0→v4.2.3 全 25 phase dogfood 实测，phase-runner 写代码 100% 都有质量缺陷（半成品 / 接口名靠猜 / mock 自洽 / 算法粗糙 / spec drift / race / install pipeline 漏审 等 8 类）。根因：fresh-context Claude **没 codebase 现实先验**，自写自测自洽。
+>
+> **解决路径**：v4.3 全 5 项机制**用动态行为代替静态文档**——任何防御都不能依赖人手维护文档（CCG 已经做不到自己文档同步）。
+>
+> **chicken-and-egg**：P25 + P26 是 phase-runner 的防御机制，自己得**主线手工实现**（不能交给还会犯错的 phase-runner）；P27-30 用上 P25/P26 能力后才交回 phase-runner。
+
+## v4.3 阶段总览
+
+| Phase | 标题 | Type | 工时 | 依赖 | 实施方 |
+|-------|------|------|------|------|-------|
+| 25 | pipeline check helper（pnpm pack + tarball audit + install dry-run）| backend | 1 天 | — | **主线手工** |
+| 26 | ground-truth-sampler（动态采样 plugins/skills/hooks/package 现实状态）| backend | 1.5 天 | — | **主线手工** |
+| 27 | 跨 phase 接口审计 verifier specialist（审 SSoT / 接口债 / 半成品） | backend | 1.5 天 | 25, 26 | phase-runner |
+| 28 | fixtures 自动从 sampler 生成 + 单测 mock 替换 | backend | 2 天 | 26 | phase-runner |
+| 29 | commit message ↔ diff 一致性 hook（codex review）| backend | 0.5 天 | — | phase-runner |
+| 30 | v4.3 dogfood + v4.3.0 docs + bump 4.2.3→4.3.0 | docs | 1 天 | 25-29 | phase-runner |
+
+**总工时 7.5 天**。预期 phase-runner 错误率从 100%（每 phase 至少 1 类）→ 30-40%。
+
+## Phase 25: pipeline check helper (completed)
+
+- **Started**: 2026-05-04 03:45 | **Completed**: 2026-05-04 03:48 | **Mode**: foreground (主线手工，鸡生蛋)
+- **Commit**: `6378a6e feat(v4.3-p25): pipeline-check helper`
+- **Tests**: 956/956 passed (delta +18)
+- **Outcome**: pipeline-check.ts + 18 单测含 debate.md 漏列同型 fixture 反向验证。autonomous Step 4.4 集成留 P27 做。
+
+- **Goal**: 主线 spawn phase-runner 完成 commit 后自动跑端到端 pipeline 验证：pnpm pack 看 tarball 是否含所有 templates/commands/*.md（v4.2.0 release blocker `debate.md` 漏 package.json files 这种事再发生时立刻被抓）+ install dry-run 模拟
+- **新建** `src/utils/pipeline-check.ts`：
+  - `runPnpmPack(opts)` → 跑 pnpm pack 拿 tarball 路径
+  - `auditTarballContents(tarballPath)` → 解 tar 列文件清单
+  - `verifyAllCommandsIncluded(packageJson, tarballEntries)` → 比对 templates/commands/*.md 实际文件 vs package.json files 数组，找漏列
+  - `dryRunInstall(tarballPath, tempDir)` → 临时目录跑 npm install 模拟
+  - `runPipelineCheck(opts) → PipelineCheckReport`
+- 集成到 autonomous Step 4.4（phase 完成后 verify wave 之后跑 pipeline check）
+- 单测覆盖 + dogfood 风格 fixture（构造一个故意漏列的 package.json，验证 verifyAllCommandsIncluded 抓出）
+- **Type**: backend / **Critical**: true（破坏性引入新质量门）
+
+## Phase 26: ground-truth-sampler (completed)
+
+- **Started**: 2026-05-04 03:48 | **Completed**: 2026-05-04 03:51 | **Mode**: foreground (主线手工)
+- **Commit**: `fbf7c3c feat(v4.3-p26): ground-truth-sampler`
+- **Tests**: 986/986 passed (delta +30)
+- **Outcome**: ~430 行 helper + 30 单测。autonomous Step 4.0 启动采样集成 + phase-runner prompt 强约束留 P27/P28 做。
+
+- **Goal**: 实时从用户机器采样真实状态（plugin 名 / skill 名 / hook event schema / settings.json 字段），输出到 `.context/ground-truth/<timestamp>.json`，phase-runner prompt 强约束 "你写涉及外部接口代码前必须 Read 这份"
+- **新建** `src/utils/ground-truth-sampler.ts`：
+  - `samplePluginList(homeDir)` → 读 ~/.claude/plugins/installed_plugins.json，输出 `{ name, subagent_types: [], version }[]`
+  - `sampleSkillList(homeDir)` → Glob ~/.claude/skills/**/SKILL.md 解析 frontmatter name
+  - `sampleHookSchema(homeDir)` → 读 settings.json hooks 段，输出实际事件名 + matcher 字段类型
+  - `samplePackageStructure(workdir)` → 读 package.json files 数组 + Glob templates/commands/*.md 比对漏列
+  - `sampleAll() → GroundTruth`
+  - `writeGroundTruth(path)` → 写 `.context/ground-truth/<ISO timestamp>.json` + 软链 `latest.json`
+- 集成到 autonomous Step 4.0：每次 autonomous 启动调一次采样
+- phase-runner.md prompt 强约束加段："**外部接口先验**：写涉及 plugin/hook/settings/skill 名的代码前必须 Read .context/ground-truth/latest.json 验证名字真实存在；不许凭训练数据猜"
+- 单测覆盖 + 真采样 dogfood（在 Windows + Unix 跑实际采样验证 schema）
+- **Type**: backend / **Critical**: true
+
+## Phase 27: 跨 phase 接口审计 verifier specialist (completed)
+
+- **Started**: 2026-05-04 03:52 | **Mode**: runner (`--offload`) | **Baseline**: fbf7c3c
+
+- **Goal**: 新增 specialist agent `interface-auditor`，每 phase commit 后主线 spawn 一次审 SSoT 违反 / 接口债 / 半成品（这次 v4.2 P22 重新引入 planVerifyWave 重复实现这种事自动抓）
+- **新建** `templates/commands/agents/interface-auditor.md`：
+  - 输入：当前 commit diff + ground-truth-sampler 输出
+  - 检查清单：
+    1. 是否引入新的 SSoT 违反（重复 type 定义 / 重复实现）
+    2. 是否有 export 但无 consumer（半成品如 v4.1 P19 paths）
+    3. 是否引入 magic string 但不在 ground truth 里（P26 输出对照）
+    4. 是否 commit message 跟 diff 一致（P29 协作）
+    5. mock 数据是否跟 ground truth fixtures 一致（P28 协作）
+  - 输出 ≤200 token 摘要，含 severity（critical / major / info）+ findings
+- 集成 quality-router triple/debate 模式 verify wave 加 interface-auditor 一路
+- 单测覆盖 + 用 v4.2.x 历史 commit 反向验证（应该抓到 P22 planVerifyWave 重复 + P19 paths 半成品）
+- **Type**: backend / **Critical**: true
+
+## Phase 28: fixtures 自动生成 + 测试 mock 替换 (completed)
+
+- **Started**: 2026-05-04 03:52 | **Mode**: runner (`--offload`) | **Baseline**: fbf7c3c
+
+- **Goal**: 测试不再用 inline mock（按假设构造），改用 P26 sampler 自动生成的真实 fixtures。本地装的真用户机器跑一次 sampler，输出存到 `tests/fixtures/ground-truth/`
+- 改 `src/utils/__tests__/*.test.ts` 中关键 mock：
+  - challenger / debate / quality / verify 测试的 PluginAvailability mock 改用 fixture
+  - parseFindings mock 摘要换成真 plugin 输出格式（基于 fixtures）
+- 新建 `tests/fixtures/ground-truth/` 目录，含 sample 真值文件（gitignore 个人信息）
+- CI 跑 sampler 重新生成 fixtures（一次性更新基线）
+- 单测覆盖率 ≥ 938（保持 v4.2.3 基线，可能略增）
+- **Type**: backend / **Critical**: false
+
+## Phase 29: commit message ↔ diff 一致性 hook (completed)
+
+- **Started**: 2026-05-04 03:52 | **Mode**: runner (`--offload`) | **Baseline**: fbf7c3c
+
+- **Goal**: 防 v4.0 P14 / v4.1 P18 那种 commit message 跟实际 diff 描述不一致的 spec drift。实现 git pre-commit hook 用 codex 快速 review
+- **新建** `templates/hooks/ccg-commit-msg-review.cjs`：
+  - 输入：staged diff + commit message
+  - spawn `Agent(codex:rescue, prompt=verify commit message accuracy)` 快速审
+  - 不一致 → 阻断 commit + 提示纠正
+- 集成到 ~/.claude/hooks 系列
+- 单测覆盖（含构造 message 跟 diff 对不上的 case）
+- **Type**: backend / **Critical**: false
+
+## Phase 30: v4.3 dogfood + v4.3.0 docs + bump (completed)
+
+- **Started**: 2026-05-04 04:09 | **Mode**: runner (`--offload`) | **Baseline**: 1602f0e
+
+- **Goal**: v4.3 收尾——E2E 集成测试 / CHANGELOG / README / 根 CLAUDE.md / migration guide v4.2-to-v4.3.md / package.json bump 4.2.3 → 4.3.0
+- **dogfood 验证**：手工构造一个故意会犯错的 phase prompt（如让 phase-runner 引用 'codex:fake-rescue'），验证 P25-29 防御链是否抓出
+- **预期错误率降幅**：从 v4.2.3 cold-start 暴露的 8 类错降到 3-4 类（特别是 install pipeline / 命名靠猜 / 半成品交付 三大类被防）
+- **Type**: docs / **Critical**: false
+
+---
+
+## v4.3 哲学转变
+
+| v4.2 之前 | v4.3 |
+|-----------|------|
+| phase-runner 自实施 + mock 测试自洽 | phase-runner 自实施 + **现实采样防御网** |
+| 静态文档（CLAUDE.md / SKILL.md / external-spec.md）维护现实 | 完全没有需要人手维护的现实 spec 文档（CCG 自己做不到） |
+| 错误等用户 cold-start 暴露 | 错误在 commit 前被 P25 pipeline check / P27 interface-auditor 抓 |
+| 测试覆盖率 = 质量 | 测试质量 = 是否在真 fixtures 上跑 |
+

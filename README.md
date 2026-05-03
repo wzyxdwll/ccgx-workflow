@@ -9,7 +9,7 @@
 [![npm version](https://img.shields.io/npm/v/ccg-workflow.svg)](https://www.npmjs.com/package/ccg-workflow)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Compatible-green.svg)](https://claude.ai/code)
-[![Tests](https://img.shields.io/badge/Tests-913%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-1078%20passed-brightgreen.svg)]()
 [![Follow on X](https://img.shields.io/badge/X-@CCG__Workflow-black?logo=x&logoColor=white)](https://x.com/CCG_Workflow)
 ![star](https://atomgit.com/fengshao1227/ccg-workflow/star/badge.svg)
 
@@ -172,6 +172,26 @@ Supports: npm, homebrew, curl, powershell, cmd.
 | Command | Description |
 |---------|-------------|
 | `/ccg:init` | Initialize project CLAUDE.md |
+
+## What's New in v4.3 (2026-05-04)
+
+> Full release notes in [CHANGELOG.md](./CHANGELOG.md#430---2026-05-04) · Upgrade guide in [.ccg-migration/v4.2-to-v4.3.md](./.ccg-migration/v4.2-to-v4.3.md)
+
+5-phase dogfood (P25-P29 + P30 wrap). Headline: **dynamic defense mechanisms** — every v4.2.x release-blocker root cause now has automated interception.
+
+| Mechanism | Phase | Defends against (real v4.2.x incident) |
+|-----------|-------|----------------------------------------|
+| `pipeline-check` helper | P25 | v4.2.2 `templates/commands/debate.md` missing from `package.json` `files` whitelist (3 broken releases) |
+| `ground-truth-sampler` | P26 | v4.2.0-2.2 assumed `codex:codex-rescue` plugin subagent_type (real: `codex:rescue`) breaking quality tiers |
+| `interface-auditor` specialist | P27 | Cross-phase interface debt (e.g. v4.2 P22 `buildVerifyWave` 95% duplicating P21 `planVerifyWave`) |
+| Fixtures auto-gen | P28 | Inline mocks drifting from real interfaces silently |
+| `commit-msg-review` git hook | P29 | Commit message ↔ diff inconsistency (opt-in, not auto-registered) |
+
+**Default behaviour change (small)**: `/ccg:autonomous` Step 4.0 runs the ground-truth sampler at startup (+~50ms); `triple`/`debate` verify waves include a 3rd `interface-auditor` spawn (`fast` unchanged).
+
+⚠️ **Recommended cold-start validation**: 5-step checklist in [.ccg-migration/v4.2-to-v4.3.md](./.ccg-migration/v4.2-to-v4.3.md) exercises the sampler, pipeline-check, interface-auditor, commit-msg-review hook end-to-end.
+
+⚠️ **Known race for v4.4**: parallel `phase-runner` instances can absorb each other's `git add`-staged files into wrong commits (content correct, attribution wrong). Use worktree isolation in v4.4 (GSD `code-fixer` P10 pattern).
 
 ## What's New in v4.2 (2026-05-04)
 

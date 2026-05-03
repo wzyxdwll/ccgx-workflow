@@ -2,13 +2,30 @@
 
 > [根目录](../CLAUDE.md) > **skills-v2**
 
-**Last Updated**: 2026-05-04 (v4.2.0)
+**Last Updated**: 2026-05-04 (v4.3.0)
 
 ---
 
 ## 变更记录 (Changelog)
 
 > 完整变更历史请查看 [CHANGELOG.md](./CHANGELOG.md)
+
+### 2026-05-04 (v4.3.0) — 🎯 动态防御机制版本（P25-P29 + P30 收尾，5 phase dogfood）
+
+> v4.3 是把 v4.2.x 三连 hotfix（4.2.1 / 4.2.2 / 4.2.3）暴露的根因变成自动化拦截的工程闭环加固版本。**没有引入新用户面 feature**，全部是基础设施层防御。
+
+- ✨ **P25：`pipeline-check` helper**（commit `6378a6e`）：`pnpm pack` + tarball audit + 漏文件检测。防 v4.2.2 `templates/commands/debate.md` 漏 `package.json` `files` 白名单同型事故。
+- ✨ **P26：`ground-truth-sampler`**（commit `fbf7c3c`）：autonomous Step 4.0 启动时动态采样 plugin / skill / agent 列表写 `.context/ground-truth/latest.json`，phase-runner prompt 强约束**必须 Read 之**才能引用外部接口。防 v4.2.0-2.2 假设 `codex:codex-rescue` plugin subagent_type（实际 `codex:rescue`）同型事故——动态采样替代静态文档。
+- ✨ **P27：`interface-auditor` specialist**（commit `af31f68`）：5 检查清单 SSoT-violation / leftover / magic-string-vs-ground-truth / 未验证假设 / API drift。autonomous Step 4.4 verify wave 在 `triple` / `debate` 档加 3rd spawn（`fast` 不加）。防 v4.2 P22 `buildVerifyWave` 与 P21 `planVerifyWave` 95% 重复的接口债。
+- ✨ **P28：fixtures 自动生成 + key mocks 替换**（commit `1602f0e`）：`scripts/regen-fixtures.ts` + `tests/fixtures/ground-truth/*.sample.json` 4 文件 + 替换 challenger / debate / verify 三个测试 inline mock。`pnpm regen-fixtures` 一键重新生成。
+- ✨ **P29：`commit-msg-review` git hook**（commit `e6b6db0` + wire-in `89034a7`）：`templates/hooks/ccg-commit-msg-review.cjs` opt-in pre-commit-msg hook，3 启发式（文件名 ⊆ staged / phase tag ↔ staged paths / 操作类型 ↔ diff）。**不自动注册**，安装到 `~/.claude/hooks/`，用户按 README 三种方式手动启用。
+- 🔄 **autonomous 默认行为微变化**：Step 4.0 启动跑 sampler（+~50ms）；triple/debate verify wave 多一路 interface-auditor spawn。
+- 🐛 **已知 race（待 v4.4）**：v4.3 wave 1 dogfood 暴露多 phase-runner 并行 commit 时**互相吸收 staged 文件**——内容正确但归属错配（与 v4.1 src/index.ts 内容覆盖式 race 不同）。P29 hook 启发式 #2 部分捕获，完整修复推荐 v4.4 用 worktree 隔离 phase-runner（GSD `code-fixer` P10 模式）。
+- 📊 **架构数字**：测试 929 → **1078**（+149），src/utils helpers + 1 (`interface-auditor.ts`)，新 hook + 1 (`ccg-commit-msg-review.cjs`)，新 specialist agent + 1 (`interface-auditor.md`)，新 skill scripts + 2 (sampler / pipeline-check)。
+
+#### 关于 P30 收尾本身
+
+P30 是 docs 类型 phase：版本 bump 4.2.3 → 4.3.0，CHANGELOG / README / 根 CLAUDE.md / 新建 `.ccg-migration/v4.2-to-v4.3.md` / 新建 phase-30 报告。无 src/ / templates/ 改动，无新测试。
 
 ### 2026-05-04 (v4.2.0) — 🎯 多模型协作深度升级版（P21-P23 三 phase dogfood）
 
