@@ -167,6 +167,17 @@ subagent_freshness: required
 
 用 `AskUserQuestion` 让用户选择。**重试**最多再走一轮 wave 调度，第二次仍失败则强制选 2/3。
 
+### Step 5.5: Frontmatter-only Summary 读取（v4.0 Phase 2 状态机）
+
+**核心契约**：Lead 不接 Builder 的全部 stdout。每个 Builder 完成任务后，**必须由 Lead 读取该任务对应的 `.context/<phase>/SUMMARY.md` 的 YAML frontmatter**——不读 body，不读 builder transcript。
+
+- `<phase>` 取计划文件主名（如 `.claude/team-plan/user-auth.md` → `user-auth`）。
+- frontmatter 字段（与 `/ccg:execute` 5.3 写入约定一致）：`phase`, `plan`, `provides`, `affects`, `key_files`, `completed`, `completed_at`, `notes`。
+- **预算硬约束**：单个 SUMMARY.md frontmatter < 200 tokens，5 个 phase 累计 < 1000 tokens 进入 orchestrator context。如某 SUMMARY 超出 200 tokens，截断 `notes` 字段并记录到 state.md 的 Notes 段。
+- **缺失处理**：若 Builder 没写 SUMMARY.md（异常退出 / 老版本 plan 文件），Lead 把对应任务标 `failed` 而非凭 builder 消息推断状态。
+
+读取实现（推荐用 `src/utils/phase-context.ts` 暴露的 `readSummaryFrontmatter()`，等价于 Read SUMMARY.md 后只取 `---...---` 之间的内容）。
+
 ### Step 6: 汇总 + 清理
 
 1. **汇总报告**：

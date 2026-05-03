@@ -31,3 +31,18 @@ export {
   checkForUpdates,
   compareVersions,
 } from './utils/version'
+export {
+  contextPath,
+  extractFrontmatter,
+  parseFrontmatterFields,
+  phaseDir,
+  readContext,
+  readSummary,
+  readSummaryFrontmatter,
+  sanitizePhase,
+  summaryPath,
+  summaryTokenEstimate,
+  writeContext,
+  writeSummary,
+} from './utils/phase-context'
+export type { PhaseContext, PhaseSummary } from './utils/phase-context'

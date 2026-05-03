@@ -265,9 +265,38 @@ TaskOutput({ task_id: "<task_id>", block: true, timeout: 600000 })
 3. 执行必要的修复
 4. 修复后按需重复 Phase 5.1（直到风险可接受）
 
-#### 5.3 交付确认
+#### 5.3 写入 phase-scoped SUMMARY.md（v4.0 Phase 2 状态机）
 
-审计通过后，向用户报告：
+**强制**：每完成一个 plan 后，写 `.context/<phase>/SUMMARY.md` 让上层 orchestrator（autonomous / team-exec）只读 frontmatter（< 200 tokens / phase）就能决策推进，避免接整段 builder stdout 污染主线 context。
+
+`<phase>` = 计划文件主名（如 `user-auth.md` → `user-auth`），与 `/ccg:plan` 写 CONTEXT.md 的目录约定一致。
+
+**SUMMARY.md frontmatter 必含字段（机器可读契约）**：
+
+```yaml
+---
+phase: user-auth
+plan: .claude/plan/user-auth.md
+provides: [<本 phase 产出的能力或模块名>]
+affects: [<受影响的文件/模块>]
+key_files: [<本 phase 实际改动的关键文件>]
+completed: true
+completed_at: <ISO8601 时间>
+notes: <一行收尾说明，可省略>
+---
+```
+
+字段语义：
+- `provides` — 下游 phase 可引用的输出（API/模块/契约）
+- `affects` — 横向耦合面，给 orchestrator 做依赖图用
+- `key_files` — 真正落盘的产物文件路径
+- `completed` — `true` 表示 acceptance 全过；`false` 表示 partial（需要主线接手）
+
+由 Claude 用 Write 工具直接落盘 `<WORKDIR>/.context/<phase>/SUMMARY.md`。目录不存在自动创建。**外部模型不写**——这是主线的契约边界。
+
+#### 5.4 交付确认
+
+审计通过且 SUMMARY.md 写入后，向用户报告：
 
 ```markdown
 ## ✅ 执行完成
@@ -280,6 +309,9 @@ TaskOutput({ task_id: "<task_id>", block: true, timeout: 600000 })
 ### 审计结果
 - {{BACKEND_PRIMARY}}：<通过/发现 N 个问题>
 - {{FRONTEND_PRIMARY}}：<通过/发现 N 个问题>
+
+### Phase 状态
+- `.context/<phase>/SUMMARY.md` 已写入（completed: true / false）
 
 ### 后续建议
 1. [ ] <建议的测试步骤>

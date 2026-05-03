@@ -190,7 +190,24 @@ TaskOutput({ task_id: "<task_id>", block: true, timeout: 600000 })
 
 1. 向用户展示完整实施计划（含伪代码）
 2. 将计划保存至 `.claude/plan/<功能名>.md`（功能名从需求中提取，如 `user-auth`、`payment-module` 等）
-3. 以**加粗文本**输出提示（必须使用实际保存的文件路径）：
+3. **写 phase-scoped CONTEXT.md**（v4.0 Phase 2 状态机）：把本次 plan 的冻结决策固化到 `.context/<phase>/CONTEXT.md`，下游 `/ccg:execute` 与 `/ccg:team-exec` 仅读此文件的 YAML frontmatter 即可获得全部决策（< 200 tokens / phase）。**目录约定**：`<phase>` 取计划文件主名（如 `user-auth`），用 `sanitizePhase()` 规范化非法字符。
+
+   **CONTEXT.md 必含 frontmatter 字段（机器可读契约）**：
+   ```yaml
+   ---
+   phase: user-auth
+   plan: .claude/plan/user-auth.md
+   goal: <一句话目标>
+   decisions: [<决策1>, <决策2>, ...]
+   constraints: [<约束1>, <约束2>, ...]
+   files: [<关键文件1>, <关键文件2>, ...]
+   created_at: <ISO8601 时间>
+   ---
+   ```
+
+   写入由主线 `Bash` 调用完成（节点脚本 / 直接 Write 工具均可），路径 = `<WORKDIR>/.context/<phase>/CONTEXT.md`，目录不存在自动创建。**写完立即进入下一步，不阻塞**。
+
+4. 以**加粗文本**输出提示（必须使用实际保存的文件路径）：
 
    ---
    **📋 计划已生成并保存至 `.claude/plan/实际功能名.md`**
@@ -206,7 +223,7 @@ TaskOutput({ task_id: "<task_id>", block: true, timeout: 600000 })
 
    **⚠️ 注意**：上面的 `实际功能名.md` 必须替换为你实际保存的文件名！
 
-4. **立即终止当前回复**（Stop here. No more tool calls.）
+5. **立即终止当前回复**（Stop here. No more tool calls.）
 
 **⚠️ 绝对禁止**：
 - ❌ 问用户 "Y/N" 然后自动执行（执行是 `/ccg:execute` 的职责）
