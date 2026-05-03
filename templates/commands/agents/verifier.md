@@ -79,11 +79,55 @@ grep -r "import.*LoginForm" src/
 grep -r "LoginForm" src/ | grep -v "import"
 ```
 
+### Step 3b: Override 机制（VERIFICATION.md frontmatter）
+
+**目的**：用户认可的合理偏离不应每次都被打成 FAIL。Verifier 接受 `VERIFICATION.md` frontmatter 的 `overrides:` 字段，命中后该 must_have 标 `PASSED (override)`，**仍然算入通过分**。
+
+**契约结构**：
+
+```yaml
+---
+overrides:
+  - must_have: "Users can reset password via email link"
+    reason: "OAuth-only flow accepted; password reset deferred to Phase 12"
+    accepted_by: "product-owner"
+    accepted_at: "2026-05-03T10:00:00Z"
+---
+```
+
+**匹配算法**（80% token 重叠）：
+
+1. tokenize must_have 和 override 的 `must_have` 字段（小写 + 拆词 + 去停用词；中文按字符级保留）
+2. 计算重叠比 = (must_have ∩ override.must_have) / |must_have tokens|
+3. 重叠比 ≥ **0.8** 即视为命中 → 标 `PASSED (override)`，附 `reason / accepted_by / accepted_at` 作为证据
+4. 重叠比 < 0.8 → 不视为 override，按正常 4 层校验流程继续
+
+**禁止**：reason 为空字符串视为无效 override；缺 `accepted_by` 视为未审批，按 FAIL 处理。
+
+**实现参考**：`src/utils/verifier-level-4.ts` 的 `matchOverride()` 函数提供纯函数实现，verifier 在自动化场景下可直接调用，避免每次重新推理。
+
 ### Step 4: 数据流追溯（Level 4）
-对渲染动态数据的组件 / 页面：
-1. 找到状态变量（useState / useQuery / useStore）
-2. 反向追溯数据源（fetch / 查询 / store）
-3. 验证源头确实产出真实数据，不是 `[]` / `{}` / 硬编码
+
+**目的**：解决"看起来都连上了，但实际渲染空数据"——这是 GSD 真实事故里最大类的 stub。三层校验全过但 Level 4 不通过，必须按 Level 4 状态降级判决。
+
+**4 个数据流状态**（最严格优先）：
+
+| 状态 | 定义 | 判决 |
+|------|------|------|
+| ✅ **FLOWING** | 数据源（fetch / useQuery / prisma.findMany / axios）真返回数据，无静态兜底 | 计 PASS |
+| ⚠ **STATIC** | 调用了 fetch 但失败时静态兜底（`\|\| []` / `?? {}` / `setFoo([])` in `.catch`），渲染可能为空 | 计 FAIL（除非 override） |
+| ❌ **DISCONNECTED** | 找到 `useState` / `useStore` 但无任何数据源调用 | 计 FAIL |
+| ❌ **HOLLOW_PROP** | 父组件硬编码地把 `[]` / `{}` 传给子组件 prop（如 `<List items={[]} />`）| 计 FAIL |
+| ➖ **NO_DYNAMIC** | 组件不渲染动态数据（纯静态展示） | 跳过 Level 4 |
+
+**判定算法**（与 GSD `gsd-verifier.md:264-319` 对齐）：
+
+1. **触发判断**：组件源代码包含 `useState` / `useReducer` / `useQuery` / `useSWR` / `useStore` / `useSelector` / `fetch(` / `axios.*(` / `prisma.*.findMany|findUnique|findFirst|count` / `.query(` 任一即视为动态组件
+2. **HOLLOW_PROP 优先**：扫描 JSX 中是否有 `<Component prop={[]} />` 或 `<Component prop={{}} />`——命中即 HOLLOW_PROP（无论其他状态）
+3. **STATIC 检测**：有数据源调用 + 命中静态兜底（`\|\| []` / `\|\| {}` / `?? []` / `?? {}` / `.catch(() => [])` / `setFoo([])`）→ STATIC（**保守判**：不区分有无真返回，命中 fallback 即降级）
+4. **FLOWING / DISCONNECTED**：有数据源无静态兜底 → FLOWING；有 stateVar 但无 dataSource → DISCONNECTED
+
+**实现参考**：`src/utils/verifier-level-4.ts` 的 `traceDataFlow()` / `extractStateVars()` / `extractDataSources()` / `extractHollowProps()` 等纯函数。
 
 ### Step 5: 运行时验证（按需补充）
 Step 2 已跑构建/测试基线。本步针对**单条需求**做点对点验证：
@@ -105,11 +149,31 @@ node -e "require('./dist/x').foo()"       # 模块加载 + 行为
 ### Step 7: 矩阵化判决
 | 状态 | 触发条件 |
 |------|---------|
-| ✅ **PASS** | 所有 4 层都通过 + 命令输出符合预期 + 构建门通过 |
-| ❌ **FAIL** | 任一层缺失 / stub / 数据未流通 |
+| ✅ **PASS** | 所有 4 层都通过（数据流 = FLOWING 或 NO_DYNAMIC） + 命令输出符合预期 + 构建门通过 |
+| ✅ **PASSED (override)** | 命中 VERIFICATION.md frontmatter overrides（80% token 重叠 + 完整 reason/accepted_by/accepted_at），算入通过分 |
+| ❌ **FAIL** | 任一层缺失 / stub / 数据未流通（数据流 ∈ {STATIC, DISCONNECTED, HOLLOW_PROP}） |
 | ⚠ **PARTIAL** | Happy path 通了但边界未覆盖 / 实现存在但未接通 / 构建门未过但需求层通过 |
+| ⏭ **DEFERRED** | gap 在后续 phase 的 goal/SC 中显式覆盖（Step 9b 过滤），不计入本 phase 的 FAIL 数 |
 
 **构建门与需求矩阵的关系**：构建失败不直接把单条需求打成 FAIL，但若多条 PASS 的需求依赖该构建产物，则降级为 PARTIAL，并在最终判决处汇总。
+
+### Step 9b: 推迟项过滤（deferred filtering）
+
+**目的**：不是所有 gap 都是 gap——若某 gap 在后续 phase（roadmap 里尚未开始的 phase）的 `goal` 或 `success_criteria` 中被显式覆盖，应挪到 `deferred` 列表，**不影响本 phase status**。
+
+**判定算法**（保守匹配——不明确即当真 gap，与 GSD `gsd-verifier.md:521-548` 对齐）：
+
+1. 从 `.ccg/roadmap.md` 提取所有"未开始 / 未完成"phase 的 `goal` + `success_criteria`
+2. 对每个候选 gap：
+   - 提取 gap 描述中的领域关键词（去停用词，长度 ≥ 2）
+   - 对每个未来 phase，统计 `goal + success_criteria` 中包含多少 gap 关键词
+   - **至少 ≥3 个关键词命中** 或 **≥50% 关键词命中** → 视为该 phase 覆盖此 gap
+3. 命中即把 gap 从 `gaps:` 移到 `deferred:` 列表，附 `addressed_in: <phase-id>` 和命中关键词作为证据
+4. 不命中 → 留在 `gaps:` 视为真 gap
+
+**实现参考**：`src/utils/verifier-level-4.ts` 的 `checkDeferred()` 函数。
+
+**保守原则**：宁可把 gap 误标为真 gap（让用户决定推迟），也不要错误推迟（让真问题溜过）。
 
 ## 输出格式
 
