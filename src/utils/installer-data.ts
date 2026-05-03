@@ -56,6 +56,7 @@ const WORKFLOW_CONFIGS: WorkflowConfig[] = [
   cmd('test', 8, 'development', '测试生成', 'Test Generation', '智能路由测试生成', 'Smart routing test generation'),
   cmd('review', 9, 'development', '代码审查', 'Code Review', '双模型代码审查，无参数时自动审查 git diff', 'Dual-model code review, auto-review git diff when no args'),
   cmd('enhance', 9.5, 'development', 'Prompt 增强', 'Prompt Enhancement', 'ace-tool Prompt 增强工具', 'ace-tool prompt enhancement'),
+  cmd('debate', 9.55, 'development', '多轮对辩原语', 'Multi-round Debate', '主线编排 codex propose ↔ gemini challenge ↔ codex respond，cap N 轮或自报无 critical 即停（v4.1 Phase 17）', 'Main-thread orchestrated A↔B multi-round debate (propose/challenge/respond), caps at N rounds or convergence signal'),
 
   // ── Autonomous & quality gates (v3.0.0+, v4.0 consolidation) ──
   cmd('autonomous', 1.7, 'development', '跨 phase 自治长跑', 'Autonomous Long-run', '按 .ccg/roadmap.md 顺序执行多 milestone，自动循环 research→plan→exec→review，仅 blocker 暂停', 'Execute roadmap phases autonomously, pause only on blockers'),

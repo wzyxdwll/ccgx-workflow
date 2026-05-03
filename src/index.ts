@@ -88,3 +88,18 @@ export {
   parseFrontmatter,
 } from './utils/skill-registry'
 export type { SkillCategory, SkillMeta, SkillRuntimeType } from './utils/skill-registry'
+// v4.1-p17: /ccg:debate primitive — multi-round propose/challenge/respond orchestrator
+export {
+  debateStateMachine,
+  parseRoundSummary,
+  shouldStop,
+} from './utils/debate-orchestrator'
+export type {
+  DebateFallbackReason,
+  DebateLayer,
+  DebateModel,
+  DebateOptions,
+  DebateRoundKind,
+  DebateRoundPlan,
+  RoundSummary,
+} from './utils/debate-orchestrator'
