@@ -202,10 +202,11 @@ describe('integration: real templates with skip mode', () => {
     return content.includes('{{MCP_SEARCH_TOOL}}')
   })
 
-  // Sanity check: we expect at least 10 files with MCP references
-  // (v4.0: dropped frontend.md/backend.md/feat.md → expected count reduced from 14 to 10)
+  // Sanity check: we expect at least 8 files with MCP references
+  // (v4.0: dropped frontend.md/backend.md/feat.md → 14 → 10)
+  // (v4.1-p18: dropped team-research/team-plan/team-review/health/map-codebase → 10 → 8)
   it('finds templates containing {{MCP_SEARCH_TOOL}}', () => {
-    expect(filesWithMcpRef.length).toBeGreaterThanOrEqual(10)
+    expect(filesWithMcpRef.length).toBeGreaterThanOrEqual(8)
   })
 
   for (const file of filesWithMcpRef) {

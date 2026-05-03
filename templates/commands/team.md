@@ -1,7 +1,23 @@
 ---
-description: 'Agent Teams 8 阶段企业级工作流 - 7 角色全流程统一编排（需求→架构→规划→开发→测试→审查→修复→集成）'
+description: 'Agent Teams 8 阶段企业级工作流 - 7 角色全流程统一编排（含 research/plan/review 子命令路由）'
 ---
 <!-- CCG:TEAM:UNIFIED:START -->
+
+## 子命令路由（v4.1-p18）
+
+`/ccg:team` 同时承载子命令调度。根据 `$ARGUMENTS` 第一个 token 路由到具体阶段：
+
+| 子命令 | 含义 | 替代旧命令 |
+|--------|------|----------|
+| `/ccg:team` (无参 / 任意非保留字)        | 8 阶段全流程         | （主流程） |
+| `/ccg:team research <需求>`              | 仅跑需求研究阶段       | `/ccg:team-research`（v4.1 删除） |
+| `/ccg:team plan <约束文件>`              | 仅跑规划阶段          | `/ccg:team-plan`（v4.1 删除） |
+| `/ccg:team review [git-range]`           | 仅跑双模型审查阶段     | `/ccg:team-review`（v4.1 删除） |
+| `/ccg:team exec <plan-file>`             | 仅跑并行实施阶段       | 等价 `/ccg:team-exec` |
+
+> **路由规则**：将 `$ARGUMENTS` 拆分为 `[subcmd, ...rest]`。若 `subcmd ∈ {research, plan, review, exec}`，跳到对应 Phase（Research → Phase 1 / plan → Phase 3 / review → Phase 6 / exec → Phase 4）；否则走完整 Phase 0-8。
+
+---
 
 ⛔⛔⛔ **CRITICAL HARD RULE — AGENT TEAMS ONLY** ⛔⛔⛔
 

@@ -98,6 +98,7 @@ export async function setupCommands(cli: CAC): Promise<void> {
     .option('--force, -f', i18n.t('cli:help.optionDescriptions.forceOverwrite'))
     .option('--skip-prompt, -s', i18n.t('cli:help.optionDescriptions.skipAllPrompts'))
     .option('--skip-mcp', 'Skip MCP configuration (used during update)')
+    .option('--sync', 'List installed files that no longer exist in current templates (v4.1+)')
     .option('--frontend, -F <models>', i18n.t('cli:help.optionDescriptions.frontendModels'))
     .option('--backend, -B <models>', i18n.t('cli:help.optionDescriptions.backendModels'))
     .option('--mode, -m <mode>', i18n.t('cli:help.optionDescriptions.collaborationMode'))

@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.1.0] - 2026-05-04
+
+> 🎯 **使用体验精修版**：8 phase 串行 dogfood 完成（P13-P20）。无破坏性变更，命令面板瘦身 / 默认行为优化 / 新原语注入。CHANGELOG 行号 = phase 编号。
+
+### ✨ 新功能
+
+- **P13: SessionStart hook**（commit `cedd87b`）：新会话自动注入 `.ccg/roadmap.md` 头部 + 当前 active phase SUMMARY 到主线 context（≤200 tokens），解决 v4.0 `/clear` 后主线零项目记忆痛点。
+- **P14: autonomous wave 并行**（commit `cf75d70`）：默认 wave 并行（Kahn 拓扑分波 + cascade skip + max-concurrent batching）；`--sequential` opt-out；`--max-concurrent N` 默认 4。墙钟时间压缩 30-40%。新建 `src/utils/wave-scheduler.ts`（~280 行）+ 51 单测。
+- **P15: specialist matrix 路由**（commit `b6100c2`）：`role × layer` 二维分发 specialist subagent，`templates/scripts/invoke-model.mjs` 加 `--role` flag 路由。
+- **P16: challenger 主线扁平编排**（commit `5f590f3`）：Critical phase 主线 spawn implementer → 接 200-token 摘要 → 主线判 Critical → spawn challenger（assumptions-analyzer / nyquist-auditor）→ spawn implementer 修订。phase frontmatter 加 `Critical: true|false` 字段。
+- **P17: `/ccg:debate` 原语**（commit `a5125e7`）：多轮 propose/challenge/respond 对辩，cap N 轮或自报无 critical 即停。输出 `.context/debate/<slug>.md` 完整 transcript + final synthesis。
+- **P18: 命令面板瘦身 + skill 路径过滤**（本版本）：
+  - 删除 `team-research.md` / `team-plan.md` / `team-review.md` / `health.md` / `map-codebase.md`
+  - `/ccg:team` 加子命令路由：`research|plan|review|exec`
+  - 新建 4 个 skill：`templates/skills/tools/{health,map-codebase,extract-learnings,forensics}/SKILL.md`，自动生成同名 `/ccg:<name>` 命令（skill rule-engine 驱动）
+  - **新增 `ccg init --sync`**：列出本地装但模板已删的文件，按 namespace 隔离 + 交互确认删除
+  - **新增 `matchSkillPaths` / `filterSkillsByPaths`**（skill-registry.ts）：消费 P19 解析的 `paths:` 字段，glob 匹配项目文件树决定 skill 是否激活
+  - 单测：17 个 skill 路径过滤测试 + 7 个 sync 模式测试
+- **P19: skill 体系优化**（commit `8654fcb`）：`context: fork`（heavy skill 走 fresh-context subagent）/ `paths:` glob 限定 / 描述 i18n 翻译。
+- **P20: codeagent-wrapper 退役准备**（commit `0d780fe`）：6 核心命令支持 plugin Agent 直接 spawn 路径，wrapper shim 标 deprecated（v5.0 删除目标）。
+
+### 🔄 变更
+
+- **autonomous 默认行为反转**：`/ccg:autonomous` 默认 wave 并行，`--sequential` opt-out（原 v4.0：默认 sequential，`--parallel` opt-in）。
+- **命令面板**：33 → 28 注册命令（installer-data.ts），用户可见 ~31 → ~26（含 skill 自动生成）。
+- **package.json files allowlist**：移除 5 个已删模板路径。
+- **README.md / CLAUDE.md / templates/CLAUDE.md**：v4.1 命令分组同步。
+
+### 🚮 移除
+
+- `templates/commands/team-research.md` / `team-plan.md` / `team-review.md` / `health.md` / `map-codebase.md`（功能 100% 保留，路径变更）
+
+### 📝 文档
+
+- 新建 `.ccg-migration/v4-to-v4.1.md`：完整迁移指南（命令替换表 / 默认行为变更 / wrapper deprecation / sync 模式 / paths 消费 / SessionStart hook）
+- CHANGELOG / README / CLAUDE.md / templates/CLAUDE.md 同步 v4.1 命令数和 skill 数
+
+### 📊 架构数字
+
+- 命令注册表 33 → **28**
+- 用户可见命令 ~31 → **~26**
+- 测试 757 → **775+**
+- subagent 19（不变）
+- skill 顶层目录 30 → **34**（+health, +map-codebase, +extract-learnings, +forensics）
+- 包体积 ~200 KB（不变）
+
+---
+
 ## [4.0.1] - 2026-05-04
 
 ### 🔬 dogfood 验证后真相校正（不破坏 BC，仅文档/约束精化）

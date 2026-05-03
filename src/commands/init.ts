@@ -7,7 +7,7 @@ import { homedir } from 'node:os'
 import { join } from 'pathe'
 import { i18n, initI18n } from '../i18n'
 import { createDefaultConfig, ensureCcgDir, getCcgDir, readCcgConfig, writeCcgConfig } from '../utils/config'
-import { getAllCommandIds, installAceTool, installAceToolRs, installContextWeaver, installFastContext, installMcpServer, installWorkflows, showBinaryDownloadWarning, syncMcpToCodex, syncMcpToGemini, writeFastContextPrompt } from '../utils/installer'
+import { computeSyncReport, getAllCommandIds, installAceTool, installAceToolRs, installContextWeaver, installFastContext, installMcpServer, installWorkflows, showBinaryDownloadWarning, syncMcpToCodex, syncMcpToGemini, writeFastContextPrompt } from '../utils/installer'
 import { isWindows } from '../utils/platform'
 import { migrateToV1_4_0, needsMigration } from '../utils/migration'
 
@@ -188,6 +188,14 @@ export async function init(options: InitOptions = {}): Promise<void> {
   console.log(ansis.cyan.bold(`  CCG - Claude + Codex + Gemini`))
   console.log(ansis.gray(`  Multi-Model Collaboration Workflow`))
   console.log()
+
+  // ═══════════════════════════════════════════════════════
+  // v4.1-p18: --sync mode (read-only diff + interactive prune)
+  // ═══════════════════════════════════════════════════════
+  if (options.sync) {
+    await runSyncMode(options)
+    return
+  }
 
   // ═══════════════════════════════════════════════════════
   // Step 0: Language selection (FIRST interactive step)
@@ -1208,4 +1216,101 @@ export async function init(options: InitOptions = {}): Promise<void> {
     spinner.fail(ansis.red(i18n.t('init:installFailed')))
     console.error(error)
   }
+}
+
+// ═══════════════════════════════════════════════════════
+// v4.1-p18: Sync mode — read-only diff + interactive prune
+//
+// Walks ~/.claude/{commands,agents,skills}/ccg/ and lists files NO LONGER
+// present in current bundled templates. Never auto-deletes — always asks.
+// Namespace prefix `ccg/` ensures we only touch CCG-installed files.
+// ═══════════════════════════════════════════════════════
+async function runSyncMode(options: InitOptions): Promise<void> {
+  const installDir = options.installDir || join(homedir(), '.claude')
+
+  console.log(ansis.cyan(`📂 ${i18n.t('init:sync.scanning', { dir: installDir, defaultValue: `Scanning ${installDir} ...` })}`))
+  console.log()
+
+  let report
+  try {
+    report = await computeSyncReport(installDir)
+  }
+  catch (error) {
+    console.log(ansis.red(`Sync scan failed: ${error}`))
+    return
+  }
+
+  const totalStale = report.staleCommands.length + report.staleAgents.length + report.staleSkills.length
+  if (totalStale === 0) {
+    console.log(ansis.green(`✓ All installed CCG files match current templates (${report.installedCommands} commands, ${report.installedAgents} agents, ${report.installedSkills} skills).`))
+    if (report.errors.length > 0) {
+      console.log()
+      console.log(ansis.yellow('Warnings during scan:'))
+      for (const err of report.errors) console.log(ansis.gray(`  - ${err}`))
+    }
+    return
+  }
+
+  console.log(ansis.yellow(`Found ${totalStale} file(s) installed locally but no longer in templates:`))
+  console.log()
+
+  if (report.staleCommands.length > 0) {
+    console.log(ansis.cyan(`  Commands (${report.staleCommands.length}):`))
+    for (const f of report.staleCommands) console.log(`    - ${f}`)
+    console.log()
+  }
+  if (report.staleAgents.length > 0) {
+    console.log(ansis.cyan(`  Agents (${report.staleAgents.length}):`))
+    for (const f of report.staleAgents) console.log(`    - ${f}`)
+    console.log()
+  }
+  if (report.staleSkills.length > 0) {
+    console.log(ansis.cyan(`  Skills (${report.staleSkills.length}):`))
+    for (const f of report.staleSkills) console.log(`    - ${f}`)
+    console.log()
+  }
+
+  if (report.errors.length > 0) {
+    console.log(ansis.yellow('Warnings during scan:'))
+    for (const err of report.errors) console.log(ansis.gray(`  - ${err}`))
+    console.log()
+  }
+
+  if (options.skipPrompt) {
+    console.log(ansis.gray(`(--skip-prompt set, NOT deleting. Re-run without --skip-prompt to interactively prune.)`))
+    return
+  }
+
+  const { confirm } = await inquirer.prompt([{
+    type: 'confirm',
+    name: 'confirm',
+    message: 'Delete the listed stale files? (only files under ccg/ namespace will be touched)',
+    default: false,
+  }])
+
+  if (!confirm) {
+    console.log(ansis.gray('Skipped. No files deleted.'))
+    return
+  }
+
+  // Perform the deletes
+  const commandsDir = join(installDir, 'commands', 'ccg')
+  const agentsDir = join(installDir, 'agents', 'ccg')
+  const skillsDir = join(installDir, 'skills', 'ccg')
+  let deleted = 0
+
+  for (const f of report.staleCommands) {
+    try { await fs.remove(join(commandsDir, f)); deleted++ }
+    catch (error) { console.log(ansis.red(`  Failed: ${f} (${error})`)) }
+  }
+  for (const f of report.staleAgents) {
+    try { await fs.remove(join(agentsDir, f)); deleted++ }
+    catch (error) { console.log(ansis.red(`  Failed: ${f} (${error})`)) }
+  }
+  for (const skillName of report.staleSkills) {
+    try { await fs.remove(join(skillsDir, skillName)); deleted++ }
+    catch (error) { console.log(ansis.red(`  Failed: ${skillName} (${error})`)) }
+  }
+
+  console.log(ansis.green(`✓ Deleted ${deleted}/${totalStale} stale entries.`))
 }

@@ -5,7 +5,7 @@ import { basename, join } from 'pathe'
 import { getWorkflowById } from './installer-data'
 import { installHooks, uninstallHooks } from './installer-hooks'
 import { PACKAGE_ROOT, injectConfigVariables, replaceHomePathsInTemplate } from './installer-template'
-import { installSkillCommands } from './skill-registry'
+import { collectInvocableSkills as collectInvocableSkillsExtern, installSkillCommands } from './skill-registry'
 
 // ═══════════════════════════════════════════════════════
 // Re-exports — all consumers import from './installer'
@@ -741,6 +741,133 @@ export interface UninstallResult {
   removedRules: boolean
   removedBin: boolean
   errors: string[]
+}
+
+// ═══════════════════════════════════════════════════════
+// v4.1-p18: Sync mode — diff installed files vs current templates
+// ═══════════════════════════════════════════════════════
+
+export interface SyncReport {
+  /** Files present in install dir but no longer in templates (candidates for deletion) */
+  staleCommands: string[]
+  staleAgents: string[]
+  staleSkills: string[]
+  /** Total scanned for context */
+  installedCommands: number
+  installedAgents: number
+  installedSkills: number
+  /** Errors encountered during scan */
+  errors: string[]
+}
+
+/**
+ * Compute sync report: which files in ~/.claude/{commands,agents,skills}/ccg/
+ * are present locally but no longer exist in the current bundled templates.
+ *
+ * Pure read-only — does not delete anything. Caller is responsible for
+ * presenting the list to the user and confirming deletions.
+ *
+ * Why this matters: `ccg init` overwrites or skips files but never deletes,
+ * so users accumulate stale files (e.g. removed commands from prior versions).
+ * The `ccg/` namespace prefix ensures we only touch CCG-installed files,
+ * never user-authored skills/commands.
+ */
+export async function computeSyncReport(installDir: string): Promise<SyncReport> {
+  const report: SyncReport = {
+    staleCommands: [],
+    staleAgents: [],
+    staleSkills: [],
+    installedCommands: 0,
+    installedAgents: 0,
+    installedSkills: 0,
+    errors: [],
+  }
+
+  const commandsDir = join(installDir, 'commands', 'ccg')
+  const agentsDir = join(installDir, 'agents', 'ccg')
+  const skillsDir = join(installDir, 'skills', 'ccg')
+  const templateDir = join(PACKAGE_ROOT, 'templates')
+
+  // ── Commands diff ──────────────────────────────────
+  try {
+    if (await fs.pathExists(commandsDir)) {
+      const localFiles = (await fs.readdir(commandsDir)).filter(f => f.endsWith('.md'))
+      report.installedCommands = localFiles.length
+      const templateCommandsDir = join(templateDir, 'commands')
+      const templateFiles = await fs.pathExists(templateCommandsDir)
+        ? new Set(
+            (await fs.readdir(templateCommandsDir)).filter(f => f.endsWith('.md')),
+          )
+        : new Set<string>()
+
+      // Also include skill-generated command names (they're written at install time)
+      const skillsTemplateDir = join(templateDir, 'skills')
+      let skillCmdNames = new Set<string>()
+      if (await fs.pathExists(skillsTemplateDir)) {
+        try {
+          const invocable = collectInvocableSkillsFromRegistry(skillsTemplateDir)
+          skillCmdNames = new Set(invocable.map(s => `${s.name}.md`))
+        }
+        catch {
+          // ignore — skills enumeration is best-effort
+        }
+      }
+
+      for (const f of localFiles) {
+        if (!templateFiles.has(f) && !skillCmdNames.has(f)) {
+          report.staleCommands.push(f)
+        }
+      }
+    }
+  }
+  catch (error) {
+    report.errors.push(`Failed to diff commands: ${error}`)
+  }
+
+  // ── Agents diff ────────────────────────────────────
+  try {
+    if (await fs.pathExists(agentsDir)) {
+      const localFiles = (await fs.readdir(agentsDir)).filter(f => f.endsWith('.md'))
+      report.installedAgents = localFiles.length
+      const templateAgentsDir = join(templateDir, 'commands', 'agents')
+      const templateFiles = await fs.pathExists(templateAgentsDir)
+        ? new Set(
+            (await fs.readdir(templateAgentsDir)).filter(f => f.endsWith('.md')),
+          )
+        : new Set<string>()
+      for (const f of localFiles) {
+        if (!templateFiles.has(f)) report.staleAgents.push(f)
+      }
+    }
+  }
+  catch (error) {
+    report.errors.push(`Failed to diff agents: ${error}`)
+  }
+
+  // ── Skills diff (by skill directory name) ─────────
+  try {
+    if (await fs.pathExists(skillsDir)) {
+      const localSkillNames = await collectSkillNames(skillsDir)
+      report.installedSkills = localSkillNames.length
+      const skillsTemplateDir = join(templateDir, 'skills')
+      const templateSkillNames = await fs.pathExists(skillsTemplateDir)
+        ? new Set(await collectSkillNames(skillsTemplateDir))
+        : new Set<string>()
+      for (const name of localSkillNames) {
+        if (!templateSkillNames.has(name)) report.staleSkills.push(name)
+      }
+    }
+  }
+  catch (error) {
+    report.errors.push(`Failed to diff skills: ${error}`)
+  }
+
+  return report
+}
+
+// Local helper to keep top-level import single — wraps registry call
+function collectInvocableSkillsFromRegistry(skillsTemplateDir: string): Array<{ name: string }> {
+  return collectInvocableSkillsExtern(skillsTemplateDir)
 }
 
 /**

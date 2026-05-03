@@ -2,7 +2,9 @@
 
 > [根目录](../CLAUDE.md) > **templates**
 
-**Last Updated**: 2026-05-03 (v4.0.0)
+**Last Updated**: 2026-05-04 (v4.1.0)
+
+> v4.1-p18：`commands/` 删 5 文件（team-research/plan/review/health/map-codebase），`skills/tools/` 新增 4 skill（health/map-codebase/extract-learnings/forensics）。`/ccg:team` 加子命令路由。详见根 [CHANGELOG.md](../CHANGELOG.md#410---2026-05-04) + [.ccg-migration/v4-to-v4.1.md](../.ccg-migration/v4-to-v4.1.md)。
 
 ---
 
@@ -99,7 +101,7 @@ job-id 化背景任务管理，schema：
 
 | 目录 | 文件数 | 用途 | 安装目标 |
 |------|--------|------|----------|
-| `commands/` | 29 `.md` | 斜杠命令模板 | `~/.claude/commands/ccg/` |
+| `commands/` | 30 `.md` | 斜杠命令模板（v4.1-p18: 31 → 30，删 team-research/plan/review/health/map-codebase 共 5 个 + 新增 debate） | `~/.claude/commands/ccg/` |
 | `commands/agents/` | 7 `.md` | 子智能体定义 | `~/.claude/agents/ccg/` |
 | `prompts/claude/` | 6 `.md` | Claude 专家提示词 | `~/.claude/.ccg/prompts/claude/` |
 | `prompts/codex/` | 6 `.md` | Codex 专家提示词 | `~/.claude/.ccg/prompts/codex/` |

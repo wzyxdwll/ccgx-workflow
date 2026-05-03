@@ -81,6 +81,8 @@ export interface InitOptions {
   mode?: CollaborationMode
   workflows?: string
   installDir?: string
+  /** v4.1-p18: --sync mode (read-only diff, prompt user to delete stale files) */
+  sync?: boolean
 }
 
 // 安装结果

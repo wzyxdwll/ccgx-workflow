@@ -323,3 +323,118 @@ export async function installSkillCommands(
 
   return generated
 }
+
+// ═══════════════════════════════════════════════════════
+// v4.1-p18: paths consumer — glob filter activation
+// ═══════════════════════════════════════════════════════
+
+/**
+ * Convert a single glob pattern to a RegExp.
+ * Supports `*` (any chars except `/`), `**` (any chars including `/`),
+ * `?` (single char except `/`), and literal escapes.
+ *
+ * Pattern is anchored as path-suffix matching (relative to cwd).
+ * `*.tsx` matches `foo.tsx` AND `src/components/Button.tsx`.
+ * `src/**\/*.ts` matches `src/cli.ts` AND `src/utils/foo.ts`.
+ */
+function globToRegExp(glob: string): RegExp {
+  const trimmed = glob.trim()
+  // Pre-process: detect `**/`, `**`, `*`, `?` separately
+  let re = ''
+  let i = 0
+  while (i < trimmed.length) {
+    const ch = trimmed[i]
+    if (ch === '*') {
+      if (trimmed[i + 1] === '*') {
+        // `**` — matches anything including `/`
+        re += '.*'
+        i += 2
+        if (trimmed[i] === '/') i++ // consume optional trailing slash
+      }
+      else {
+        // single `*` — matches anything except `/`
+        re += '[^/]*'
+        i++
+      }
+    }
+    else if (ch === '?') {
+      re += '[^/]'
+      i++
+    }
+    else if ('.+^$()[]{}|\\'.includes(ch)) {
+      re += `\\${ch}`
+      i++
+    }
+    else if (ch === '/') {
+      re += '/'
+      i++
+    }
+    else {
+      re += ch
+      i++
+    }
+  }
+  // Anchor: must match the **end** of a path; allow any prefix (subdir or root)
+  return new RegExp(`(^|/)${re}$`)
+}
+
+/**
+ * Walk a directory recursively and collect all file paths (relative to root, forward-slashed).
+ * Skips common heavy directories (node_modules, .git, dist, build, target, .next, .nuxt).
+ */
+function walkProjectFiles(root: string, maxFiles = 5000): string[] {
+  const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'target', '.next', '.nuxt', '.cache', 'coverage', '__pycache__'])
+  const out: string[] = []
+
+  function walk(dir: string, prefix: string): void {
+    if (out.length >= maxFiles) return
+    let entries: fs.Dirent[]
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true }) as fs.Dirent[]
+    }
+    catch {
+      return
+    }
+    for (const entry of entries) {
+      if (out.length >= maxFiles) return
+      if (entry.name.startsWith('.') && entry.name !== '.gitignore') {
+        // skip dotdirs/dotfiles (except select ones we actively want)
+        if (entry.isDirectory()) continue
+      }
+      if (SKIP_DIRS.has(entry.name)) continue
+      const sub = prefix ? `${prefix}/${entry.name}` : entry.name
+      if (entry.isDirectory()) {
+        walk(join(dir, entry.name), sub)
+      }
+      else if (entry.isFile()) {
+        out.push(sub)
+      }
+    }
+  }
+
+  walk(root, '')
+  return out
+}
+
+/**
+ * Check if any file in `cwd` matches any glob in `patterns`.
+ * Empty patterns array → always true (skill is unconditional).
+ *
+ * Lightweight implementation: walks project files once (cap 5000),
+ * compiles each glob to a RegExp, returns on first match.
+ */
+export function matchSkillPaths(cwd: string, patterns: string[]): boolean {
+  if (!patterns || patterns.length === 0) return true
+  const regexes = patterns.map(globToRegExp)
+  const files = walkProjectFiles(cwd)
+  return files.some(f => regexes.some(r => r.test(f)))
+}
+
+/**
+ * Filter a list of skills by paths-glob match against the given cwd.
+ * Skills with empty `paths` array are always kept (unconditional).
+ * Skills with non-empty `paths` are kept only if at least one glob matches.
+ */
+export function filterSkillsByPaths(skills: SkillMeta[], cwd: string): SkillMeta[] {
+  return skills.filter(s => matchSkillPaths(cwd, s.paths))
+}

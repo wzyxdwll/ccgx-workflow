@@ -146,14 +146,15 @@ Supports: npm, homebrew, curl, powershell, cmd.
 | `/ccg:spec-impl` | Execute plan + archive |
 | `/ccg:spec-review` | Dual-model cross-review |
 
-### Agent Teams (v1.7.60+)
+### Agent Teams (v1.7.60+, sub-commands consolidated in v4.1)
 
 | Command | Description |
 |---------|-------------|
-| `/ccg:team-research` | Requirements → constraints (parallel exploration) |
-| `/ccg:team-plan` | Constraints → parallel implementation plan |
+| `/ccg:team` | **Unified workflow (recommended)** — 8-phase end-to-end with 7 roles |
+| `/ccg:team research <args>` | Requirements → constraints (sub-command, replaces `/ccg:team-research`) |
+| `/ccg:team plan <args>` | Constraints → parallel implementation plan (sub-command) |
+| `/ccg:team review [git-range]` | Dual-model cross-review (sub-command) |
 | `/ccg:team-exec` | Spawn Builder teammates for parallel coding |
-| `/ccg:team-review` | Dual-model cross-review |
 
 > **Prerequisite**: Enable Agent Teams in `settings.json`: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
 
@@ -171,6 +172,21 @@ Supports: npm, homebrew, curl, powershell, cmd.
 | Command | Description |
 |---------|-------------|
 | `/ccg:init` | Initialize project CLAUDE.md |
+
+## What's New in v4.1 (2026-05-04)
+
+> Full release notes in [CHANGELOG.md](./CHANGELOG.md#410---2026-05-04) · Upgrade guide in [.ccg-migration/v4-to-v4.1.md](./.ccg-migration/v4-to-v4.1.md)
+
+8-phase incremental usability polish. No breaking changes:
+
+1. **`/ccg:autonomous` defaults to wave-parallel** — 30-40% wall-clock reduction; `--sequential` opt-out
+2. **SessionStart hook** — new sessions auto-inject roadmap head + active phase SUMMARY (≤200 tokens)
+3. **`/ccg:debate`** — multi-round propose/challenge/respond primitive with N-round cap
+4. **`ccg init --sync`** — interactively prune locally-installed CCG files no longer in templates
+5. **Skill `paths:` consumer** — skills with glob filters only activate when project files match
+6. **Command palette shrunk** — 33 → 28 (team-research/plan/review folded into `/ccg:team` sub-commands; health/map-codebase/extract-learnings/forensics moved to skills)
+7. **Plugin Agent spawn path** — 6 core commands prefer Anthropic-official codex/gemini plugins where available; `codeagent-wrapper` deprecated for v5.0 removal
+8. **Specialist matrix routing** — `role × layer` 2D dispatch for fine-grained subagent selection
 
 ## What's New in v4.0
 
@@ -229,13 +245,13 @@ Integrates [OPSX architecture](https://github.com/fission-ai/opsx) to turn requi
 Leverage Claude Code Agent Teams to spawn multiple Builder teammates for parallel coding:
 
 ```bash
-/ccg:team-research implement kanban API  # 1. Requirements → constraints
+/ccg:team research implement kanban API  # 1. Requirements → constraints (v4.1+ sub-command)
 # /clear
-/ccg:team-plan kanban-api               # 2. Plan → parallel tasks
+/ccg:team plan kanban-api                # 2. Plan → parallel tasks
 # /clear
-/ccg:team-exec                          # 3. Builders code in parallel
+/ccg:team-exec                           # 3. Builders code in parallel
 # /clear
-/ccg:team-review                        # 4. Dual-model cross-review
+/ccg:team review                         # 4. Dual-model cross-review
 ```
 
 > **vs Traditional Workflow**: Team series uses `/clear` between steps to isolate context, passing state through files. Ideal for tasks decomposable into 3+ independent modules.
@@ -410,4 +426,4 @@ MIT
 
 ---
 
-v4.0.0 | [Issues](https://github.com/fengshao1227/ccg-workflow/issues) | [Contributing](./CONTRIBUTING.md)
+v4.1.0 | [Issues](https://github.com/fengshao1227/ccg-workflow/issues) | [Contributing](./CONTRIBUTING.md)

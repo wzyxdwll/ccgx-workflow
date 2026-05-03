@@ -2,13 +2,42 @@
 
 > [根目录](../CLAUDE.md) > **skills-v2**
 
-**Last Updated**: 2026-05-04 (v4.0.1)
+**Last Updated**: 2026-05-04 (v4.1.0)
 
 ---
 
 ## 变更记录 (Changelog)
 
 > 完整变更历史请查看 [CHANGELOG.md](./CHANGELOG.md)
+
+### 2026-05-04 (v4.1.0) — 🎯 使用体验精修版（P13-P20 8 phase 串行 dogfood）
+
+- ✨ **P13: SessionStart hook**（commit `cedd87b`）：`templates/hooks/ccg-session-state.cjs`，新会话自动注入 `.ccg/roadmap.md` 头部 + active phase SUMMARY（≤200 tokens）。
+- ✨ **P14: autonomous wave 并行**（commit `cf75d70`）：默认 Kahn 拓扑分波 + cascade skip + max-concurrent batching；墙钟压缩 30-40%。`--sequential` opt-out。`src/utils/wave-scheduler.ts` (~280 行 + 51 单测)。
+- ✨ **P15: specialist matrix 路由**（commit `b6100c2`）：`role × layer` 2D 分发。
+- ✨ **P16: challenger 主线扁平编排**（commit `5f590f3`）：phase frontmatter `Critical: true` 触发 challenger（assumptions-analyzer / nyquist-auditor）。
+- ✨ **P17: `/ccg:debate` 原语**（commit `a5125e7`）：多轮 propose/challenge/respond + cap N 轮。
+- ✨ **P18: 命令面板瘦身 + skill 路径过滤**（本 phase）：
+  - 删 5 模板：`team-research/team-plan/team-review/health/map-codebase`
+  - `/ccg:team` 加子命令路由 `research|plan|review|exec`
+  - 4 新 skill：`templates/skills/tools/{health,map-codebase,extract-learnings,forensics}/SKILL.md`
+  - **新增 `ccg init --sync`**：交互式 prune 本地装但模板已删的 ccg/ namespace 文件
+  - **新增 `matchSkillPaths` / `filterSkillsByPaths`**（skill-registry.ts paths consumer）：消费 P19 的 `paths:` 字段做 glob 匹配
+  - 17 + 7 = 24 新单测，全量 757 → 775+
+- ✨ **P19: skill 体系优化**（commit `8654fcb`）：`context: fork` / `paths:` glob / 描述 i18n。
+- ✨ **P20: codeagent-wrapper deprecation**（commit `0d780fe`）：6 核心命令支持 plugin Agent 直接 spawn，shim v5.0 删除。
+
+#### 架构数字
+- 命令注册表 33 → **28**（user-facing ~31 → ~26 含 skill auto-gen）
+- Subagent 19 不变 / 测试 757 → **775+** / skill 顶层目录 30 → **34**
+
+#### dogfood 数据
+- P13-P20 全部用 `/ccg:autonomous` + phase-runner 自实施完成（v4.0.1 校正后唯一可能路径）
+- 主线 ≤15% / subagent fresh 论点继续成立
+
+#### 文档
+- `.ccg-migration/v4-to-v4.1.md`（新建）：完整迁移指南
+- README/CHANGELOG/CLAUDE.md/templates/CLAUDE.md 同步
 
 ### 2026-05-04 (v4.0.1) — 🔬 引擎层约束实测校正
 
