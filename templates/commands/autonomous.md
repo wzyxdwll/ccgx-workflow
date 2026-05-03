@@ -2,6 +2,8 @@
 name: ccg:autonomous
 description: 跨 phase 自治长跑：roadmap → 多 phase 自动循环 research→plan→exec→review，仅 blocker 暂停
 argument-hint: "[--from N] [--to N] [--only N] [--interactive] [--offload]"
+context_budget: orchestrator-15
+subagent_freshness: required
 allowed-tools:
   - Read
   - Write

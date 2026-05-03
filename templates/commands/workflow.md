@@ -1,5 +1,7 @@
 ---
 description: '多模型协作开发工作流（研究→构思→计划→执行→优化→评审），智能路由前端→{{FRONTEND_PRIMARY}}、后端→{{BACKEND_PRIMARY}}'
+context_budget: orchestrator-15
+subagent_freshness: required
 ---
 
 # Workflow - 多模型协作开发

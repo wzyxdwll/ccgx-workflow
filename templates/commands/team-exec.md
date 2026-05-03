@@ -1,5 +1,7 @@
 ---
 description: 'Agent Teams 并行实施 - 读取计划文件，spawn Builder teammates 并行写代码'
+context_budget: orchestrator-15
+subagent_freshness: required
 ---
 <!-- CCG:TEAM:EXEC:START -->
 **Core Philosophy**

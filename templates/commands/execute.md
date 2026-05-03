@@ -1,5 +1,7 @@
 ---
 description: '多模型协作执行 - 根据计划获取原型 → Claude 重构实施 → 多模型审计交付'
+context_budget: orchestrator-15
+subagent_freshness: required
 ---
 
 # Execute - 多模型协作执行
