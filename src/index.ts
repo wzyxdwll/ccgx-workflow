@@ -131,3 +131,42 @@ export type {
   PluginAvailability as RoutingPluginAvailability,
   Role,
 } from './utils/multi-model-routing'
+// v4.2-p22: quality tier (fast/triple/debate) + Plan-Critic-Verify orchestration
+export {
+  buildQualityPlan,
+  parseQualityFlag,
+  planWavesForTier,
+  resolveQualityTier,
+} from './utils/quality-router'
+export type {
+  PhaseMeta,
+  QualityPlan,
+  QualityTier,
+  ResolveInput,
+  SpawnEntry as QualitySpawnEntry,
+  WaveKind,
+  WavePlan as QualityWavePlan,
+} from './utils/quality-router'
+export {
+  aggregatePlans,
+  estimateBriefLength,
+  serializeBriefForPrompt,
+} from './utils/plan-aggregator'
+export type {
+  DesignBrief,
+  Divergence,
+  PlanContribution,
+} from './utils/plan-aggregator'
+export {
+  parseVerifyReport,
+  planVerifyWave,
+  synthesizeVerifyFeedback,
+  synthesizeVerifyResults,
+} from './utils/verify-orchestrator'
+export type {
+  VerifyDecision,
+  VerifyMode,
+  VerifyReport,
+  VerifySpawnEntry,
+  VerifyWavePlan,
+} from './utils/verify-orchestrator'

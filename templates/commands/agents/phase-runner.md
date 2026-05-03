@@ -54,8 +54,20 @@ color: cyan
 | `baseline_sha` | 出错可 reset --hard 的锚点 |
 | `report_path` | 期望写入报告的路径，固定为 `.claude/team-plan/<phase_id>-report.md` |
 | `commit_prefix` | git commit message 前缀，如 `feat(v4-p2):` |
+| `design_brief`（v4.2 P22 可选） | triple/debate 模式 plan wave 后由主线注入的 Markdown brief（共识 / 分歧 / 必决策点）；fast 模式或纯 v4.1 流程下缺省 |
+| `verify_findings`（v4.2 P22 可选） | 修订轮（revise）由主线注入的 verify wave critical findings 反馈块，要求"仅修复 critical，不重做整个 phase" |
 
 **禁止从 `~/.claude/.ccg/config.toml` 读 `BACKEND_PRIMARY/FRONTEND_PRIMARY`**——主线在 prompt 里明确告知模型路由（避免双源不一致）。
+
+### 如何消费 design_brief / verify_findings（v4.2 P22）
+
+- **`design_brief` 出现** ⇒ 你处于 triple/debate 模式 impl wave。请把 brief 视作"plan wave 多模型综合产出"——
+  - **共识要点**：直接采纳为实施大纲，不重新讨论
+  - **分歧主题**：每条选 1 个方案落地，并在报告 `Notes` 字段里说明你选了哪条 + 简短理由（避免主线 / challenger 后续重提）
+  - **必决策点（high-stakes）**：若用户已在主线决策（看主线追加 prompt），按用户决策；否则保守选最小 blast-radius 方案 + 在 `Critical issues` 字段标记"未决策"
+- **`verify_findings` 出现** ⇒ 你处于修订轮。仅修复 findings 列出的 critical 项，不重做整个 phase；保留原 commit 历史（用 `git commit --fixup` 或常规增量 commit，**禁止 amend / force-push**）
+- **两字段同时出现** ⇒ 罕见（修订轮 + 不同质量档），按 `verify_findings` 优先（修复优先于规划）
+- **两字段都不出现** ⇒ v4.1 单波 phase-runner 流程不变，按下面 lifecycle 自实施
 
 ---
 

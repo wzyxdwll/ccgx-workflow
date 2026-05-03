@@ -1,7 +1,7 @@
 ---
 name: ccg:autonomous
 description: 跨 phase 自治长跑：roadmap → wave 并行（默认）spawn phase-runner，仅 blocker 暂停
-argument-hint: "[--from N] [--to N] [--only N] [--interactive] [--offload] [--sequential] [--max-concurrent N]"
+argument-hint: "[--from N] [--to N] [--only N] [--quality=fast|triple|debate] [--interactive] [--offload] [--sequential] [--max-concurrent N]"
 context_budget: orchestrator-15
 subagent_freshness: required
 allowed-tools:
@@ -107,6 +107,7 @@ allowed-tools:
 | `--offload` | **重型 phase 自动外包给 codex plugin**（fresh context + 后台 + 主线只 poll status），默认开启自动判定，flag 显式时强制开启 |
 | `--sequential` | **降级为 v4.0 行为**：禁用 wave 并行，单 phase 一波顺序串跑。调试 / API 限额场景使用 |
 | `--max-concurrent N` | 单 wave 内最大并发 phase 数，默认 4。`--max-concurrent 1` 等价 `--sequential` |
+| `--quality=fast\|triple\|debate` | **v4.2 P22 旗舰**：单 phase 内的质量档分级。`fast`=v4.1 单波 + 1 路 verify；`triple`=Plan-Critic-Verify 4 wave（**默认**）；`debate`=triple + codex↔gemini 多轮对辩。详见 Step 4.0 |
 
 附加规则：
 - 状态已是 `completed` 的 phase 默认跳过（除非 `--only N` 强制重跑）
@@ -136,9 +137,64 @@ allowed-tools:
 
 `--interactive` 模式下，每个 phase 的 plan 阶段保留与用户问答（不自动判定灰区），其余阶段照常自治。
 
-### Step 4: Phase 主循环（v4.1 wave 并行）
+### Step 4: Phase 主循环（v4.1 wave 并行 + v4.2 P22 质量档分级）
 
-#### 4.0 拓扑分波（Kahn 算法）
+#### 4.0a 质量档解析（v4.2 P22 新增，单 phase 内调度）
+
+每个 phase 进入主循环前，主线先确定**该 phase 内部使用什么质量档**——这决定单个 phase 的 wave 编排（不是整个 milestone 的 wave 拓扑，那是 4.0b）。
+
+**优先级（高 → 低）**：
+
+1. **phase frontmatter `Quality:` 字段**（roadmap.md 单 phase 覆盖全局 flag）
+   ```markdown
+   ## Phase 22: schema migration (pending)
+   - **Goal**: ...
+   - **Quality**: debate    ← phase 自带，优先级最高
+   ```
+2. `--quality=<tier>` CLI flag（autonomous 命令行参数）
+3. 默认 `triple`（**v4.2 行为变化**：v4.1 默认是单波 phase-runner = `fast`）
+
+主线引用 `src/utils/quality-router.ts` 的 `buildQualityPlan()` helper（实际逻辑已落地为单元测试覆盖；本模板只描述 LLM 主线该做什么）：
+
+```
+qualityPlan = buildQualityPlan(
+  { cliArgs: <user args>, phaseQuality: <从 frontmatter 读> },
+  { phaseId, phaseType, quality },
+  pluginAvailability,
+)
+// qualityPlan.tier  → 'fast' | 'triple' | 'debate'
+// qualityPlan.waves → WavePlan[] (kind ∈ plan|critic|impl|verify|debate)
+// qualityPlan.degraded / degradedTo  → plugin 缺失自动降阶
+```
+
+**三档对照（dogfood + SOTA 实测预算）**：
+
+| 档 | wave 序列 | 壁钟膨胀 | token 膨胀 | 质量档（dogfood 估测） |
+|----|----------|---------|-----------|----------------------|
+| `fast` | impl → verify | +30% | +20% | 6.5/10 → 7.5/10 |
+| `triple` | plan → critic → impl → verify | +60-90% | +80% | →8.5/10 |
+| `debate` | plan → debate×3 → critic → impl → verify | +100-150% | +150% | →9/10 |
+
+**降级路径**（plugin 缺失自动）：
+
+| 用户请求 | plugin 状态 | 实际执行 |
+|---------|------------|---------|
+| `debate` | 双 plugin 都缺 | → `fast`（debate/triple 失去对辩多样性） |
+| `debate` | 单 plugin 缺 | → `triple` |
+| `triple` | 双 plugin 都缺 | → `fast` |
+| `triple` | 单 plugin 缺 | 不降阶，但缺失方向走 `general-purpose` + CCG prompt 模板 |
+| `fast`  | 双 plugin 都缺 | 主线 reviewer fallback（main-thread Claude 自审） |
+
+降级时主线在 roadmap.md 该 phase 标 `Note: quality degraded from <X> to <Y> — <reason>`。
+
+**设计哲学（基于市面 SOTA Plan-Critic-Verify 实测）**：
+
+- **Plan 阶段 lateral diversity**（codex+gemini+claude 3 路并行）—— 不同视角生成不同侧重点
+- **Critic 阶段 angle-based**（assumptions-analyzer + nyquist-auditor）—— 不是按模型而是按"审视角度"分工
+- **Implementer 单 strong model**（phase-runner 全权 Bash）—— 一致性 > 多样性，避免多 implementer 的 merge 痛苦
+- **Verify cross-vendor**（codex + gemini）—— 抓 race condition / commit drift / 半成品状态
+
+#### 4.0b 拓扑分波（Kahn 算法）
 
 **默认行为**：把 `EXEC_QUEUE` 按 `Depends on` 字段构建有向无环图，Kahn 拓扑排序分波——
 没有未满足依赖的 phase 进 wave 1，依赖 wave 1 的进 wave 2，依次类推。同 wave 的 phase
@@ -177,20 +233,66 @@ waves, skipped, batches = schedule(phases, {
 模式：parallel | sequential
 ```
 
-#### 4.1 准备 phase（按 wave 迭代）
+#### 4.1 准备 phase（按 wave 迭代 + 单 phase 质量档子 wave）
+
+**两层 wave 概念**（v4.2 P22 起）：
+
+- **外层 wave**（4.0b 拓扑）：milestone 级别，按 phase 间 Depends on 关系分波，wave 内 phase 并行
+- **内层 wave**（4.0a 质量档）：单 phase 内部，按 fast/triple/debate 分 2/4/7 个子 wave，**子 wave 之间顺序执行**
 
 主循环结构（伪码）：
 
 ```
-for wave in waves:
-    batches = chunk(wave, max-concurrent)        # 单 wave 拆批
+for outerWave in milestoneWaves:
+    batches = chunk(outerWave, max-concurrent)        # 单 wave 拆批
     for batch in batches:
-        # 主线一个 message 内 spawn batch 内全部 phase-runner（引擎并发）
-        results = spawn_parallel(batch)          # 等所有 task notification
-        # 读各自 ≤200 token 摘要；下面 Step 4.3 处理
+        # 每个 phase 独立按其质量档跑内层 wave
+        results = spawn_parallel(batch, lambda phase:
+            runPhaseWithQualityPlan(phase, buildQualityPlan(...)))
     # 整 wave 完成后批量更新 roadmap.md，处理 cascade
-    update_roadmap_for_wave(wave, results)
+    update_roadmap_for_wave(outerWave, results)
+
+# 单 phase 内层 wave 处理（fast/triple/debate 共用骨架）：
+runPhaseWithQualityPlan(phase, plan):
+    designBrief = null
+    verifyFindings = null
+    for innerWave in plan.waves:
+        switch innerWave.kind:
+            case 'plan':       # 仅 triple/debate
+                contributions = spawn_parallel(innerWave.spawns)  # 3 路并行
+                designBrief = aggregatePlans(contributions)
+            case 'critic':     # 仅 triple/debate
+                criticReports = spawn_parallel(innerWave.spawns)
+                if any critical → mark phase requiring revise BEFORE impl
+            case 'debate':     # 仅 debate（共 3 子 wave）
+                debateRound = spawn_parallel(innerWave.spawns)
+                # 复用 debate-orchestrator.shouldStop 提前收敛
+            case 'impl':
+                # spawn phase-runner，prompt 注入 design_brief / verify_findings
+                phaseSummary = spawn(phase-runner, prompt={
+                    ...basePromptFields,
+                    design_brief: serializeBriefForPrompt(designBrief),
+                    verify_findings: verifyFindings,
+                })
+            case 'verify':
+                verifyReports = spawn_parallel(innerWave.spawns)
+                decision = synthesizeVerifyResults(verifyReports)
+                if decision === 'revise' && retryCount < 1:
+                    verifyFindings = synthesizeVerifyFeedback(verifyReports)
+                    retry impl wave once
+                elif decision === 'escalate':
+                    AskUserQuestion → blocker path
 ```
+
+**impl wave 的 phase-runner prompt 增量**（v4.2 P22）：
+
+triple/debate 模式 plan wave 完成后，主线把 `aggregatePlans` 输出经
+`serializeBriefForPrompt()` 序列化（≤500 token）注入 phase-runner prompt 的
+`design_brief` 字段（参考 `templates/commands/agents/phase-runner.md` 输入契约）。
+
+verify wave 后若 decision='revise'，主线再 spawn 一次 phase-runner，
+`verify_findings` 字段填 `synthesizeVerifyFeedback()` 输出。
+**修订仅一轮**（避免无限循环）；二次失败标 `partial` 进 blocker。
 
 针对**每个**进入并发的 phase，spawn 前做：
 
@@ -431,6 +533,14 @@ autonomous 是 **roadmap.md 的唯一写者**。team-exec 不动它。
 - `Plan` 字段指向该 phase 内 team 产出的 plan 目录
 - `Outcome` 一句话总结，便于下次回顾
 - `opsx://<change-id>` 标记走 OpenSpec 路径
+- `Quality: fast|triple|debate`（**v4.2 P22 新增，可选**）：单 phase 覆盖全局 `--quality` flag。例：
+  ```markdown
+  ## Phase 22: schema migration (pending)
+  - **Goal**: 数据库 schema 破坏性变更
+  - **Quality**: debate    ← 这步用最高档（多轮对辩）
+  - **Depends on**: Phase 21
+  ```
+  缺省时遵循全局 flag，全局也无时默认 `triple`。详见 Step 4.0a。
 
 ---
 
