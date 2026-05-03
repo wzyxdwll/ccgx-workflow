@@ -252,11 +252,16 @@
 - **来源**: 04-ecosystem-scan.md ROI #4 + openai-codex plugin 实战
 - **Depends on**: (none)
 
-## Phase 8: verifier Level 4 升级 (in_progress)
+## Phase 8: verifier Level 4 升级 (completed)
 
-- **Started**: 2026-05-03 22:40
-- **Mode**: runner (预期 fallback)
+- **Started**: 2026-05-03 22:40 | **Completed**: 2026-05-03 22:46
+- **Mode**: runner → degraded
 - **Type**: backend
+- **Commit**: `dd8b854 feat(v4-p8): verifier Level 4 data flow + override + deferred filtering`
+- **Tests**: 389/389 passed (delta +31)
+- **Outcome**: verifier-level-4.ts helper + verifier.md 升级 4 层判定 + Step 3b override + Step 9b deferred filtering + 31 单测（超过要求 12）。
+- **Plan**: `.claude/team-plan/phase-08-verifier-level-4-report.md`
+- **Dogfood 数据点**: 主线 context T7=47% → T8=**47%（+0%）**
 
 - **Goal**: 现有 `verifier.md` 三层（存在/实质/联通）升 4 层，加数据流追踪 + override + deferred 过滤。
 - **新增能力**:
@@ -270,7 +275,11 @@
 - **来源**: 03-quality-gates.md ROI #5
 - **Depends on**: (none)
 
-## Phase 9: 会话式 UAT + cold-start smoke [offload] (pending)
+## Phase 9: 会话式 UAT + cold-start smoke [offload] (in_progress)
+
+- **Started**: 2026-05-03 22:47
+- **Mode**: runner (预期 fallback)
+- **Type**: backend
 
 - **Goal**: 改造 `templates/commands/verify-work.md`（v3.0.0 已是编排器）从纯编排器变成有 UAT.md 状态文件的会话工作流。
 - **新增机制**:
