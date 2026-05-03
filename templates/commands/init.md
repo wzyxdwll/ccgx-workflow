@@ -42,6 +42,28 @@ Task({
 
 等待返回时间戳后，保存为 `$TIMESTAMP` 供后续使用。
 
+### 🗺️ 步骤 1.5：codebase-mapper 4 路并行扫描（v4.0）
+
+**强制**：在调用 init-architect 之前，**必须在同一条 assistant message 中并行 spawn 4 个 `codebase-mapper`**（多 tool calls 一次发出）。每个实例只处理一个 focus，把扫描结果写到 `.context/codebase/` 下对应文件，主线只接收一行确认。
+
+| Focus | 写入文件 |
+|-------|---------|
+| `tech` | `.context/codebase/STACK.md` + `.context/codebase/INTEGRATIONS.md` |
+| `arch` | `.context/codebase/ARCHITECTURE.md` + `.context/codebase/STRUCTURE.md` |
+| `quality` | `.context/codebase/CONVENTIONS.md` + `.context/codebase/TESTING.md` |
+| `concerns` | `.context/codebase/CONCERNS.md` |
+
+**调用示例**（同一 message，4 个 Task tool calls 并发）：
+
+```
+Task({ subagent_type: "codebase-mapper", prompt: "focus=tech\nworkdir={{WORKDIR}}", description: "扫码栈/集成" })
+Task({ subagent_type: "codebase-mapper", prompt: "focus=arch\nworkdir={{WORKDIR}}", description: "扫架构/结构" })
+Task({ subagent_type: "codebase-mapper", prompt: "focus=quality\nworkdir={{WORKDIR}}", description: "扫规范/测试" })
+Task({ subagent_type: "codebase-mapper", prompt: "focus=concerns\nworkdir={{WORKDIR}}", description: "扫技术债" })
+```
+
+等 4 个实例全部返回 `WROTE: ... | FOCUS: ... | EVIDENCE_COUNT: ...` 单行确认后再进入步骤 2。**不要把扫描内容拉进主线 context**——init-architect 步骤会按需 Read `.context/codebase/*.md`，避免重复探索。
+
 ### 🏗️ 步骤 2：调用初始化架构师
 
 **使用 `init-architect` 子智能体执行完整扫描**：
@@ -96,5 +118,6 @@ Task({
 
 1. **必须使用 Task 工具**调用子智能体，不要自己执行扫描逻辑
 2. 先调用 `get-current-datetime` 获取时间戳
-3. 再调用 `init-architect` 执行完整扫描
-4. 结果在主对话打印摘要，全文由子智能体写入仓库
+3. 然后 4 路并行 spawn `codebase-mapper`（focus=tech/arch/quality/concerns），写入 `.context/codebase/*.md`
+4. 再调用 `init-architect` 执行完整扫描（可 Read mapper 产出避免重复探索）
+5. 结果在主对话打印摘要，全文由子智能体写入仓库
