@@ -13,32 +13,76 @@
 
 | Phase | 里程碑 | 标题 | 工时 | 依赖 | 模式 |
 |-------|--------|------|------|------|------|
-| 1 | v3.1 | 主线 ≤15% frontmatter 约束 | 0.5 天 | — | foreground |
-| 2 | v3.1 | `.context/<phase>/{CONTEXT,SUMMARY}.md` phase 状态机 | 1 天 | 1 | foreground |
-| 3 | v3.1 | codebase-mapper agent 移植 | 0.5 天 | — | foreground |
-| 4 | v3.1 | Scope Reduction Detection（plan-checker 维度 7b） | 0.5 天 | — | foreground |
-| 5 | v3.1 | 命令收敛第一波（删 5 命令 / 合并 verify-*） | 1.5 天 | 1 | offload |
-| 6 | v3.2 | plan-checker 5 维度（1/2/5/7b/10）+ max-3-loop | 2 天 | 4 | offload |
-| 7 | v3.2 | 异步三件套 `/ccg:status` `/ccg:result` `/ccg:cancel` | 2 天 | — | foreground |
-| 8 | v3.2 | verifier Level 4 数据流 + override + deferred 过滤 | 1 天 | — | foreground |
-| 9 | v3.2 | 会话式 UAT + cold-start smoke + 自动收敛 | 2-3 天 | 6, 8 | offload |
-| 10 | v4.0 | code-review --fix --auto + worktree 隔离 | 3-4 天 | — | offload |
-| 11 | v4.0 | debug-session-manager 重写 `/ccg:debug` | 3 天 | — | offload |
+| 1 | v3.1 | 主线 ≤15% frontmatter 约束 | 0.5 天 | — | foreground (强制 offload) |
+| **1.5** | **v3.1** | **codex:rescue progress.json 协议（可见性基础设施）** | **1 天** | **1** | **foreground (不能 offload)** |
+| 2 | v3.1 | `.context/<phase>/{CONTEXT,SUMMARY}.md` phase 状态机 | 1 天 | 1, 1.5 | foreground |
+| 3 | v3.1 | codebase-mapper agent 移植 | 0.5 天 | 1.5 | foreground |
+| 4 | v3.1 | Scope Reduction Detection（plan-checker 维度 7b） | 0.5 天 | 1.5 | foreground |
+| 5 | v3.1 | 命令收敛第一波（删 5 命令 / 合并 verify-*） | 1.5 天 | 1, 1.5 | offload |
+| 6 | v3.2 | plan-checker 5 维度（1/2/5/7b/10）+ max-3-loop | 2 天 | 4, 1.5 | offload |
+| 7 | v3.2 | 异步三件套 `/ccg:status` `/ccg:result` `/ccg:cancel` | 2 天 | 1.5 | foreground |
+| 8 | v3.2 | verifier Level 4 数据流 + override + deferred 过滤 | 1 天 | 1.5 | foreground |
+| 9 | v3.2 | 会话式 UAT + cold-start smoke + 自动收敛 | 2-3 天 | 6, 8, 1.5 | offload |
+| 10 | v4.0 | code-review --fix --auto + worktree 隔离 | 3-4 天 | 1.5 | offload |
+| 11 | v4.0 | debug-session-manager 重写 `/ccg:debug` | 3 天 | 1.5 | offload |
 | 12 | v4.0 | 文档收尾 + 砍 impeccable + domain skills 转 hidden | 3 天 | 1-11 | foreground |
 
-**总工时**：~3-4 周
+**总工时**：~3-4 周（+1 天 Phase 1.5）
+
+**关于 Phase 1.5 的定位**：dogfood 反馈驱动新增——Phase 1 派发后主线对 codex:rescue 任务零可见，体验差。Phase 1.5 引入 `progress.json` 心跳协议作为后续所有 offload phase 的前置基础设施。**不能自己 offload**（否则黑箱跑黑箱），必须 foreground 主线实现。
 
 ---
 
-## Phase 1: 主线 ≤15% frontmatter 约束 (pending)
+## Phase 1: 主线 ≤15% frontmatter 约束 (completed)
 
 - **Goal**: 4 个核心命令模板（`workflow.md` / `execute.md` / `team-exec.md` / `autonomous.md`）frontmatter 加 `context_budget` 声明，硬约束主编排器只读元状态、不接 builder 全部 stdout。
 - **Acceptance**:
-  - 4 个 `.md` 含 `context_budget: orchestrator-15` + `subagent_freshness: required` 字段
-  - `injectConfigVariables()` 不消费这两个字段（保持 frontmatter 原样下发）
-  - 单测：grep 验证 4 文件均含字段
+  - 4 个 `.md` 含 `context_budget: orchestrator-15` + `subagent_freshness: required` 字段 ✅
+  - `injectConfigVariables()` 不消费这两个字段（保持 frontmatter 原样下发） ✅
+  - 单测：grep 验证 4 文件均含字段 ✅ 11 用例全过
 - **来源**: `.ccg-research/05-roadmap-v3.1-to-v4.0.md` 决策 A + Top 10 ROI #6
 - **Depends on**: (none)
+- **Started**: 2026-05-03 21:02 | **Completed**: 2026-05-03 21:24
+- **Mode**: offload (codex:rescue, --offload flag) → fallback foreground (codex sandbox ACL 阻塞 git/test)
+- **Plan**: `.claude/team-plan/phase-01-offload-report.md`
+- **Commits**: `099843b feat(v4-p1): add context_budget + subagent_freshness frontmatter`
+- **Outcome**: 4 templates frontmatter 加字段，11 个新测试全过，191/191 全量回归 + typecheck PASS。codex 沙箱 ACL 阻塞 commit/test，主线接手补完，暴露 v3.0 offload 路径在工程闭环上的真问题（记入 Phase 12 经验提炼）。
+- **Dogfood 数据点**: 主线 context T0=31% → T1=33%（+2% 增量，1 phase 内可控）
+
+## Phase 1.5: codex:rescue progress.json 协议（可见性基础设施）(pending)
+
+- **Goal**: 后台 offload 任务对主线可见（心跳 / 进度 / ETA），消除"黑箱等待"体验。**dogfood 反馈驱动新增**——Phase 1 派发后主线对 codex:rescue 任务零可见，每次只能等副作用文件出现，体验差。本 phase 是后续所有 offload phase 的前置基础设施。
+- **Acceptance**:
+  - **协议层**：定义 `.context/jobs/<task_id>/progress.json` schema：
+    ```json
+    {
+      "task_id": "task-...",
+      "phase_id": "phase-XX",
+      "status": "running" | "done" | "failed",
+      "current_step": "<人类可读>",
+      "files_modified": <int>,
+      "files_planned": <int>,
+      "started_at": "<ISO8601>",
+      "last_update": "<ISO8601>",
+      "elapsed_sec": <int>,
+      "estimated_remaining_sec": <int> | null,
+      "notes": "<可选>"
+    }
+    ```
+  - **生产端**：`templates/commands/autonomous.md` 修改 codex:rescue 调用 prompt 模板，强制要求子任务"每 30s 写 .context/jobs/<task_id>/progress.json"，含步骤模板（`prepare → research → plan → impl → test → report`）映射到 current_step 字段
+  - **消费端**：新增 `templates/scripts/progress-reader.mjs`（Node 脚本，主线 polling 时调用），输入 task_id，输出格式化进度行：`⏳ Phase N/12 · <step> · <files_modified>/<files_planned> files · <elapsed> · <eta> · context <main_pct>%`
+  - **autonomous spec 集成**：Step 4.3 polling 循环改为读 progress.json 而非 spawn agent --status；每 30s 主线打印进度行（覆盖刷新）
+  - **statusline 集成**：`templates/hooks/ccg-statusline.js` 检测 `.context/jobs/active.json`（指向当前 active task 的指针文件），存在时状态行追加 `codex [P<N>: <files_modified>/<files_planned>]` 段
+  - **active 指针管理**：autonomous 在 spawn 时写 `.context/jobs/active.json` = `{"task_id": "...", "phase_id": "..."}`；phase 完成时清空
+  - **心跳超时（5min 无更新）**：autonomous 主线检测 `last_update` 超过 5 分钟，AskUserQuestion 提示"取消 / 等 / 强制 fail"
+  - **单元测试**：
+    - `progressReader.test.ts`：mock progress.json，验证输出格式
+    - `progressSchema.test.ts`：schema 验证（缺字段、非法值）
+    - `statuslineProgress.test.ts`：mock active.json，验证 statusline 追加段
+  - **dogfood 验证**：本 phase 完成后，跑 Phase 2 应能看到实时进度行刷新
+- **来源**: dogfood 反馈（Phase 1 体验暴露黑箱问题）
+- **Depends on**: 1
+- **Mode**: foreground（这个 phase 不能 offload，否则又是黑箱跑黑箱）
 
 ## Phase 2: `.context/<phase>/{CONTEXT,SUMMARY}.md` phase 状态机 (pending)
 
