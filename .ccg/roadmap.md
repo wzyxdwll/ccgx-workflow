@@ -56,7 +56,15 @@
 - **Outcome**: 4 templates frontmatter 加字段，11 个新测试全过，191/191 全量回归 + typecheck PASS。codex 沙箱 ACL 阻塞 commit/test，主线接手补完，暴露 v3.0 offload 路径在工程闭环上的真问题（记入 Phase 12 经验提炼）。
 - **Dogfood 数据点**: 主线 context T0=31% → T1=33%（+2% 增量，1 phase 内可控）
 
-## Phase 1.5: phase-runner subagent 协议 + 类型路由（G 方案）(pending)
+## Phase 1.5: phase-runner subagent 协议 + 类型路由（G 方案）(completed)
+
+- **Started**: 2026-05-03 21:30 | **Completed**: 2026-05-03 21:52
+- **Commits**: `5f94ed4 feat(v4-p1.5): phase-runner subagent protocol with type routing (G plan)`
+- **Outcome**: G 方案完整落地，phase-runner.md (271 行) + autonomous Step 4.2/4.3 改写 + src/utils/phase-runner.ts helper (113 行) + 29 个单测全过。221/221 全量回归。Phase 2-12 现在统一走 `Agent(phase-runner)` runner 模式，按 phase Type 字段路由 codex/gemini。autonomous 不再硬编码 codex:rescue，CCG 路由设计回归正轨。
+- **Plan**: `src/utils/phase-runner.ts` + `templates/commands/agents/phase-runner.md`
+- **Dogfood 数据点**: 主线 context T1=33% → T1.5=~36% (+3% / 0.5 天，主线 foreground 实施)
+
+
 
 - **Goal**: 用 Claude Code 原生 fresh-context subagent 包裹 codex/gemini rescue，让普通 subagent 在沙箱外补 git/test/handoff，主线只接 ≤200 token 摘要；同时修复 autonomous 路由 bug（按 phase Type 字段路由前端→gemini / 后端→codex）。**dogfood 双反馈驱动**：
   1. Phase 1 暴露 codex:rescue 后台沙箱限制（git/spawn ACL）+ 主线零可见性
