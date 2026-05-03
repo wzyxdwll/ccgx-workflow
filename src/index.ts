@@ -46,3 +46,17 @@ export {
   writeSummary,
 } from './utils/phase-context'
 export type { PhaseContext, PhaseSummary } from './utils/phase-context'
+export {
+  batchByMaxConcurrent,
+  buildWaves,
+  cascadeSkip,
+  parseDependsOn,
+  parseRoadmap,
+  schedule,
+} from './utils/wave-scheduler'
+export type {
+  PhaseStatus,
+  RoadmapPhase,
+  ScheduleOptions,
+  WaveSchedule,
+} from './utils/wave-scheduler'
