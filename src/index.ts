@@ -171,3 +171,18 @@ export type {
   VerifySpawnEntry,
   VerifyWavePlan,
 } from './utils/verify-orchestrator'
+
+// CCG v4.3 Phase 25 — pipeline check
+export {
+  runPipelineCheck,
+  runPnpmPack,
+  auditTarballContents,
+  verifyAllCommandsIncluded,
+  renderPipelineReport,
+} from './utils/pipeline-check'
+export type {
+  PipelineCheckOptions,
+  PipelineCheckReport,
+  PipelineError,
+  PipelineErrorCategory,
+} from './utils/pipeline-check'
