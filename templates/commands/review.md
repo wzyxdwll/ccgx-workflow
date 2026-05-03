@@ -1,6 +1,6 @@
 ---
-description: '多模型代码审查：无参数时自动审查 git diff，双模型交叉验证；--adversarial 加第三层敌对审查'
-argument-hint: "[代码或描述] [--adversarial]"
+description: '多模型代码审查：无参数时自动审查 git diff，双模型交叉验证；--adversarial 加敌对审查；--fix 闭环修复'
+argument-hint: "[代码或描述] [--adversarial] [--fix [--all] [--auto]]"
 ---
 
 # Review - 多模型代码审查
@@ -9,15 +9,20 @@ argument-hint: "[代码或描述] [--adversarial]"
 
 `--adversarial` 模式下额外触发第三层"敌对视角"审查，由官方 codex plugin 的 `Agent(codex:rescue)` 在 fresh context 中专门挑前两轮意见的漏洞，适合极重要 PR / 安全敏感变更。需用户已装 `codex@openai-codex` plugin，否则降级为双模型审查。
 
+`--fix` 模式下额外触发**闭环修复**：审查产出 REVIEW.md 后 spawn `code-fixer` subagent 在 git worktree 隔离环境内修复 finding，原子 commit 后透明 ff-only merge 回主分支。
+
 ## 使用方法
 
 ```bash
-/review [代码或描述] [--adversarial]
+/review [代码或描述] [--adversarial] [--fix [--all] [--auto]]
 ```
 
 - **无参数**：自动审查 `git diff HEAD`
 - **有参数**：审查指定代码或描述
 - **`--adversarial`**：双模型审查后追加 fresh-context 敌对审查（用 `Agent(subagent_type="codex:rescue")` + `--adversarial-review`），主线 token 不被吃，3-5 分钟额外时间换更深的反向意见
+- **`--fix`**：审查后 spawn `code-fixer` 修复 Critical + Warning 级 finding，worktree 隔离 + 3 层 verification + 原子 commit
+- **`--fix --all`**：同上但纳入 Info 级 finding（默认不修 Info，避免噪音）
+- **`--fix --auto`**：fix → re-review → fix 多轮收敛环，**上限 3 轮**（CCG 硬规约）。3 轮未收敛升级用户介入
 
 ---
 
@@ -179,3 +184,101 @@ Agent({
 1. **无参数 = 审查 git diff** – 自动获取当前变更
 2. **双模型交叉验证** – 后端问题以 {{BACKEND_PRIMARY}} 为准，前端问题以 {{FRONTEND_PRIMARY}} 为准
 3. 外部模型对文件系统**零写入权限**
+
+---
+
+## 🔧 阶段 5：闭环修复（仅 `--fix` / `--fix --all` / `--fix --auto`）
+
+`[模式：修复]`
+
+**仅当 `$ARGUMENTS` 含 `--fix` 字面量时启动**。否则跳过本阶段。
+
+### 5.1 启动恢复扫描
+
+在创建新 worktree **前**：
+
+```bash
+# 检查上次 review-fix 是否被中断（OOM / 重启 / Ctrl-C）
+cat .context/review-fix-recovery-pending.json 2>/dev/null
+```
+
+存在 → 上一次跑被中断。`AskUserQuestion`：复用 / 强制清理。
+
+### 5.2 持久化 REVIEW.md
+
+把阶段 4 的综合审查结果写到 `.context/review-{timestamp}/REVIEW.md`（path 由 code-fixer 通过参数接收），格式：
+
+```markdown
+## Findings
+
+| ID | Severity | File | Line | Description | Suggested Fix |
+|----|----------|------|------|-------------|---------------|
+| C-01 | Critical | src/auth.ts | 42 | SQL identifier not escaped | use parameterized query |
+| W-02 | Warning | src/api.ts | 88 | missing error boundary | wrap in try/catch |
+| ...
+```
+
+`--fix --all` 模式下额外含 Info 级 finding。
+
+### 5.3 Spawn code-fixer subagent
+
+```
+Agent({
+  subagent_type: "code-fixer",
+  description: "Closed-loop review fix",
+  prompt: `请按以下契约执行闭环修复：
+
+review_md_path: <REVIEW.md 路径>
+phase_id: <padded phase 号，例 "10"，没有 phase 上下文则用 "00">
+base_sha: <当前 HEAD 的 sha>
+current_branch: <当前分支名>
+workdir: <项目绝对路径>
+fix_scope: critical_warning | all | auto
+auto_round: <仅 --auto 模式，当前轮次 1-indexed>
+
+工程契约见 templates/commands/agents/code-fixer.md：
+- 强制 git worktree 隔离 + recovery sentinel
+- 4 步严格顺序 transactional cleanup tail
+- per-finding rollback 用 git checkout（不用 Write 工具）
+- 3 层 verification Tier
+- 每 finding 原子 commit
+`
+})
+```
+
+**code-fixer 完成后产出**：`REVIEW-FIX.md`（同目录），含 per-finding outcome + cleanup tail 状态。
+
+### 5.4 多轮收敛（仅 `--fix --auto`）
+
+`--auto` 模式下，code-fixer 第 1 轮跑完后：
+
+1. Read REVIEW-FIX.md，提取本轮 finding 数（critical / warning / info）
+2. 调用收敛判定（参考 `src/utils/code-fixer-worktree.ts:decideConverge`）：
+   - `converged`（critical+warning=0）→ 完成，输出收敛报告
+   - `escalate`（达到 3 轮 cap 或 stall）→ `AskUserQuestion`："继续手动修 / 接受现状 / 回滚全部"
+   - `continue` → 重跑阶段 1-4 生成新 REVIEW.md，再 spawn code-fixer，`auto_round` +1
+
+**3 轮上限是 CCG 硬规约**（与 plan-checker / verify-work 一致），**禁止**绕过。
+
+### 5.5 闭环修复总结
+
+```markdown
+## 🔧 闭环修复总结
+
+- 修复模式：`--fix` / `--fix --all` / `--fix --auto`
+- 修复轮次：<N> / 3
+- Findings 处理：<M>（Critical: <a> / Warning: <b> / Info: <c>）
+- Atomic commits: <K>
+- Worktree cleanup: ok / partial（merge 失败保留 worktree 待人工）
+- 需人工核实的逻辑修复：<L> 项（标记 `requires human verification`）
+```
+
+### 关键安全约束
+
+⚠️ **以下违反任意一条 = 工程事故**：
+
+- worktree 创建 **必须** 在写 sentinel 之前
+- cleanup tail 4 步**必须**严格按 `merge_ff_only → worktree_remove → branch_delete → sentinel_remove` 顺序
+- 任何步骤失败**必须**立即停（不继续后续步骤）
+- per-finding rollback **必须**用 `git checkout --`，**禁止**用 Write 工具
+- `--auto` 收敛轮次**必须** ≤ 3
