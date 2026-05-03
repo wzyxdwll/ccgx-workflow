@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.3.1] - 2026-05-04
+
+> 🚨 **Doc hotfix**：v4.3.0 P29 README Option A 推荐 `ln -sf` / `cp` / `Copy-Item` 直接复制 `ccg-commit-msg-review.cjs` 到 `.git/hooks/commit-msg`——但 git 调用 hook 时不带扩展名，Node 24+ 默认按 ESM 模式跑，hook 内的 `require(...)` 立即 `ReferenceError: require is not defined in ES module scope` 崩溃。**所有按 v4.3.0 README Option A 启用 hook 的用户全部撞这个错**。
+
+### 🐛 修复
+
+- **README Option A 改为 shell wrapper 形式**：`.git/hooks/commit-msg` 写一个 sh 脚本 `exec node "$HOME/.claude/hooks/ccg-commit-msg-review.cjs" "$@"`——保留 `.cjs` 扩展给 Node 看，让它进 CommonJS 模式。Linux / macOS / Git Bash on Windows 通用，PowerShell 也给了原生写法。
+
+### ⚠️ 影响范围
+
+- v4.3.0 已启用 hook 的用户：检查 `.git/hooks/commit-msg`，如果是 .cjs 文件复制版换成 wrapper 形式，否则 commit 时会 crash。
+- 未启用用户：升级 4.3.1 拿正确 README。
+- **代码不动**——`templates/hooks/ccg-commit-msg-review.cjs` 内容不变；纯 README 修复；测试 1078/1078 不变。
+
+### 📝 根因
+
+P29 phase-runner 写 README 时没在真用户机器跑过 cp → git 调用 → Node ESM 解析这个集成路径，靠假设。是 v4.3.0 已 known-issue "phase-runner 自实施时仍可能犯类似错"的又一实例——再次证明 v4.3 P25-P29 防御机制覆盖代码层（pipeline-check / interface-auditor）但**没覆盖 README/集成步骤验证**这一层，v4.4 候选改进点。
+
+---
+
 ## [4.3.0] - 2026-05-04
 
 > 🎯 **动态防御机制版本**：5 phase dogfood（P25-P29 + P30 收尾）针对 v4.2.x 三连 hotfix（4.2.1 / 4.2.2 / 4.2.3）暴露的根因系统性补齐自动化拦截。**没有引入新用户面 feature**，全部是工程闭环加固——把"靠静态文档 / 未验证假设 / 漏 package.json 白名单"导致的 release-blocker 都变成自动化基础设施。

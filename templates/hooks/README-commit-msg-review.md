@@ -35,22 +35,39 @@ activation explicit.
 
 ### Option A: per-repo, single hook (recommended)
 
+⚠️ **Don't `cp` / symlink the `.cjs` file directly to `.git/hooks/commit-msg`** —
+git hooks are invoked without a file extension, so Node 24+ defaults to ESM
+mode for the resulting `commit-msg` and the `require(...)` calls in the script
+crash with `ReferenceError: require is not defined in ES module scope`. Use a
+small shell wrapper instead, which keeps the `.cjs` extension visible to Node:
+
 ```bash
-# inside the target repo
-ln -sf ~/.claude/hooks/ccg-commit-msg-review.cjs .git/hooks/commit-msg
+# inside the target repo (works on macOS / Linux / Git Bash on Windows)
+cat > .git/hooks/commit-msg << 'EOF'
+#!/usr/bin/env sh
+exec node "$HOME/.claude/hooks/ccg-commit-msg-review.cjs" "$@"
+EOF
 chmod +x .git/hooks/commit-msg
 ```
 
-On Windows (PowerShell):
+On Windows native (cmd / PowerShell without sh in PATH), use a `.bat` wrapper
+named `commit-msg.bat` is **not** invoked by git — the file must be named
+`commit-msg` with no extension. The simplest reliable path on Windows is to use
+Git Bash (which ships with Git for Windows), then run the `cat > ... EOF` block
+above. If you must avoid Git Bash:
 
 ```powershell
-# Copy because Windows symlinks need elevated privileges by default
-Copy-Item -Force "$HOME\.claude\hooks\ccg-commit-msg-review.cjs" ".git\hooks\commit-msg"
+# PowerShell — write a wrapper that calls node with the .cjs path
+$wrapper = @"
+#!/usr/bin/env sh
+exec node `"`$HOME/.claude/hooks/ccg-commit-msg-review.cjs`" `"`$@`"
+"@
+Set-Content -NoNewline -Encoding ASCII -Path ".git/hooks/commit-msg" -Value $wrapper
 ```
 
-> The file does not need a `.cjs` extension under `.git/hooks/`; git invokes it
-> directly. The shebang at the top of the script (`#!/usr/bin/env node`) makes
-> the symlink work on POSIX systems.
+> Why this works: the wrapper path ends with `commit-msg` (which git executes),
+> but `node` is invoked with the explicit `.cjs` path so Node's loader picks
+> CommonJS regardless of any ambient `package.json` `"type": "module"`.
 
 ### Option B: cohabit with Husky / lefthook
 
