@@ -1,9 +1,10 @@
 ---
 name: infrastructure
-description: 云原生基础设施。Kubernetes、Helm、Kustomize、Operator、CRD、GitOps、ArgoCD、Flux、IaC、Terraform、Pulumi、CDK。当用户提到 K8s、Helm、GitOps、IaC 时路由到此。
+description: 云原生基础设施（K8s/Helm/Operator/GitOps/ArgoCD/Flux/IaC/Terraform）。
 license: MIT
 user-invocable: false
 disable-model-invocation: false
+context: fork
 ---
 
 # 云原生基础设施 · Infrastructure

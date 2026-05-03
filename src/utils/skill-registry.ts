@@ -41,6 +41,18 @@ export interface SkillMeta {
   skillPath: string
   /** Absolute path to the script .js file (if scripted) */
   scriptPath: string | null
+  /**
+   * v4.1-p19: Context isolation hint.
+   * - `fork`: heavy skills should be loaded in fresh-context subagent (domains/impeccable)
+   * - `inline` (default): lightweight skills loaded in main thread (tools/)
+   */
+  context: 'fork' | 'inline'
+  /**
+   * v4.1-p19: Glob path filters.
+   * Skill is only activated when matching files exist (e.g. *.tsx for frontend skills).
+   * Empty array = always active.
+   */
+  paths: string[]
 }
 
 // ═══════════════════════════════════════════════════════
@@ -133,6 +145,15 @@ function normalizeSkillRecord(skillsDir: string, skillDir: string, meta: Record<
   // user-invocable defaults to false if missing
   const userInvocable = String(meta['user-invocable'] || 'false').toLowerCase() === 'true'
 
+  // v4.1-p19: parse context isolation hint (fork | inline, default inline)
+  const contextRaw = String(meta.context || 'inline').toLowerCase()
+  const context: 'fork' | 'inline' = contextRaw === 'fork' ? 'fork' : 'inline'
+
+  // v4.1-p19: parse paths filter (comma-separated globs)
+  const paths = meta.paths
+    ? meta.paths.split(',').map(p => p.trim()).filter(Boolean)
+    : []
+
   return {
     name,
     description,
@@ -147,6 +168,8 @@ function normalizeSkillRecord(skillsDir: string, skillDir: string, meta: Record<
     relPath,
     skillPath: join(skillDir, 'SKILL.md'),
     scriptPath: scriptEntries[0] || null,
+    context,
+    paths,
   }
 }
 

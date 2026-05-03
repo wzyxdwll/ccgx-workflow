@@ -1,9 +1,11 @@
 ---
 name: neubrutalism
-description: Neubrutalism design system skill. Use when building bold UI with thick borders, offset solid shadows, high saturation colors, and minimal border radius.
+description: Neubrutalism 新野兽主义设计（粗边框、偏移实心阴影、高饱和、极小圆角）。
 license: MIT
 user-invocable: false
 disable-model-invocation: false
+context: fork
+paths: "*.tsx,*.jsx,*.vue,*.svelte,*.css,*.scss"
 ---
 
 # Neubrutalism Design Spec

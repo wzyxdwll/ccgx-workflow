@@ -1,8 +1,10 @@
 ---
 name: polish
-description: "Performs a final quality pass fixing alignment, spacing, consistency, and micro-detail issues before shipping. Use when the user mentions polish, finishing touches, pre-launch review, something looks off, or wants to go from good to great."
+description: "polish 抛光：上线前最终质量过：alignment/spacing/consistency 与微细节修复。"
 argument-hint: "[target]"
 user-invocable: true
+context: fork
+paths: "*.tsx,*.jsx,*.vue,*.svelte,*.css,*.scss"
 ---
 
 ## MANDATORY PREPARATION

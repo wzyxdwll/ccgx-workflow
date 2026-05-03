@@ -1,8 +1,10 @@
 ---
 name: arrange
-description: "Improve layout, spacing, and visual rhythm. Fixes monotonous grids, inconsistent spacing, and weak visual hierarchy. Use when the user mentions layout feeling off, spacing issues, visual hierarchy, crowded UI, alignment problems, or wanting better composition."
+description: "arrange 布局：修复 layout/spacing/visual hierarchy 问题，建立有节奏感的视觉结构。"
 argument-hint: "[target]"
 user-invocable: true
+context: fork
+paths: "*.tsx,*.jsx,*.vue,*.svelte,*.css,*.scss"
 ---
 
 Assess and improve layout and spacing that feels monotonous, crowded, or structurally weak — turning generic arrangements into intentional, rhythmic compositions.

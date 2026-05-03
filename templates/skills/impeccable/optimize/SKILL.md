@@ -1,8 +1,10 @@
 ---
 name: optimize
-description: "Diagnoses and fixes UI performance across loading speed, rendering, animations, images, and bundle size. Use when the user mentions slow, laggy, janky, performance, bundle size, load time, or wants a faster, smoother experience."
+description: "optimize 优化：诊断并修复 UI performance 问题（loading/rendering/animations/bundle size）。"
 argument-hint: "[target]"
 user-invocable: true
+context: fork
+paths: "*.tsx,*.jsx,*.vue,*.svelte,*.css,*.scss"
 ---
 
 Identify and fix performance issues to create faster, smoother user experiences.

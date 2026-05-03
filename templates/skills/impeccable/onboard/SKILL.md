@@ -1,8 +1,10 @@
 ---
 name: onboard
-description: "Designs and improves onboarding flows, empty states, and first-run experiences to help users reach value quickly. Use when the user mentions onboarding, first-time users, empty states, activation, getting started, or new user flows."
+description: "onboard 引导：设计 onboarding flows/empty states/first-run，帮新用户快速触达价值。"
 argument-hint: "[target]"
 user-invocable: true
+context: fork
+paths: "*.tsx,*.jsx,*.vue,*.svelte,*.css,*.scss"
 ---
 
 ## MANDATORY PREPARATION

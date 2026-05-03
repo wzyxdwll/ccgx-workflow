@@ -1,8 +1,10 @@
 ---
 name: typeset
-description: "Improves typography by fixing font choices, hierarchy, sizing, weight, and readability so text feels intentional. Use when the user mentions fonts, type, readability, text hierarchy, sizing looks off, or wants more polished, intentional typography."
+description: "typeset 排版：修复 fonts/hierarchy/sizing/weight/readability，让文字看起来有意为之。"
 argument-hint: "[target]"
 user-invocable: true
+context: fork
+paths: "*.tsx,*.jsx,*.vue,*.svelte,*.css,*.scss"
 ---
 
 Assess and improve typography that feels generic, inconsistent, or poorly structured — turning default-looking text into intentional, well-crafted type.

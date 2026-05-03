@@ -1,9 +1,10 @@
 ---
 name: data-engineering
-description: 数据工程。Airflow、Dagster、Kafka Streams、Flink、dbt、数据管道、流处理、数据质量。当用户提到数据管道、ETL、流处理、数据质量时路由到此。
+description: 数据工程（Airflow/Dagster/Kafka/Flink/dbt、数据管道、ETL、流处理、数据质量）。
 license: MIT
 user-invocable: false
 disable-model-invocation: false
+context: fork
 ---
 
 # 数据工程域 · Data Engineering

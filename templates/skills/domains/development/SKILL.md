@@ -1,9 +1,10 @@
 ---
 name: development
-description: 开发语言能力索引。Python、Go、Rust、TypeScript、Java、C++、Shell。当用户提到编程、开发、代码、语言时路由到此。
+description: 开发语言能力索引（Python/Go/Rust/TypeScript/Java/C++/Shell）。
 license: MIT
 user-invocable: false
 disable-model-invocation: false
+context: fork
 ---
 
 # 符箓秘典 · 开发语言能力中枢

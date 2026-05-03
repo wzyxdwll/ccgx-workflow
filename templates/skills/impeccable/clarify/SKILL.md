@@ -1,8 +1,10 @@
 ---
 name: clarify
-description: "Improve unclear UX copy, error messages, microcopy, labels, and instructions to make interfaces easier to understand. Use when the user mentions confusing text, unclear labels, bad error messages, hard-to-follow instructions, or wanting better UX writing."
+description: "clarify 文案：改善 UX copy/error messages/labels/microcopy，让界面更易理解。"
 argument-hint: "[target]"
 user-invocable: true
+context: fork
+paths: "*.tsx,*.jsx,*.vue,*.svelte,*.md,*.json"
 ---
 
 Identify and improve unclear, confusing, or poorly written interface text to make the product easier to understand and use.

@@ -1,9 +1,11 @@
 ---
 name: glassmorphism
-description: Glassmorphism design system skill. Use when building frosted-glass UI components with blur, transparency, and layered depth effects.
+description: Glassmorphism 玻璃态设计（毛玻璃、透明度、模糊、分层深度）。
 license: MIT
 user-invocable: false
 disable-model-invocation: false
+context: fork
+paths: "*.tsx,*.jsx,*.vue,*.svelte,*.css,*.scss"
 ---
 
 # Glassmorphism Design Spec

@@ -1,9 +1,10 @@
 ---
 name: orchestration
-description: 协同编排知识域。多Agent协同、任务分解、并行执行、冲突解决。当魔尊需要多Agent协作、任务编排、并行处理时使用。
+description: 协同编排知识域（多 Agent 协同、任务分解、并行执行、冲突解决）。
 license: MIT
 user-invocable: false
 disable-model-invocation: false
+context: fork
 ---
 
 # 🕸 协同编排秘典

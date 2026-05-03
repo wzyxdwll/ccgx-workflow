@@ -1,9 +1,10 @@
 ---
 name: ai
-description: AI/LLM 能力索引。Agent 开发、LLM 安全、RAG 系统。当用户提到 AI、LLM、Agent、RAG、Prompt 时路由到此。
+description: AI/LLM 能力索引（Agent 开发、LLM 安全、RAG、Prompt 工程）。
 license: MIT
 user-invocable: false
 disable-model-invocation: false
+context: fork
 ---
 
 # 丹鼎秘典 · AI/LLM 能力中枢

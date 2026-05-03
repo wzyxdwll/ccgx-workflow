@@ -1,8 +1,10 @@
 ---
 name: audit
-description: "Run technical quality checks across accessibility, performance, theming, responsive design, and anti-patterns. Generates a scored report with P0-P3 severity ratings and actionable plan. Use when the user wants an accessibility check, performance audit, or technical quality review."
+description: "audit 技术审计：accessibility/performance/responsive/反模式 全检，P0-P3 评级。"
 argument-hint: "[area (feature, page, component...)]"
 user-invocable: true
+context: fork
+paths: "*.tsx,*.jsx,*.vue,*.svelte,*.css,*.scss"
 ---
 
 ## MANDATORY PREPARATION

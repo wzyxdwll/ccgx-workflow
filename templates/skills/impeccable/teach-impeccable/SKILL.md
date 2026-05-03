@@ -1,7 +1,8 @@
 ---
 name: teach-impeccable
-description: One-time setup that gathers design context for your project and saves it to your AI config file. Run once to establish persistent design guidelines.
+description: "teach-impeccable 一次性设置：收集项目设计上下文，建立持久化设计指南。"
 user-invocable: true
+context: fork
 ---
 
 Gather design context for this project, then persist it for all future sessions.

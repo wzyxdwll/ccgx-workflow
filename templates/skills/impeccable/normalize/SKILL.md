@@ -1,8 +1,10 @@
 ---
 name: normalize
-description: "Audits and realigns UI to match design system standards, spacing, tokens, and patterns. Use when the user mentions consistency, design drift, mismatched styles, tokens, or wants to bring a feature back in line with the system."
+description: "normalize 对齐：审计 UI 并对齐 design system 的 spacing/tokens/patterns 标准。"
 argument-hint: "[feature (page, route, component...)]"
 user-invocable: true
+context: fork
+paths: "*.tsx,*.jsx,*.vue,*.svelte,*.css,*.scss"
 ---
 
 Analyze and redesign the feature to perfectly match our design system standards, aesthetics, and established patterns.

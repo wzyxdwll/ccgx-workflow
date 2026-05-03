@@ -71,3 +71,20 @@ export type {
   SpecialistRole,
   SpecialistRoute,
 } from './utils/specialist-router'
+// v4.1-p19: skill description audit + registry exports
+export {
+  auditSkillDescriptions,
+  auditSkillsDirectory,
+  CONTEXT_BUDGET_THRESHOLD,
+  DESCRIPTION_SOFT_LIMIT,
+  renderAuditMarkdown,
+} from './utils/skill-description-audit'
+export type { AuditReport, AuditRow } from './utils/skill-description-audit'
+export {
+  collectInvocableSkills,
+  collectSkills,
+  generateCommandContent,
+  installSkillCommands,
+  parseFrontmatter,
+} from './utils/skill-registry'
+export type { SkillCategory, SkillMeta, SkillRuntimeType } from './utils/skill-registry'

@@ -1,9 +1,11 @@
 ---
 name: frontend-design
-description: "Frontend design skill fused from Impeccable + custom extensions. Covers design philosophy, anti-AI-slop patterns, typography, color (OKLCH), spatial design, motion, interaction, responsive, UX writing, state management, engineering, and 4 style variants. Includes 20 command skills for audit/critique/polish/animate/etc."
+description: "前端设计秘典（Impeccable 融合版：排版/OKLCH 配色/空间/动效/交互/响应式/UX 文案 + 4 种 style 变体）。"
 license: "Apache 2.0 (Impeccable) + MIT (custom extensions)"
 user-invocable: false
 disable-model-invocation: false
+context: fork
+paths: "*.tsx,*.jsx,*.vue,*.svelte,*.css,*.scss"
 ---
 
 # Frontend Design (Impeccable Fusion Edition)

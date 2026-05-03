@@ -1,9 +1,11 @@
 ---
 name: claymorphism
-description: Claymorphism design system skill. Use when building soft, puffy, clay-like UI components with large radii, dual inner shadows, and offset outer shadows.
+description: Claymorphism 黏土态设计（柔软膨胀、大圆角、双向内阴影、偏移外阴影）。
 license: MIT
 user-invocable: false
 disable-model-invocation: false
+context: fork
+paths: "*.tsx,*.jsx,*.vue,*.svelte,*.css,*.scss"
 ---
 
 # Claymorphism Design Spec

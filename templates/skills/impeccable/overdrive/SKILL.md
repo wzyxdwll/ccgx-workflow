@@ -1,8 +1,10 @@
 ---
 name: overdrive
-description: "Pushes interfaces past conventional limits with technically ambitious implementations — shaders, spring physics, scroll-driven reveals, 60fps animations. Use when the user wants to wow, impress, go all-out, or make something that feels extraordinary."
+description: "overdrive 极致：用 shaders/spring physics/scroll-driven/60fps 推到技术极限的视觉表现。"
 argument-hint: "[target]"
 user-invocable: true
+context: fork
+paths: "*.tsx,*.jsx,*.vue,*.svelte,*.css,*.scss"
 ---
 
 Start your response with:

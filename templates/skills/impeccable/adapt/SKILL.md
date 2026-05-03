@@ -1,8 +1,10 @@
 ---
 name: adapt
-description: "Adapt designs to work across different screen sizes, devices, contexts, or platforms. Implements breakpoints, fluid layouts, and touch targets. Use when the user mentions responsive design, mobile layouts, breakpoints, viewport adaptation, or cross-device compatibility."
+description: "adapt 适配：跨屏幕尺寸/设备/平台调整设计，实现 responsive 断点、流式布局、触控目标。"
 argument-hint: "[target] [context (mobile, tablet, print...)]"
 user-invocable: true
+context: fork
+paths: "*.tsx,*.jsx,*.vue,*.svelte,*.css,*.scss"
 ---
 
 Adapt existing designs to work effectively across different contexts - different screen sizes, devices, platforms, or use cases.
