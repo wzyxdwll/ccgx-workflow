@@ -138,54 +138,57 @@ allowed-tools:
 - 用 TodoWrite 维护一个跨 phase 进度列表（每 phase 一项），便于用户随时看进度。
 - 检查依赖：所有 `Depends on` 列出的 phase 必须为 `completed`，否则进入 **blocker 路径**（Step 5）。
 
-#### 4.2 路由：调 `/ccg:team` / `/ccg:spec-impl` / Plugin Offload
+#### 4.2 路由：调 `/ccg:spec-impl` / `phase-runner` / `/ccg:team`
 
 按以下优先级判定（**前序匹配后短路**）：
 
-1. **该 phase 描述含 `opsx://` 引用** → 走 OpenSpec 路径，调 `/ccg:spec-impl` 并传入 change_id
-2. **重型 phase 判定（offload 路径）** → 调 `Agent(subagent_type="codex:rescue")` 在 fresh context 后台执行
+1. **phase 标题含 `opsx://` 引用** → 走 OpenSpec 路径，调 `/ccg:spec-impl` 并传入 change_id
+2. **runner 模式 phase**（`--offload` flag 或 phase 标 `[offload]` tag 或满足重型自动触发）→ 调 `Agent(subagent_type="phase-runner")`，把 phase 完整定义 + Type 字段传给它（**v4.0 G 方案**）
 3. **默认** → 走 Agent Teams 路径，调 `/ccg:team <phase goal>`
 
-##### 重型 phase 判定（决定走第 2 路）
+##### runner 模式判定（决定走第 2 路）
 
-**显式触发**：`--offload` flag 提供（强制走 plugin offload，所有 phase 都走）。
+**显式触发**：
+- `--offload` flag 提供（强制走 phase-runner，所有 phase 都走）
+- 用户在 roadmap.md 里手动标 `[offload]` 或 `Mode: runner`（例 `## Phase 5: 命令收敛 [offload] (pending)`）
 
 **自动触发**（满足任一即可）：
-- phase goal 描述含关键词：`重构 / 迁移 / 全量改 / refactor / migrate / rewrite`
-- phase 预估涉及 > 20 个文件（通过 phase 标题或备注里的"涉及 N 文件"提示）
-- 上一个 phase 的 plan 文件 > 800 行（重型 phase 的强信号，说明 PRD 复杂）
-- 用户在 roadmap.md 里手动标 `[offload]` tag（例 `## Phase 3: 微服务拆分 [offload] (pending)`）
+- phase goal 含关键词：`重构 / 迁移 / 全量改 / refactor / migrate / rewrite`
+- phase 预估涉及 > 20 个文件
+- 上一个 phase 的 plan 文件 > 800 行
 
-**Plugin offload 调用方式**：
+##### phase-runner 调用方式（G 方案）
+
+phase-runner 是 CCG v4.0 引入的**单 phase 全权代理子 agent**——它包裹 codex/gemini rescue 子任务，按 phase Type 字段路由到对应模型，沙箱外补 git/test/typecheck handoff，最终返回主线 ≤200 token 摘要。详见 `~/.claude/agents/ccg/phase-runner.md`。
 
 ```
 Agent({
-  subagent_type: "codex:rescue",
-  description: "Phase <N> offload",
-  prompt: `--background --write
-
-请完整执行以下 phase 的 research → plan → implementation → test 全流程：
-
-Phase <N>: <phase goal>
-Depends on: <已完成 phase 的产物索引>
-
-工作目录：<WORKDIR>
-本 phase 的 PRD/约束（如有）：<roadmap.md 里的 phase 描述全文>
-
-完成时请输出结构化报告：
-1. 变更文件清单
-2. Critical/Major 问题清单（如有）
-3. 测试运行结果摘要
-4. 是否需要主线介入决策（灰区）
-
-不要修改 .ccg/roadmap.md（autonomous 主线管），只产出代码 + 报告到 .claude/team-plan/<phase-id>-offload-report.md
+  subagent_type: "phase-runner",
+  description: "Phase <N> runner",
+  prompt: `
+phase_id: phase-<N>-<slug>
+phase_n: <N>
+phase_name: <从 roadmap.md 标题提取>
+phase_type: <backend | frontend | fullstack | docs | generic>  # 从 roadmap.md Type 字段读取
+phase_goal: |
+  <Goal 段全文>
+phase_acceptance: |
+  <Acceptance 段全文>
+phase_depends_on: <已 completed 的 phase 列表 + 它们的产物路径>
+workdir: <WORKDIR>
+baseline_sha: <最近一次 baseline commit sha7>
+report_path: .claude/team-plan/phase-<N>-<slug>-report.md
+commit_prefix: feat(v4-p<N>):
+enable_challenger: false  # v4.1 接入点，v4.0 默认关
 `
 })
 ```
 
-收到 codex:rescue 返回的 task_id 后，主线**不阻塞等待**，进入 4.3 状态轮询循环。
+phase-runner 子 agent 内部完整 lifecycle（spawn rescue → 等报告 → 接 handoff → 验 acceptance → 摘要返回），主线**不参与中间步骤**。
 
-**降级**：若用户未装 `codex@openai-codex` plugin（`Agent(codex:rescue)` 调用失败），输出告警 + 自动 fallback 到第 3 路（普通 `/ccg:team`），并在 `.ccg/roadmap.md` 该 phase 备注 `Note: offload requested but codex plugin missing, fell back to team`。
+**模型路由委派给 phase-runner**：autonomous 主线不再硬编码 codex/gemini，phase-runner 根据 prompt 里的 `phase_type` 字段决定 spawn `codex:codex-rescue` 还是 `gemini:gemini-rescue`。这修复了 v3.0 路由 bug（autonomous 绕过 `{{FRONTEND_PRIMARY}}/{{BACKEND_PRIMARY}}` 配置）。
+
+**降级路径**：若 `Agent(phase-runner)` 调用失败（v3.0 旧版未装该 subagent），输出告警 + fallback 到第 3 路 `/ccg:team`，roadmap.md 备注 `Note: phase-runner unavailable, fell back to team`。
 
 #### 4.3 监控 phase 内信号
 
@@ -198,14 +201,28 @@ Depends on: <已完成 phase 的产物索引>
   - **Phase 完成但 Critical > 0**（用户在 team 内选了"接受失败"） → 进入 **blocker 路径**
   - **Phase 失败**（team 异常退出 / 测试不可恢复地失败） → 进入 **blocker 路径**
 
-**走 plugin offload 路径**（4.2 第 2 路）：
+**走 phase-runner 路径**（4.2 第 2 路，G 方案）：
 
-- 主线轮询 codex:rescue 任务状态：每 30 秒调一次 `Agent(codex:rescue --status <task_id>)`，读返回的 progress / done / failed
-- 主线**不读 stdout 全文**（避免吃 context），只看状态字段；任务 done 时调 `Agent(codex:rescue --result <task_id>)` 取结构化报告摘要
-- 用户主对话里看到的：`⏳ Phase <N> 后台运行中（codex:rescue task <id>），已 <耗时>，状态 <进度信息>`，每 1 分钟刷新
-- 任务 done 后读 `.claude/team-plan/<phase-id>-offload-report.md`，进入与 team 路径一致的 Critical/Major 判断逻辑
-- **用户中途想停**：`AskUserQuestion` 提供选项"停止当前 phase（cancel codex task）/ 继续等"，选停就调 `Agent(codex:rescue --cancel <task_id>)`
-- offload 路径**不写** `.ccg/state.md`（state.md 是 team-exec 的私域），只在 roadmap.md 该 phase 备注 `Mode: offload (codex:rescue task <id>)`
+- phase-runner 是个普通 subagent，它返回时 Claude Code 自动通知主线——主线**不轮询、不读 transcript、不读报告全文**
+- 主线只读 phase-runner 返回的 ≤200 token 摘要：
+  ```
+  STATUS: completed | partial | failed | degraded
+  COMMIT: <sha7> | none
+  TESTS: <pass>/<total> passed (delta +<n>)
+  TYPECHECK: pass | fail
+  HANDOFF_TAKEN: [git_commit, test_run, ...]
+  CONTEXT_DELTA: <一句话>
+  NOTES: <一行关键发现 / 灰区决策点>
+  ```
+- 摘要解析后路由：
+  - `STATUS: completed` → 进入 4.4 推进
+  - `STATUS: partial` → AskUserQuestion 暂停（"重试 / 接受部分 / 跳过 / 终止"）
+  - `STATUS: failed` → AskUserQuestion 暂停（"重试 / 跳过 / 终止"），下游依赖 phase 自动 cascade 标 blocked
+  - `STATUS: degraded` → 警告但继续（rescue plugin 不可用但 phase-runner 已 fallback 完成）
+- **心跳超时**：spawn phase-runner 后 30 分钟内无 completion 通知 → AskUserQuestion 提示"等 / 强制 fail / 重 spawn"
+- runner 路径**不写** `.ccg/state.md`（state.md 是 team-exec 私域），只在 roadmap.md 该 phase 写 `Mode: runner` + `Plan: .claude/team-plan/<phase-id>-report.md`
+
+**主线 context 不漂移的关键**：autonomous 主线只接 ≤200 token 摘要，phase-runner 子 agent 的 transcript（包括 codex/gemini rescue 报告全文）都在子 agent 的 fresh context 里，**不进主线**。这正是 GSD"主线 ≤15% / subagent fresh"原则的 Claude Code 原生实现。
 
 #### 4.4 Phase 推进
 
