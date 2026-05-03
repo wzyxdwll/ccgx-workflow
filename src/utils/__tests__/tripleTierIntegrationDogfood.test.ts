@@ -282,19 +282,21 @@ describe('dogfood — extractDivergences first-token 误配修复 (P24)', () => 
 // ---------------------------------------------------------------------------
 
 describe('dogfood — quality-router + verify-orchestrator 联动 SSoT (P24)', () => {
-  it('triple tier verify wave 通过 quality-router buildQualityPlan 输出 codex+gemini', () => {
+  it('triple tier verify wave 通过 quality-router buildQualityPlan 输出 codex+gemini+interface-auditor (P27)', () => {
     const plan = buildQualityPlan(
       { cliArgs: '--quality=triple' },
       { phaseId: 'p99', phaseType: 'backend' },
       PLUGINS_BOTH,
     )
     const verifyWave = plan.waves.find(w => w.kind === 'verify')!
-    expect(verifyWave.spawns).toHaveLength(2)
+    // P27: triple/debate 加 interface-auditor → 3 路并行
+    expect(verifyWave.spawns).toHaveLength(3)
     expect(verifyWave.spawns.map(s => s.agent).sort()).toEqual([
       'codex:rescue',
       'gemini:rescue',
+      'interface-auditor',
     ])
-    // 两个 spawn role 都是 verifier (adapter 注入)
+    // 三个 spawn role 都是 verifier (adapter + P27 注入)
     for (const s of verifyWave.spawns) {
       expect(s.role).toBe('verifier')
     }

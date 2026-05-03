@@ -275,7 +275,17 @@ runPhaseWithQualityPlan(phase, plan):
                     verify_findings: verifyFindings,
                 })
             case 'verify':
+                # P27: triple/debate verify wave 现在 3 路并行：
+                #   - codex:rescue   — cross-vendor verify (race / commit drift)
+                #   - gemini:rescue  — cross-vendor verify (UX / 半成品)
+                #   - interface-auditor — 跨 phase 接口审计（SSoT / leftover /
+                #                         magic-string vs ground truth /
+                #                         commit-diff drift / mock-drift）
+                # fast 模式不加 interface-auditor（fast 优先速度）。
                 verifyReports = spawn_parallel(innerWave.spawns)
+                # 主线综合：原 verifier critical 任一 + interface-auditor critical
+                # 任一 → revise（synthesizeVerifyResults 已统一处理 STATUS/FINDINGS
+                # 协议；interface-auditor 摘要复用同 schema，无需特判）
                 decision = synthesizeVerifyResults(verifyReports)
                 if decision === 'revise' && retryCount < 1:
                     verifyFindings = synthesizeVerifyFeedback(verifyReports)

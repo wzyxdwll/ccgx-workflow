@@ -103,6 +103,12 @@ describe('planWavesForTier — fast tier', () => {
     const r = planWavesForTier('fast', phase({ phaseType: 'frontend' }), PLUGINS_BOTH)
     expect(r.waves[1].spawns[0].agent).toBe('codex:rescue')
   })
+
+  it('fast verify: interface-auditor NOT present (fast 优先速度)', () => {
+    const r = planWavesForTier('fast', phase(), PLUGINS_BOTH)
+    const verify = r.waves[1]
+    expect(verify.spawns.map(s => s.agent)).not.toContain('interface-auditor')
+  })
 })
 
 describe('planWavesForTier — triple tier', () => {
@@ -136,14 +142,27 @@ describe('planWavesForTier — triple tier', () => {
     expect(r.waves[2].spawns[0].agent).toBe('phase-runner')
   })
 
-  it('verify wave: dual cross-vendor (codex + gemini)', () => {
+  it('verify wave: dual cross-vendor (codex + gemini) + interface-auditor (P27)', () => {
     const r = planWavesForTier('triple', phase(), PLUGINS_BOTH)
     const verify = r.waves[3]
-    expect(verify.spawns).toHaveLength(2)
+    expect(verify.spawns).toHaveLength(3)
     expect(verify.spawns.map(s => s.agent)).toEqual([
       'codex:rescue',
       'gemini:rescue',
+      'interface-auditor',
     ])
+    // interface-auditor must be tagged role=verifier
+    expect(verify.spawns[2].role).toBe('verifier')
+    // rationale should mention layer for debugging visibility
+    expect(verify.spawns[2].rationale).toMatch(/interface audit/i)
+  })
+
+  it('verify wave: interface-auditor present even when plugins degraded', () => {
+    const r = planWavesForTier('triple', phase(), PLUGINS_CODEX_ONLY)
+    const verify = r.waves[3]
+    // 2 verify slots (gemini → fallback) + interface-auditor
+    expect(verify.spawns).toHaveLength(3)
+    expect(verify.spawns[2].agent).toBe('interface-auditor')
   })
 })
 
@@ -182,6 +201,18 @@ describe('planWavesForTier — debate tier', () => {
     expect(r1.spawns.map(s => s.agent).sort()).toEqual([
       'codex:rescue',
       'gemini:rescue',
+    ])
+  })
+
+  it('debate verify wave (last): codex + gemini + interface-auditor (P27)', () => {
+    const r = planWavesForTier('debate', phase(), PLUGINS_BOTH)
+    const verify = r.waves[r.waves.length - 1]
+    expect(verify.kind).toBe('verify')
+    expect(verify.spawns).toHaveLength(3)
+    expect(verify.spawns.map(s => s.agent)).toEqual([
+      'codex:rescue',
+      'gemini:rescue',
+      'interface-auditor',
     ])
   })
 })

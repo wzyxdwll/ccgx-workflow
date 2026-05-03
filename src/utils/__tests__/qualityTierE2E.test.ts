@@ -332,17 +332,18 @@ describe('Roadmap E2E — spawn budget invariants', () => {
     expect(total).toBe(2)
   })
 
-  it('triple tier: total spawns = 8 (3 plan + 2 critic + 1 impl + 2 verify)', () => {
+  it('triple tier: total spawns = 9 (3 plan + 2 critic + 1 impl + 3 verify w/ P27 interface-auditor)', () => {
     const plan = buildQualityPlan(
       { cliArgs: '--quality=triple' },
       MOCK_ROADMAP[1],
       PLUGINS_BOTH,
     )
     const total = plan.waves.reduce((acc, w) => acc + w.spawns.length, 0)
-    expect(total).toBe(8)
+    // P27: verify wave 加 interface-auditor → 2 → 3
+    expect(total).toBe(3 + 2 + 1 + 3)
   })
 
-  it('debate tier (fullstack): plan(3) + 3 debate rounds × 2 spawns + critic(2) + impl(1) + verify(2) = 14', () => {
+  it('debate tier (fullstack): plan(3) + 3 debate rounds × 2 spawns + critic(2) + impl(1) + verify(3 w/ P27) = 15', () => {
     const plan = buildQualityPlan(
       { cliArgs: '--quality=debate' },
       MOCK_ROADMAP[2],
@@ -350,18 +351,19 @@ describe('Roadmap E2E — spawn budget invariants', () => {
     )
     const total = plan.waves.reduce((acc, w) => acc + w.spawns.length, 0)
     // fullstack debate has both codex+gemini in propose/respond/challenge → 2 per round
-    expect(total).toBe(3 + 3 * 2 + 2 + 1 + 2)
+    // verify 路从 2（codex+gemini）变 3（+ interface-auditor）
+    expect(total).toBe(3 + 3 * 2 + 2 + 1 + 3)
   })
 
-  it('debate tier (backend): 1 spawn per debate round (single side per kind) → less total', () => {
+  it('debate tier (backend): 1 spawn per debate round (single side per kind) + 3 verify w/ P27 = 12', () => {
     const backendDebatePhase: MockRoadmapPhase = {
       ...MOCK_ROADMAP[1],
       quality: 'debate',
     }
     const plan = buildQualityPlan({}, backendDebatePhase, PLUGINS_BOTH)
     const total = plan.waves.reduce((acc, w) => acc + w.spawns.length, 0)
-    // backend: plan(3) + 3 debate rounds × 1 + critic(2) + impl(1) + verify(2) = 11
-    expect(total).toBe(3 + 3 + 2 + 1 + 2)
+    // backend: plan(3) + 3 debate rounds × 1 + critic(2) + impl(1) + verify(3 w/ P27) = 12
+    expect(total).toBe(3 + 3 + 2 + 1 + 3)
   })
 })
 

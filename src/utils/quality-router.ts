@@ -301,8 +301,13 @@ function verifyWavePlanToWavePlan(vwp: VerifyWavePlan, index: number): WavePlan 
  * **v4.2.1 P24 SSoT 化**：路由实现已下沉到 verify-orchestrator.planVerifyWave；
  * 本函数只做 schema adapter，不再独立实现单/双 verify 逻辑。
  *
+ * **v4.3 P27 interface-auditor 集成**：triple/debate 模式的 verify wave 在
+ * codex+gemini cross-vendor 之外追加 `interface-auditor` 一路，做跨 phase 接口
+ * 审计（SSoT 违反 / 半成品 / magic string vs ground truth / commit-diff drift /
+ * mock-drift）。fast 模式不加（fast 优先速度，且单 verify 已能 cross-vendor）。
+ *
  *   - fast tier: 单 verify，按 layer 反选（backend phase → gemini verify / 反之）
- *   - triple/debate tier: 双 verify（codex + gemini 并行）
+ *   - triple/debate tier: 双 verify（codex + gemini）+ interface-auditor (3 路并行)
  */
 function buildVerifyWave(
   index: number,
@@ -311,7 +316,19 @@ function buildVerifyWave(
   tier: QualityTier,
 ): WavePlan {
   const vwp = planVerifyWave(tier, phase.phaseType, plugins)
-  return verifyWavePlanToWavePlan(vwp, index)
+  const wavePlan = verifyWavePlanToWavePlan(vwp, index)
+
+  // P27: triple/debate verify wave 追加 interface-auditor specialist。
+  // CCG 自家 agent 必装，无 plugin degradation；fast 模式不加。
+  if (tier === 'triple' || tier === 'debate') {
+    wavePlan.spawns.push({
+      agent: 'interface-auditor',
+      role: 'verifier',
+      rationale: `cross-phase interface audit (${phase.phaseType}; SSoT / leftover / magic-string / commit-drift / mock-drift)`,
+    })
+  }
+
+  return wavePlan
 }
 
 /** Debate sub-wave: 单轮 propose / challenge / respond */

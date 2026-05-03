@@ -204,3 +204,16 @@ export type {
   SampleOptions,
   SkillInfo as GroundTruthSkillInfo,
 } from './utils/ground-truth-sampler'
+
+// CCG v4.3 Phase 27 — interface auditor
+export {
+  parseInterfaceAuditorReport,
+  criticalFindings as interfaceAuditCriticals,
+  majorFindings as interfaceAuditMajors,
+  hasBlockingFindings as interfaceAuditHasBlocking,
+} from './utils/interface-auditor'
+export type {
+  InterfaceAuditCategory,
+  InterfaceAuditFinding,
+  InterfaceAuditReport,
+} from './utils/interface-auditor'
