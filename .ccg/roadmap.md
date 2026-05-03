@@ -230,7 +230,16 @@
 - **Depends on**: 4
 - **Mode**: offload
 
-## Phase 7: 异步三件套 status/result/cancel (pending)
+## Phase 7: 异步三件套 status/result/cancel (completed)
+
+- **Started**: 2026-05-03 22:32 | **Completed**: 2026-05-03 22:39
+- **Mode**: runner → degraded
+- **Type**: backend
+- **Commit**: `e4bcd83 feat(v4-p7): async job triplet — /ccg:status /ccg:result /ccg:cancel`
+- **Tests**: 358/358 passed (delta +23 + 3 drift = +26)
+- **Outcome**: jobs.ts helper + 23 单测 + 3 命令模板（status/result/cancel）+ installer 注册更新。`.context/jobs/<id>/` schema（state.json + result.md + cancel.flag）。
+- **Plan**: `.claude/team-plan/phase-07-async-triplet-report.md`
+- **Dogfood 数据点**: 主线 context T6=46% → T7=**47%（+1%）**
 
 - **Goal**: 新增 3 个命令，job-id 化背景任务管理，存 `.context/jobs/<id>/`，长任务可观测。
 - **Acceptance**:
@@ -243,7 +252,11 @@
 - **来源**: 04-ecosystem-scan.md ROI #4 + openai-codex plugin 实战
 - **Depends on**: (none)
 
-## Phase 8: verifier Level 4 升级 (pending)
+## Phase 8: verifier Level 4 升级 (in_progress)
+
+- **Started**: 2026-05-03 22:40
+- **Mode**: runner (预期 fallback)
+- **Type**: backend
 
 - **Goal**: 现有 `verifier.md` 三层（存在/实质/联通）升 4 层，加数据流追踪 + override + deferred 过滤。
 - **新增能力**:
