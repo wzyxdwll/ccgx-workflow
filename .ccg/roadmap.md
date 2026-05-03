@@ -178,11 +178,16 @@
 - **来源**: `.ccg-research/03-quality-gates.md` ROI #1（GSD 真实事故 D-26 反推）
 - **Depends on**: (none)
 
-## Phase 5: 命令收敛第一波 [offload] (in_progress)
+## Phase 5: 命令收敛第一波 [offload] (completed)
 
-- **Started**: 2026-05-03 22:13
-- **Mode**: runner (预期 fallback；破坏性变更需小心)
+- **Started**: 2026-05-03 22:13 | **Completed**: 2026-05-03 22:21
+- **Mode**: runner → degraded (fallback)
 - **Type**: backend
+- **Commit**: `747dd4f feat(v4-p5): consolidate command palette (delete 5 + merge verify-*)`
+- **Tests**: 303/303 passed (delta -8 删模板的参数化测试)
+- **Outcome**: 删 5 命令（frontend/backend/feat/forensics/extract-learnings）+ 新增 /ccg:verify --gate=<name>。BC 保留（4 legacy verify-* 仍 skill-generated，标 deprecated_in v4.0，v5.0 硬切）。命令注册表 35→31。
+- **Plan**: `.claude/team-plan/phase-05-command-consolidation-report.md`
+- **Dogfood 数据点**: 主线 context T4=45% → T5=**46%（+1%）**——破坏性变更下 G 方案稳定
 
 - **Goal**: 命令面板 35 → 30，删 / 合并使用率低或重叠的命令。
 - **删除**: `frontend.md` / `backend.md` / `feat.md` / `forensics.md` / `extract-learnings.md`
