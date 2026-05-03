@@ -115,7 +115,17 @@
 - **Type**: backend
 - **工作量**: 0.5 天
 
-## Phase 2: `.context/<phase>/{CONTEXT,SUMMARY}.md` phase 状态机 (pending)
+## Phase 2: `.context/<phase>/{CONTEXT,SUMMARY}.md` phase 状态机 (completed)
+
+- **Started**: 2026-05-03 21:55 | **Completed**: 2026-05-03 21:59
+- **Mode**: runner (G 方案首次端到端验证) → degraded (general-purpose subagent 不能嵌套 spawn Agent，自动走 phase-runner.md 失败模式 fallback)
+- **Type**: backend
+- **Commit**: `97f3862 feat(v4-p2): .context/<phase>/{CONTEXT,SUMMARY}.md state machine`
+- **Tests**: 251/251 passed (delta +30)
+- **Outcome**: phase-context.ts helper 落地（writeContext / readContext / writeSummary / readSummaryFrontmatter / summaryTokenEstimate）+ 30 单测 + index export。frontmatter-only 热路径验证主线 5 phase 总预算 < 1000 tokens。
+- **Plan**: `.claude/team-plan/phase-02-context-state-machine-report.md`
+- **Dogfood 数据点**: 主线 context T1.5=43% → T2=**44%（+1%）**——G 方案首次验证：subagent fresh 隔离让主线增量从 Phase 1.5 自实现的 +10% 降到 +1%
+- **意外发现**: `Agent(general-purpose)` 不能再 spawn `Agent(codex:rescue)` 嵌套（Claude Code 工具权限），fallback 路径起效。dogfood 数据保留，记入 Phase 12 经验提炼。
 
 - **Goal**: 引入 phase-scoped 状态文件，主线只读 SUMMARY.md frontmatter（< 200 tokens/phase）替代接 builder 全文输出。
   - `CONTEXT.md` — discuss 阶段冻结决策，下游 plan/exec 读取
@@ -128,7 +138,11 @@
 - **来源**: 05 决策 A + Top 10 ROI #3
 - **Depends on**: 1
 
-## Phase 3: codebase-mapper agent 移植 (pending)
+## Phase 3: codebase-mapper agent 移植 (in_progress)
+
+- **Started**: 2026-05-03 22:00
+- **Mode**: runner (G 方案，预期 fallback 路径)
+- **Type**: backend
 
 - **Goal**: 从 GSD 移植 `codebase-mapper`（02-subagent-matrix.md ROI #1），让 plan/execute/init 启动前有廉价 codebase 摘要。
 - **Acceptance**:
