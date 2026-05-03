@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.2.2] - 2026-05-04
+
+> 🚨 **Release-blocker hotfix**：v4.2.1 本地装完发现 `templates/commands/debate.md` **没进 npm tarball**——v4.1 P17 phase-runner 创建该文件但漏加到 `package.json` `files` 白名单（精确匹配模式）。tarball 缺失导致 `/ccg:debate` 命令在 v4.1.0 / v4.2.0 / v4.2.1 三个 release 上**全部不可用**。本 patch 仅修该一处。
+
+### 🐛 修复
+
+- **`package.json` `files` 数组加入 `templates/commands/debate.md`**：v4.1.0 引入的 `/ccg:debate` 多轮对辩原语命令模板被 npm pack 漏打。现已修复，v4.2.2+ 用户安装后 `~/.claude/commands/ccg/debate.md` 正常落地。
+
+### 📝 影响范围
+
+- 仅改 `package.json`（version bump + files 数组 +1 行）+ `CHANGELOG.md`（本段）。代码 / 测试 / 模板均未改动。
+- v4.1.0 - v4.2.1 已发布版本受影响：`/ccg:debate` 命令不可用。建议升级到 v4.2.2。
+
+---
+
 ## [4.2.1] - 2026-05-04
 
 > 🐛 **Review-driven patch**：v4.2.0 release 后主对话 5 文件代码 review 暴露 3 项接口债 / 算法粗糙问题。本 patch 全部修复 + 加 dogfood 风格集成测试避免回归。**API 兼容**：所有 export 签名不变；`estimateTokens` 是新增 export。
