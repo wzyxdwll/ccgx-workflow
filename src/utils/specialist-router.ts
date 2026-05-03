@@ -19,6 +19,9 @@
  * variable routing — i.e. nothing changes for existing users.
  */
 
+// v4.2 P21: layer / model 收敛到 multi-model-routing SSoT
+import type { Layer } from './multi-model-routing'
+
 export type SpecialistRole =
   | 'architect'
   | 'critic'
@@ -26,11 +29,18 @@ export type SpecialistRole =
   | 'tester'
   | 'writer'
 
-export type SpecialistLayer = 'backend' | 'frontend' | 'fullstack'
+/**
+ * Specialist 路由识别的 layer 子集。
+ * SSoT `Layer` 5 项中 specialist-router 仅消费 backend/frontend/fullstack。
+ * docs / generic 在 specialist-router 上下文不适用——由调用方在 v4.0 fallback 路由覆盖。
+ */
+export type SpecialistLayer = Extract<Layer, 'backend' | 'frontend' | 'fullstack'>
 
 /**
  * Which underlying model owns a given (role, layer) intersection.
  * `claude` here means "main thread / no external model spawn".
+ *
+ * v4.2 P21 起继承自 multi-model-routing SSoT 的 Model union（取 codex/gemini/claude 子集）。
  */
 export type SpecialistModel = 'codex' | 'gemini' | 'claude'
 
@@ -70,6 +80,13 @@ export interface SpecialistRoute {
  * Note `critic` is not a separate prompt file — it reuses `reviewer.md`
  * with the adversarial flag set (see `adversarial: true` in the route).
  * This keeps the prompt library at the existing 6 files per model.
+ *
+ * v4.2 P21 (assumption purge):
+ *   - `implementer` 历史借用 `architect.md` 是未验证假设；改 return null 让
+ *     主线（writer-style）直接接管，不向 codex/gemini plugin 发送伪装 prompt。
+ *     实际 implementer 的工作由 phase-runner / autonomous 编排具体落地，
+ *     不属 specialist-router 的职责。
+ *   - 其余 role 与 v4.1 保持不变。
  */
 function rolePromptFile(role: SpecialistRole): string | null {
   switch (role) {
@@ -78,9 +95,10 @@ function rolePromptFile(role: SpecialistRole): string | null {
     case 'critic':
       return 'reviewer.md'  // reused with adversarial framing
     case 'implementer':
-      // implementer reuses architect.md per existing prompt library;
-      // execute.md / codex-exec.md path uses architect for "build it".
-      return 'architect.md'
+      // v4.2 P21: 删除"借用 architect.md"假设。implementer 无专属 prompt，
+      // 主线（或 phase-runner spawn 的 codex:codex-rescue）按 phase 上下文
+      // 自行决定实施策略，不再走 specialist 路由。
+      return null
     case 'tester':
       return 'tester.md'
     case 'writer':
@@ -105,15 +123,29 @@ export function routeSpecialist(
   const adversarial = role === 'critic'
   const promptFile = rolePromptFile(role)
 
-  // writer × any: main thread handles directly
+  // writer × any: main thread handles directly.
+  // v4.2 P21 (assumption purge): 删除 "frontend writer 借 gemini analyzer.md" 假设
+  // ——analyzer.md 与 UX writing 不对应，是未验证联想。改为统一 main-thread Claude。
   if (role === 'writer') {
-    // exception: frontend writer leverages gemini's UX writing prompt set
-    if (layer === 'frontend') {
+    return {
+      models: ['claude'],
+      promptFiles: [null],
+      adversarial: false,
+      runnerDecides: false,
+    }
+  }
+
+  // implementer × any: v4.2 P21 起 specialist-router 不路由 implementer。
+  // 主线（或 phase-runner）按 phase Type 自行 spawn codex/gemini rescue。
+  // 返回 main-thread slot 让调用方走 v4.0 fallback。
+  if (role === 'implementer') {
+    if (layer === 'fullstack') {
+      // 保留 fullstack runnerDecides 语义：调用方自行选 codex/gemini per file
       return {
-        models: ['gemini'],
-        promptFiles: ['analyzer.md'],  // gemini's analyzer covers UX writing
+        models: ['codex', 'gemini'],
+        promptFiles: [null, null],
         adversarial: false,
-        runnerDecides: false,
+        runnerDecides: true,
       }
     }
     return {
@@ -124,8 +156,8 @@ export function routeSpecialist(
     }
   }
 
-  // fullstack × {implementer, tester} → runner decides per file
-  if (layer === 'fullstack' && (role === 'implementer' || role === 'tester')) {
+  // fullstack × tester → runner decides per file
+  if (layer === 'fullstack' && role === 'tester') {
     return {
       models: ['codex', 'gemini'],
       promptFiles: [promptFile, promptFile],
@@ -144,7 +176,7 @@ export function routeSpecialist(
     }
   }
 
-  // backend × {architect, critic, implementer, tester} → codex only
+  // backend × {architect, critic, tester} → codex only
   if (layer === 'backend') {
     return {
       models: ['codex'],
@@ -154,7 +186,7 @@ export function routeSpecialist(
     }
   }
 
-  // frontend × {architect, critic, implementer, tester} → gemini only
+  // frontend × {architect, critic, tester} → gemini only
   return {
     models: ['gemini'],
     promptFiles: [promptFile],

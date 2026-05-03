@@ -32,6 +32,10 @@ import { existsSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
+// v4.2 P21: PluginAvailability 收敛到 multi-model-routing SSoT
+import type { PluginAvailability } from './multi-model-routing'
+export type { PluginAvailability } from './multi-model-routing'
+
 // ---------------------------------------------------------------------------
 // 1. Schema
 // ---------------------------------------------------------------------------
@@ -52,16 +56,6 @@ export interface PluginDetectionResult {
   probedPath: string
   /** Reason when `installed: false` */
   reason?: 'missing-dir' | 'missing-marker' | 'fs-error'
-}
-
-/**
- * Aggregate availability for the two CCG-relevant plugins. Mirrors the
- * shape of `PluginAvailability` consumed by challenger-orchestrator so
- * callers can pass this directly.
- */
-export interface PluginAvailability {
-  codex: boolean
-  gemini: boolean
 }
 
 // ---------------------------------------------------------------------------

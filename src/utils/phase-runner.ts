@@ -8,7 +8,10 @@
  * subagent 模板里 `routePhaseType()` 行为做单元测试覆盖。
  */
 
-export type PhaseType = 'backend' | 'frontend' | 'fullstack' | 'docs' | 'generic'
+// v4.2 P21: PhaseType 收并到 multi-model-routing SSoT 的 Layer。
+// 保留别名供 BC（外部调用方仍 import 此名），新代码请直接用 Layer。
+import type { Layer } from './multi-model-routing'
+export type PhaseType = Layer
 
 export type RescueSubagentType =
   | 'codex:codex-rescue'

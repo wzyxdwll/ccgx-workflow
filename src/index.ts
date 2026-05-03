@@ -119,3 +119,15 @@ export type {
   PluginDetectionResult,
   PluginName,
 } from './utils/plugin-detection'
+// v4.2-p21: multi-model routing SSoT
+export {
+  ALL_LAYERS,
+  isLayer,
+  ROUTING_SCHEMA_VERSION,
+} from './utils/multi-model-routing'
+export type {
+  Layer,
+  Model,
+  PluginAvailability as RoutingPluginAvailability,
+  Role,
+} from './utils/multi-model-routing'

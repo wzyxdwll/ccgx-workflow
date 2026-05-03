@@ -54,17 +54,28 @@ describe('routeSpecialist — 5 role × 3 layer matrix', () => {
     expect(r.adversarial).toBe(true)
   })
 
-  it('implementer × backend → codex with architect.md (build prompt)', () => {
+  // v4.2 P21 (assumption purge):
+  // implementer × backend 历史借用 architect.md 是未验证假设；改为 main-thread Claude，
+  // 主线/phase-runner 按 phase Type 自行 spawn rescue plugin。
+  it('implementer × backend → main-thread Claude (no borrowed prompt; assumption purged)', () => {
     const r = routeSpecialist('implementer', 'backend')
-    expect(r.models).toEqual(['codex'])
-    expect(r.promptFiles).toEqual(['architect.md'])
+    expect(r.models).toEqual(['claude'])
+    expect(r.promptFiles).toEqual([null])
     expect(r.adversarial).toBe(false)
   })
 
-  it('implementer × fullstack → runner decides (codex OR gemini per file)', () => {
+  it('implementer × frontend → main-thread Claude (assumption purged)', () => {
+    const r = routeSpecialist('implementer', 'frontend')
+    expect(r.models).toEqual(['claude'])
+    expect(r.promptFiles).toEqual([null])
+  })
+
+  it('implementer × fullstack → runner decides (codex OR gemini per file), no prompt files', () => {
     const r = routeSpecialist('implementer', 'fullstack')
     expect(r.runnerDecides).toBe(true)
     expect(r.models).toEqual(['codex', 'gemini'])
+    // v4.2 P21: prompt files null（主线接管 prompt 决策）
+    expect(r.promptFiles).toEqual([null, null])
   })
 
   it('tester × backend → codex with tester.md', () => {
@@ -96,10 +107,13 @@ describe('routeSpecialist — 5 role × 3 layer matrix', () => {
     expect(r.promptFiles).toEqual([null])
   })
 
-  it('writer × frontend → gemini analyzer (UX writing)', () => {
+  // v4.2 P21 (assumption purge):
+  // writer × frontend 历史借用 gemini analyzer.md 是未验证假设（analyzer 不对应
+  // UX writing）；改为统一 main-thread Claude，与 backend / fullstack 一致。
+  it('writer × frontend → main-thread Claude (analyzer.md borrow assumption purged)', () => {
     const r = routeSpecialist('writer', 'frontend')
-    expect(r.models).toEqual(['gemini'])
-    expect(r.promptFiles).toEqual(['analyzer.md'])
+    expect(r.models).toEqual(['claude'])
+    expect(r.promptFiles).toEqual([null])
   })
 
   it('all 15 cells return a route (no undefined / throws)', () => {

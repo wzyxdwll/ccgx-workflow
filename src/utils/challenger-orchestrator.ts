@@ -29,7 +29,9 @@
 // 1. Schema
 // ---------------------------------------------------------------------------
 
-import type { PhaseType } from './phase-runner'
+// v4.2 P21: 改用 multi-model-routing SSoT 的 Layer 替代 PhaseType
+import type { Layer, PluginAvailability } from './multi-model-routing'
+export type { PluginAvailability } from './multi-model-routing'
 
 /**
  * Plugin advisor agent type. Maps to Claude Code subagent_type identifiers
@@ -63,22 +65,17 @@ export type FindingSeverity = 'critical' | 'major' | 'info'
 export interface ChallengeInput {
   /** Phase id, e.g. "16" */
   phaseId: string
-  /** Phase type from roadmap.md `Type` field */
-  phaseType: PhaseType
+  /**
+   * Phase layer from roadmap.md `Type` field.
+   *
+   * v4.2 P21 起统一用 multi-model-routing SSoT 的 `Layer`，
+   * 替代历史 phase-runner.ts 自定义的 `PhaseType`（已收并）。
+   */
+  phaseType: Layer
   /** Whether `Critical: true` was declared in the phase frontmatter */
   critical: boolean
   /** What plugins the user has installed (detected at orchestrator start) */
   plugins: PluginAvailability
-}
-
-/**
- * Plugin install detection result. Populated by autonomous.md preflight
- * (which checks `~/.claude/plugins/` or runs a probe spawn). When a plugin
- * is unavailable, orchestrator falls back to specialist-only.
- */
-export interface PluginAvailability {
-  codex: boolean
-  gemini: boolean
 }
 
 /**
@@ -205,7 +202,7 @@ export function planChallengerSpawns(input: ChallengeInput): ChallengerPlan {
   }
 }
 
-function desiredAgentsForType(type: PhaseType): ChallengerAgent[] {
+function desiredAgentsForType(type: Layer): ChallengerAgent[] {
   switch (type) {
     case 'backend':
       return ['codex:codex-rescue', 'assumptions-analyzer']
@@ -224,7 +221,7 @@ function desiredAgentsForType(type: PhaseType): ChallengerAgent[] {
   }
 }
 
-function rationaleFor(agent: ChallengerAgent, type: PhaseType): string {
+function rationaleFor(agent: ChallengerAgent, type: Layer): string {
   switch (agent) {
     case 'codex:codex-rescue':
       return `backend logic adversarial review (${type})`
@@ -284,44 +281,159 @@ export function parseChallengerSummary(
   return { agent, status, findings, notes, raw: text }
 }
 
+/**
+ * Parse a FINDINGS field value into structured Finding[].
+ *
+ * v4.2 P21 鲁棒化（acceptance c）：
+ *
+ *   1. Strip ```json``` 围栏（codex/gemini plugin 经常把 JSON 用三反引号包裹）
+ *   2. JSON.parse 优先；成功 + 是数组 → normalizeFinding 走完
+ *   3. JSON 失败 → 单引号 → 双引号 normalize 重试
+ *   4. 仍失败 → balanced-bracket tokenizer 切分顶层对象
+ *      （正则 `/\{[^}]*\}/` 不支持嵌套 `{}` in message 字段，必须字符级匹配）
+ *   5. 每个块再按 severity/category/message 字段抽取（regex 容错单/双引号）
+ *
+ * 不引入新依赖（acceptance contract）；纯 Node 内建。
+ */
 function parseFindings(raw: string): Finding[] {
-  // Try strict JSON first
-  const trimmed = raw.trim()
-  if (trimmed.startsWith('[')) {
-    try {
-      const parsed = JSON.parse(trimmed)
-      if (Array.isArray(parsed)) {
-        return parsed
-          .map(normalizeFinding)
-          .filter((f): f is Finding => f !== null)
-      }
-    } catch {
-      // fall through to lenient parsing
-    }
-  }
+  let trimmed = stripJsonFence(raw.trim())
 
-  // Lenient: split on `},` boundaries inside list-like syntax,
-  // extract severity/category/message via regex.
+  // 1. 严格 JSON
+  const direct = tryParseJsonArray(trimmed)
+  if (direct !== null) return direct
+
+  // 2. 单引号 → 双引号 normalize 后再试
+  // 注意：仅替换裸单引号；不破坏字符串内容（best-effort，下面 balanced 切分仍兜底）
+  const normalized = normalizeQuotes(trimmed)
+  const secondTry = tryParseJsonArray(normalized)
+  if (secondTry !== null) return secondTry
+
+  // 3. balanced-bracket tokenizer：手动切分顶层 `{...}`，
+  //    在 message 字段含嵌套 `{}` 或 `},` 等情况时仍能正确边界识别。
+  const blocks = splitTopLevelObjects(trimmed)
   const findings: Finding[] = []
-  const re = /\{[^}]*severity[^}]*\}/gi
-  let m: RegExpExecArray | null
-  // eslint-disable-next-line no-cond-assign
-  while ((m = re.exec(trimmed)) !== null) {
-    const block = m[0]
-    const sev = block.match(/severity\s*:\s*['"]?(critical|major|info)['"]?/i)?.[1]?.toLowerCase()
-    const cat = block.match(/category\s*:\s*['"]?([^,'"}\s]+)/i)?.[1] ?? 'unknown'
-    const msg = block.match(/message\s*:\s*['"]([^'"]*)['"]/i)?.[1]
-      ?? block.match(/message\s*:\s*([^,}]+)/i)?.[1]?.trim()
-      ?? ''
-    if (sev) {
-      findings.push({
-        severity: sev as FindingSeverity,
-        category: cat.trim(),
-        message: msg.trim(),
-      })
+  for (const block of blocks) {
+    // 单块再尝试 JSON 解析（修了引号或天然标准）
+    const parsedSingle = tryParseJsonObject(stripJsonFence(block)) ??
+      tryParseJsonObject(normalizeQuotes(block))
+    if (parsedSingle) {
+      const f = normalizeFinding(parsedSingle)
+      if (f) findings.push(f)
+      continue
     }
+    // 退到 regex 抽取（仅作最后一道保险）
+    const f = extractFindingViaRegex(block)
+    if (f) findings.push(f)
   }
   return findings
+}
+
+/** 去掉 ```json ... ``` 围栏（兼容大小写、可有可无 lang 标识） */
+function stripJsonFence(s: string): string {
+  const m = s.match(/^```(?:json|JSON)?\s*\n?([\s\S]*?)\n?```$/)
+  if (m) return m[1].trim()
+  // 单行 ``` 包裹也支持
+  const inline = s.match(/^```\s*([\s\S]*?)\s*```$/)
+  if (inline) return inline[1].trim()
+  return s
+}
+
+/** 尝试 JSON.parse 成 array → Finding[]，失败返回 null */
+function tryParseJsonArray(s: string): Finding[] | null {
+  if (!s.startsWith('[')) return null
+  try {
+    const parsed = JSON.parse(s)
+    if (Array.isArray(parsed)) {
+      return parsed
+        .map(normalizeFinding)
+        .filter((f): f is Finding => f !== null)
+    }
+  } catch {
+    // ignore
+  }
+  return null
+}
+
+function tryParseJsonObject(s: string): Record<string, unknown> | null {
+  const t = s.trim()
+  if (!t.startsWith('{')) return null
+  try {
+    const v = JSON.parse(t)
+    return typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 单引号 → 双引号 normalize（best-effort）。
+ * 仅在键名 / 简单字符串值场景安全；复杂转义场景可能错。
+ * 调用方在失败时 fall back 到 balanced 切分，不依赖此函数完全正确。
+ */
+function normalizeQuotes(s: string): string {
+  // 替换裸单引号为双引号；不处理转义（best-effort）
+  // 同时给无引号的键加引号：{severity: x} → {"severity": x}
+  let out = s.replace(/'/g, '"')
+  // 给 {key: ...} 模式的裸键名加引号
+  out = out.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
+  return out
+}
+
+/**
+ * 字符级 balanced-bracket tokenizer。
+ * 在顶层 `[` 内逐个抽出平衡的 `{...}` 块；忽略字符串内的 `{` `}`。
+ *
+ * 输入示例（嵌套 message）：
+ *   `[{severity:"critical", message:"err in {x: 1}"}, {severity:"info"}]`
+ * 输出：
+ *   ['{severity:"critical", message:"err in {x: 1}"}', '{severity:"info"}']
+ */
+function splitTopLevelObjects(raw: string): string[] {
+  const out: string[] = []
+  let depth = 0
+  let inString: '"' | "'" | null = null
+  let escape = false
+  let start = -1
+
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i]
+    if (escape) { escape = false; continue }
+    if (inString) {
+      if (ch === '\\') { escape = true; continue }
+      if (ch === inString) inString = null
+      continue
+    }
+    if (ch === '"' || ch === "'") {
+      inString = ch
+      continue
+    }
+    if (ch === '{') {
+      if (depth === 0) start = i
+      depth++
+    } else if (ch === '}') {
+      depth--
+      if (depth === 0 && start >= 0) {
+        out.push(raw.slice(start, i + 1))
+        start = -1
+      }
+    }
+  }
+  return out
+}
+
+/** 单块 regex 抽取兜底（balanced 切出来的块仍 JSON.parse 失败时用） */
+function extractFindingViaRegex(block: string): Finding | null {
+  const sev = block.match(/severity\s*:\s*['"]?(critical|major|info)['"]?/i)?.[1]?.toLowerCase()
+  if (!sev) return null
+  const cat = block.match(/category\s*:\s*['"]?([^,'"}\s]+)/i)?.[1] ?? 'unknown'
+  const msg = block.match(/message\s*:\s*['"]([^'"]*)['"]/i)?.[1]
+    ?? block.match(/message\s*:\s*([^,}]+)/i)?.[1]?.trim()
+    ?? ''
+  return {
+    severity: sev as FindingSeverity,
+    category: cat.trim(),
+    message: msg.trim(),
+  }
 }
 
 function normalizeFinding(raw: unknown): Finding | null {

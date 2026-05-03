@@ -26,13 +26,22 @@
 // 1. Schema
 // ---------------------------------------------------------------------------
 
-/** 对辩 layer：决定 propose / challenge 角色分配 */
-export type DebateLayer = 'backend' | 'frontend' | 'fullstack'
+// v4.2 P21: layer / model 收敛到 multi-model-routing SSoT
+import type { Layer } from './multi-model-routing'
+
+/**
+ * 对辩 layer：决定 propose / challenge 角色分配。
+ * SSoT `Layer` 5 项中 debate-orchestrator 仅消费 backend/frontend/fullstack。
+ */
+export type DebateLayer = Extract<Layer, 'backend' | 'frontend' | 'fullstack'>
 
 /** 单轮在对辩里的位置 */
 export type DebateRoundKind = 'propose' | 'challenge' | 'respond'
 
-/** 底层模型选择。`general-purpose` 表示降级到 CCG 自家 prompt 模板 */
+/**
+ * 底层模型选择。`general-purpose` 表示降级到 CCG 自家 prompt 模板。
+ * v4.2 P21 起继承自 multi-model-routing SSoT 的 Model union（取 codex/gemini/general-purpose 子集）。
+ */
 export type DebateModel = 'codex' | 'gemini' | 'general-purpose'
 
 /** 触发降级原因 */
