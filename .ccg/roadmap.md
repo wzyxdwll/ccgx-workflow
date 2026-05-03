@@ -203,7 +203,16 @@
 - **Depends on**: 1
 - **Mode**: offload — 大量模板改动 + 测试更新，codex 全权执行
 
-## Phase 6: plan-checker 5 维度 [offload] (pending)
+## Phase 6: plan-checker 5 维度 [offload] (completed)
+
+- **Started**: 2026-05-03 22:22 | **Completed**: 2026-05-03 22:31
+- **Mode**: runner → degraded
+- **Type**: backend
+- **Commit**: `bbab7ed feat(v4-p6): plan-checker 5 dims (1/2/5/7b/10) + max-3-loop convergence`
+- **Tests**: 332/332 passed (delta +29)
+- **Outcome**: plan-checker.ts 实现 5 维度（Dim 1/2/5/7b/10）+ max-3-loop 收敛环。Dim 7b 复用 scope-reduction helper（零重复代码）。spec-plan / plan / plan-checker.md 三处自动 spawn 一致。
+- **Plan**: `.claude/team-plan/phase-06-plan-checker-5-dims-report.md`
+- **Dogfood 数据点**: 主线 context T5=46% → T6=**46%（+0%）**——G 方案稳定
 
 - **Goal**: 升级 `templates/commands/agents/plan-checker.md` 实现 5 个核心验证维度（GSD 12 维度的高 ROI 子集）+ max-3-loop 收敛环。
 - **维度**:
