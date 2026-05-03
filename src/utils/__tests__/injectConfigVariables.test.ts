@@ -202,9 +202,10 @@ describe('integration: real templates with skip mode', () => {
     return content.includes('{{MCP_SEARCH_TOOL}}')
   })
 
-  // Sanity check: we expect at least 14 files with MCP references
+  // Sanity check: we expect at least 10 files with MCP references
+  // (v4.0: dropped frontend.md/backend.md/feat.md → expected count reduced from 14 to 10)
   it('finds templates containing {{MCP_SEARCH_TOOL}}', () => {
-    expect(filesWithMcpRef.length).toBeGreaterThanOrEqual(14)
+    expect(filesWithMcpRef.length).toBeGreaterThanOrEqual(10)
   })
 
   for (const file of filesWithMcpRef) {
@@ -346,8 +347,8 @@ describe('integration: real templates with gemini+codex config', () => {
   // Templates where the bug manifested: they hard-code `--backend codex`
   // (via `--backend {{BACKEND_PRIMARY}}`) on lines that also contain
   // `{{GEMINI_MODEL_FLAG}}`.
+  // (v4.0: backend.md was removed; codex-exec.md remains the canonical case.)
   const expectedCleanTemplates = [
-    'commands/backend.md',
     'commands/codex-exec.md',
   ]
 

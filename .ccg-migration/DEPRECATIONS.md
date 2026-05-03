@@ -1,12 +1,60 @@
-# CCG v3.0.0 Deprecation Plan
+# CCG Deprecation Plan
 
-本文档列出 v3.0.0 发布时**仅打 deprecated 标签**、**v3.1.0 才真正切换**的命令整合候选。打标的目的是让用户提前看到替换方案，给迁移留窗口期。**v3.0.0 命令调用全部继续工作**。
+本文档记录命令面板的瘦身决策。v3.0.0 仅打 deprecated 标签做迁移预告；v4.0.0 完成首波收敛（删 5 + 合并 4）；后续 v5.0 计划清理已硬下线的 verify-* 入口。
 
 ---
 
-## 整合策略
+## v4.0.0 实际删除清单（破坏性变更）
 
-把"前缀同族 + 行为相关"的多个独立命令合并为"单命令 + 子动作 flag"形式，对齐 GSD v1.39.0 的 86 → 59 整合实践。
+### A. 直接删除的 5 个命令
+
+| 命令 | 删除原因 | 替代方案 |
+|------|---------|---------|
+| `/ccg:frontend` | 与 `/ccg:workflow` 智能路由前端任务等价，单独维护重复 | `/ccg:workflow <前端任务>`（自动路由到 frontend primary） |
+| `/ccg:backend` | 与 `/ccg:workflow` 智能路由后端任务等价，单独维护重复 | `/ccg:workflow <后端任务>`（自动路由到 backend primary） |
+| `/ccg:feat` | 与 `/ccg:workflow` 重叠（"智能识别+规划+实施"已是 workflow 默认行为） | `/ccg:workflow <功能描述>` |
+| `/ccg:forensics` | 用例稀缺，复盘可由 `/ccg:context log` + `/ccg:health` 组合完成 | `/ccg:context log` + `/ccg:health` |
+| `/ccg:extract-learnings` | 用例稀缺，已被 `/ccg:context` 历史归档机制覆盖 | `/ccg:context history` |
+
+### B. 模板文件操作
+
+- ✅ 删除 `templates/commands/{frontend,backend,feat,forensics,extract-learnings}.md`
+- ✅ 从 `src/utils/installer-data.ts` 命令注册表移除 5 项
+- ⚠️  老用户 `~/.claude/commands/ccg/{frontend,backend,feat,forensics,extract-learnings}.md` 在下次 `update` 时由 `uninstallWorkflows` 清理
+
+### C. 用户迁移指引
+
+老用户运行 `npx ccg-workflow update` 后，旧命令将从 `~/.claude/commands/ccg/` 中清除。如有自动化脚本/快捷键引用这 5 个命令，请按上表替换为新命令。
+
+---
+
+## v4.0.0 verify-* 合并清单
+
+| 旧命令 (skill-generated, BC 保留) | 新统一入口 |
+|-----------------------------------|-----------|
+| `/ccg:verify-change [path]`       | `/ccg:verify --gate=change [path]` |
+| `/ccg:verify-quality [path]`      | `/ccg:verify --gate=quality [path]` |
+| `/ccg:verify-security [path]`     | `/ccg:verify --gate=security [path]` |
+| `/ccg:verify-module <path>`       | `/ccg:verify --gate=module <path>` |
+| **新增**                          | `/ccg:verify --gate=all [path]`（等价 `/ccg:verify-work`） |
+
+**v4.0.0 行为**：
+- 4 个旧 verify-* 命令仍由 Skill Registry 自动生成（保留 BC）
+- 4 个 SKILL.md frontmatter `deprecated_in: v4.0` + `replaced_by: /ccg:verify --gate=<name>`
+- 新增 `/ccg:verify` 主命令作为统一路由入口
+- `/ccg:verify-work` 编排器保留独立（决策矩阵显著区别于子门）
+
+**v5.0 计划清理**：
+- 4 个旧 SKILL.md 的 `user-invocable` 设为 false（保留 SKILL.md 本身，不再生成 slash command）
+- 4 个旧 skill-generated commands 从 `~/.claude/commands/ccg/` 卸载
+
+---
+
+## v3.0.0 历史决策（已被 v4.0 取代）
+
+> v3.0.0 时仅打 deprecated 标签，未实际删除/合并。本节保留为历史记录。
+
+策略：把"前缀同族 + 行为相关"的多个独立命令合并为"单命令 + 子动作 flag"形式，对齐 GSD v1.39.0 的 86 → 59 整合实践。
 
 收益：
 - 命令列表瘦身（用户认知负担降低）
@@ -17,19 +65,15 @@
 - BC 风险（51 处 hooks/rules/i18n/用户肌肉记忆引用具体命令名）
 - 子命令路由分发逻辑
 
----
-
-## v3.1 整合候选清单
-
-### 1. `/ccg:verify-*` 系列 → `/ccg:verify --<gate>`
+### 1. `/ccg:verify-*` 系列 → `/ccg:verify --gate=<name>`（v4.0 已落地）
 
 | 现有命令 | 整合后 | 调用语义 |
 |----------|--------|----------|
-| `/ccg:verify-change` | `/ccg:verify --change [path]` | 变更影响分析 |
-| `/ccg:verify-quality` | `/ccg:verify --quality [path]` | 代码质量检测 |
-| `/ccg:verify-security` | `/ccg:verify --security [path]` | 安全漏洞扫描 |
-| `/ccg:verify-module` | `/ccg:verify --module [path]` | 模块完整性校验 |
-| **新增** | `/ccg:verify --all [path]` | 等价于 `/ccg:verify-work`（全门） |
+| `/ccg:verify-change` | `/ccg:verify --gate=change [path]` | 变更影响分析 |
+| `/ccg:verify-quality` | `/ccg:verify --gate=quality [path]` | 代码质量检测 |
+| `/ccg:verify-security` | `/ccg:verify --gate=security [path]` | 安全漏洞扫描 |
+| `/ccg:verify-module` | `/ccg:verify --gate=module [path]` | 模块完整性校验 |
+| **新增** | `/ccg:verify --gate=all [path]` | 等价 `/ccg:verify-work`（全门） |
 
 **保留独立的**：`/ccg:verify-work`（编排器，自动按变更类型选门，逻辑显著区别于子门）
 
@@ -47,53 +91,15 @@ OPSX 工作流的 5 个 spec-* 命令（spec-init / spec-research / spec-plan / 
 
 ---
 
-## v3.0.0 落地动作
+## v5.0.0 真正切换 verify 时的检查清单（前瞻）
 
-### A. SKILL.md frontmatter 加字段
-
-为每个 v3.1 计划整合的命令的 SKILL.md / .md 加：
-
-```yaml
----
-deprecated_in: v3.1
-replaced_by: /ccg:verify --<gate>
-deprecation_message: |
-  v3.1 起将被 /ccg:verify --<gate> 替代。当前 v3.0.0 仍可正常使用，无需立即迁移。
----
-```
-
-**v3.0.0 影响范围**（4 个文件）：
-- `templates/skills/tools/verify-change/SKILL.md`
-- `templates/skills/tools/verify-quality/SKILL.md`
-- `templates/skills/tools/verify-security/SKILL.md`
-- `templates/skills/tools/verify-module/SKILL.md`
-
-### B. 用户提示
-
-`skill-registry.ts:generateCommandContent()` 检测到 `deprecated_in` 字段时，在生成的 command.md 顶部插入软提示：
-
-```markdown
-> ⚠️ **将在 v3.1 整合**：本命令将被 `<replaced_by>` 替代。当前版本仍正常工作。
-```
-
-（v3.0.0 暂不实现，仅记录此机制；v3.0.x 小版本可补丁补上）
-
-### C. CHANGELOG / README
-
-v3.0.0 CHANGELOG 标注："**未来变更预告（v3.1）**：4 个 verify-* 命令将整合为 /ccg:verify --<gate>"。
-
----
-
-## v3.1.0 真正切换时的检查清单
-
-- [ ] 实现 `/ccg:verify` 主命令路由（按 flag 分发到现有 4 个 SKILL.md scripts）
 - [ ] 4 个旧 SKILL.md 的 `user-invocable` 设为 false（保留 SKILL.md 本身，不再生成 slash command）
-- [ ] `installer-data.ts` 命令注册表移除旧 4 项
+- [ ] `installer-data.ts` 命令注册表保持 `verify` 主命令
 - [ ] 全 22 个模板 grep 旧命令名 → 替换为新形式
-- [ ] `templates/rules/ccg-skills.md` 触发规则改写
+- [ ] `templates/rules/ccg-skills.md` 触发规则改写为 `/ccg:verify --gate=<name>`
 - [ ] i18n 字符串更新
 - [ ] 迁移脚本：`update` 时检测旧 frontmatter，提示用户 mute 提醒或显式 OK 切换
 
 ---
 
-**最后更新**：2026-05-03（v3.0.0 规划）
+**最后更新**：2026-05-03（v4.0.0 落地）

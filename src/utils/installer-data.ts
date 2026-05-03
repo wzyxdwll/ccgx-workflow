@@ -48,11 +48,8 @@ const WORKFLOW_CONFIGS: WorkflowConfig[] = [
   cmd('team-plan', 1.85, 'development', 'Agent Teams 规划', 'Agent Teams Planning', 'Lead 调用 Codex/Gemini 并行分析，产出零决策并行实施计划', 'Lead orchestrates Codex/Gemini analysis, produces zero-decision parallel plan'),
   cmd('team-exec', 1.9, 'development', 'Agent Teams 并行实施', 'Agent Teams Parallel Execution', '读取计划文件，spawn Builder teammates 并行写代码，需启用 Agent Teams', 'Read plan file, spawn Builder teammates for parallel implementation'),
   cmd('team-review', 1.95, 'development', 'Agent Teams 审查', 'Agent Teams Review', '双模型交叉审查并行实施产出，分级处理 Critical/Warning/Info', 'Dual-model cross-review with severity classification'),
-  cmd('frontend', 2, 'development', '前端专项', 'Frontend Tasks', '前端专项任务（Gemini主导，更快更精准）', 'Frontend tasks (Gemini-led, faster)'),
   cmd('codex-exec', 2.5, 'development', 'Codex 执行计划', 'Codex Plan Executor', '读取 /ccg:plan 计划文件，Codex 全权执行 + 多模型审核', 'Read plan file from /ccg:plan, Codex executes + multi-model review'),
   cmd('context', 2.6, 'development', '项目上下文管理', 'Project Context Manager', '初始化 .context 目录、记录决策日志、压缩归档、查看历史', 'Init .context dir, log decisions, compress, view history'),
-  cmd('backend', 3, 'development', '后端专项', 'Backend Tasks', '后端专项任务（Codex主导，更快更精准）', 'Backend tasks (Codex-led, faster)'),
-  cmd('feat', 4, 'development', '智能功能开发', 'Smart Feature Development', '智能功能开发 - 自动规划、设计、实施', 'Smart feature development - auto plan, design, implement'),
   cmd('analyze', 5, 'development', '技术分析', 'Technical Analysis', '双模型技术分析，仅分析不修改代码', 'Dual-model technical analysis, analysis only'),
   cmd('debug', 6, 'development', '问题诊断', 'Debug', '多模型诊断 + 修复', 'Multi-model diagnosis + fix'),
   cmd('optimize', 7, 'development', '性能优化', 'Performance Optimization', '多模型性能优化', 'Multi-model performance optimization'),
@@ -60,12 +57,11 @@ const WORKFLOW_CONFIGS: WorkflowConfig[] = [
   cmd('review', 9, 'development', '代码审查', 'Code Review', '双模型代码审查，无参数时自动审查 git diff', 'Dual-model code review, auto-review git diff when no args'),
   cmd('enhance', 9.5, 'development', 'Prompt 增强', 'Prompt Enhancement', 'ace-tool Prompt 增强工具', 'ace-tool prompt enhancement'),
 
-  // ── Autonomous & quality gates (v3.0.0) ──────────────
+  // ── Autonomous & quality gates (v3.0.0+, v4.0 consolidation) ──
   cmd('autonomous', 1.7, 'development', '跨 phase 自治长跑', 'Autonomous Long-run', '按 .ccg/roadmap.md 顺序执行多 milestone，自动循环 research→plan→exec→review，仅 blocker 暂停', 'Execute roadmap phases autonomously, pause only on blockers'),
-  cmd('extract-learnings', 9.6, 'development', 'Milestone 经验提炼', 'Extract Learnings', '从 state/roadmap/commit 历史提炼经验沉淀到 .context/learnings.md', 'Distill learnings from milestone artifacts into .context/learnings.md'),
-  cmd('forensics', 9.7, 'development', '事故系统复盘', 'Incident Forensics', '时间线 / 触发点 / 影响 / 根因 / 修复 / 预防的结构化事故复盘', 'Structured incident postmortem with timeline & RCA'),
   cmd('health', 9.8, 'development', '项目健康度报告', 'Project Health Report', '依赖 / 漏洞 / 过期文档 / TODO / 测试覆盖率聚合报告', 'Aggregate report of dependencies, vulns, doc staleness, TODOs'),
   cmd('map-codebase', 9.85, 'development', '代码库结构映射', 'Codebase Map', '产出 mermaid 模块图 + 关键依赖矩阵到 .context/codebase-map.md', 'Generate mermaid module diagram + dependency matrix'),
+  cmd('verify', 9.88, 'development', '统一校验关卡', 'Unified Verify Gate', '按 --gate=change|quality|security|module|all 子门路由（v4.0 整合 4 个 verify-* 命令）', 'Unified verify gate with --gate flag (v4.0 consolidation of 4 verify-* commands)'),
   cmd('verify-work', 9.9, 'development', '变更校验编排器', 'Verify Work Orchestrator', '按变更类型自动选择 verify-{module,security,quality,change} 子门聚合报告', 'Auto-select verify-* gates by change type, aggregate report'),
 
   // ── Init ─────────────────────────────────────────────

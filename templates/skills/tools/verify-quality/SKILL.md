@@ -7,9 +7,9 @@ user-invocable: true
 disable-model-invocation: false
 allowed-tools: Bash, Read, Glob
 argument-hint: <扫描路径>
-deprecated_in: v3.1
-replaced_by: /ccg:verify --quality
-deprecation_message: v3.1 起将被 `/ccg:verify --quality` 替代。当前 v3.0.0 继续可用，无需立即迁移。详见 .ccg-migration/DEPRECATIONS.md
+deprecated_in: v4.0
+replaced_by: /ccg:verify --gate=quality
+deprecation_message: v4.0+ 推荐使用 `/ccg:verify --gate=quality`。本命令仍可用以保持 BC，将在 v5.0 移除。详见 .ccg-migration/DEPRECATIONS.md
 ---
 
 # ⚖ 校验关卡 · 代码质量
