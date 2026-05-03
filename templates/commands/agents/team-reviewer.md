@@ -45,6 +45,51 @@ color: red
 4. 去重：多源指出同一问题，只保留最详细的描述
 5. 冲突：多源意见矛盾时，以代码事实为准
 
+### Step 3.5: Scope Reduction Detection（范围缩水检测）
+
+**这是审查的核心维度，源自 GSD plan-checker 维度 7b 真实事故 D-26 反推（动态成本引用被静态硬编码 v1，瞒过普通审查）。**
+
+#### 3.5.1 扫描软化语言关键词
+
+逐文件 + 逐 plan 扫描，命中以下"软化语言"立即记录（中英双语，大小写不敏感）：
+
+| 类别 | 关键词样例 |
+|------|-----------|
+| 阶段拆分类 | `v1 简化` / `v1 静态` / `v1 硬编码` / `simplified version` / `static for now` / `static first` |
+| 推迟类 | `future enhancement` / `未来增强` / `后续连接` / `will be wired later` / `not connected to` |
+| 占位类 | `placeholder` / `占位符` / `占位实现` / `暂时硬编码` / `temporary hardcode` |
+| 知难而退类 | `太复杂` / `太困难` / `too complex` / `too difficult` / `too hard` |
+
+#### 3.5.2 与原始需求交叉对比（关键设计——避免合理 v1 渐进交付误报）
+
+**单纯关键词命中不直接阻断**。必须做交叉：
+
+1. 抽取每条命中行涉及的领域名词（如 `billing`, `cost reference`, `dashboard`）
+2. 与 **CONTEXT.md / PRD / requirements.md** 中原始需求条目（D-XX / REQ-XX）对比
+3. 判决矩阵：
+
+| 命中关键词 + 该能力在原始需求中存在 | plan 是否显式分阶段（v2/phase 2/增量交付被规划） | 判决 |
+|-------------------------------------|--------------------------------------------------|------|
+| ✅ 是 | ❌ 无 | **🔴 Critical / BLOCKER**（用户决策被悄悄缩水） |
+| ✅ 是 | ✅ 有 | **Info**（合理渐进，放行） |
+| ❌ 否 | — | **🟡 Warning**（人工确认） |
+
+#### 3.5.3 输出格式
+
+命中 BLOCKER 时在审查报告 Critical 段加一条：
+
+```
+### [C-N] [Scope Reduction] 用户决策 D-XX 被悄悄缩水
+- **文件 / plan**: <path>:<line>
+- **关键词**: `v1 静态硬编码` 等
+- **原文**: <hit line>
+- **对应需求**: D-26 "<原文>"
+- **来源**: 自身扫描 + Codex / Gemini（如同样发现）
+- **修复建议**: 完整实施需求 D-26（动态计算）OR 把 v2 阶段显式写入 plan
+```
+
+**永远是 BLOCKER**——不接受 warning 降级。
+
 ### Step 4: 分级分类
 
 | 级别 | 定义 | 动作 |

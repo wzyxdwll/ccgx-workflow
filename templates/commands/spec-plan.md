@@ -89,6 +89,46 @@ description: '多模型分析 → 消除歧义 → 零决策可执行计划'
    - **Monotonicity**: Ordering guarantees (e.g., timestamps increase)
    - **Bounds**: Value ranges, size limits, rate constraints
 
+4.5. **Scope Reduction Detection（范围缩水检测，BLOCKER 级）**
+
+   **这是 plan-checker 维度 7b 的等价扫描，移植自 GSD 真实事故反推（D-26：动态成本引用被静态硬编码 v1）。**
+
+   在生成 OPSX artifacts 之前，对当前规划文本（多模型分析结果 + 即将写入 tasks.md 的内容）做软化语言扫描：
+
+   **扫描关键词集合**（中英双语，大小写不敏感）：
+   - 阶段拆分类：`v1 简化` / `v1 静态` / `v1 硬编码` / `simplified version` / `static for now` / `static first`
+   - 推迟类：`future enhancement` / `未来增强` / `后续连接` / `will be wired later` / `not connected to`
+   - 占位类：`placeholder` / `占位符` / `占位实现` / `暂时硬编码` / `temporary hardcode`
+   - 知难而退类：`太复杂` / `太困难` / `too complex` / `too difficult` / `too hard`
+
+   **关键设计：与原始需求对比，避免合理 v1 渐进交付误报**
+
+   命中关键词后必须交叉对比，**不**直接阻断：
+
+   1. 抽取命中行的领域名词（如 `billing`, `cost reference`）
+   2. 与 OPSX `proposal.md` / `requirements.md` / 用户在 Step 1 选定的 change ID 对应需求做对比
+   3. 判决：
+
+   | 命中关键词 + 该能力在原始需求中存在 | plan 是否显式分阶段（v2/phase 2/增量交付被规划） | 判决 |
+   |-------------------------------------|--------------------------------------------------|------|
+   | ✅ 是 | ❌ 无 | **🔴 BLOCKER**（用户决策被缩水） |
+   | ✅ 是 | ✅ 有 | **NONE**（合理渐进，放行） |
+   | ❌ 否 | — | **🟡 WARNING**（人工确认） |
+
+   **BLOCKER 永远是 BLOCKER——不接受 warning 降级。** 命中 BLOCKER 时停止生成 artifacts，向用户输出：
+
+   ```
+   🔴 SCOPE REDUCTION BLOCKER
+   - 命中关键词：<keyword>
+   - 原文：<line>
+   - 对应需求：<requirement>
+   - 选项：
+     1. 完整实施该需求（重新规划，不再缩水）
+     2. 拆分阶段：把 v2 phase 显式列入计划（写入下一个 OPSX change，不能口头承诺）
+   ```
+
+   只有 BLOCKER 数量为 0 时才进入 Step 5。
+
 5. **Update OPSX Artifacts**
    - **BEFORE calling `/opsx:continue`** (internal skill call — do NOT expose this command to user), output a structured summary for OPSX context:
      ```markdown

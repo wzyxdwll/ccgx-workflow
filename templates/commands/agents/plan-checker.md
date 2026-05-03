@@ -43,14 +43,40 @@ color: purple
 | **失败预案** | 关键步骤有回滚 / 重试 / 降级路径 |
 | **决策合规** | 不擅自把用户决策降级为"v1 简化版" |
 
-### Step 4: 范围缩水检测（最阴险的失败模式）
-扫描计划是否包含以下"软化语言"：
-- `v1` / `v2` / `simplified` / `static for now` / `hardcoded`
-- `future enhancement` / `placeholder` / `basic version`
-- `will be wired later` / `not connected to`
-- `too complex / too difficult`（用作省略借口时）
+### Step 4: Scope Reduction Detection / 范围缩水检测（最阴险的失败模式）
 
-**任何擅自缩水都是 BLOCKER**——计划者要么完整交付，要么拆阶段，不许偷偷打折。
+**这是 plan-checker 的核心维度（移植自 GSD plan-checker 维度 7b，真实事故 D-26 反推：动态成本引用被静态硬编码 v1）。**
+
+#### 4.1 扫描软化语言关键词
+
+扫描计划文本是否包含以下"软化语言"（中英双语）：
+
+| 类别 | 关键词样例 |
+|------|-----------|
+| 阶段拆分类 | `v1 简化` / `v1 静态` / `v1 硬编码` / `simplified version` / `static for now` / `static first` |
+| 推迟类 | `future enhancement` / `未来增强` / `后续连接` / `will be wired later` / `not connected to` / `not wired to` |
+| 占位类 | `placeholder` / `占位符` / `占位实现` / `暂时硬编码` / `temporary hardcode` |
+| 知难而退类 | `太复杂` / `太困难` / `too complex` / `too difficult` / `too hard` |
+
+#### 4.2 与原始需求交叉对比（关键设计——避免误报）
+
+**单纯关键词命中不直接阻断**——合理的"v1→v2 渐进交付"会误报。必须做交叉对比：
+
+1. 抽取每条命中行涉及的**领域名词**（如 `billing`, `cost reference`, `dashboard`）
+2. 与 **CONTEXT.md / PRD / requirements.md** 中的原始需求条目（D-XX / REQ-XX）做对比
+3. 按下表判定：
+
+| 命中关键词 + 该能力在原始需求中存在 | 计划是否显式分阶段（v2/phase 2/增量交付被规划） | 判决 |
+|-------------------------------------|--------------------------------------------------|------|
+| ✅ 是 | ❌ 无 | **🔴 BLOCKER**（用户决策被悄悄缩水） |
+| ✅ 是 | ✅ 有（v2 也被规划） | **NONE**（合理渐进，放行） |
+| ❌ 否 | — | **🟡 WARNING**（人工确认，可能无关字串） |
+
+#### 4.3 输出格式约束
+
+**BLOCKER 永远是 BLOCKER**——不接受 warning 降级。计划者面对 BLOCKER 只有两个选择：
+- **完整交付**：把 v1 写成完整实现（动态从原始数据源计算，不再是静态值）
+- **拆分阶段**：v2 / 后续 phase 必须**显式列入 plan**（不能是口头承诺），且本 phase 范围以"为 v2 铺路"形式重写
 
 ### Step 5: 严重性分级
 | 级别 | 含义 | 动作 |
