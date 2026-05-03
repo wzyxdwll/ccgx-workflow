@@ -355,11 +355,94 @@
 - **Depends on**: (none)
 - **Mode**: offload
 
-## Phase 12: 文档收尾 + 砍 impeccable + domain skills 转 hidden (in_progress)
+## Phase 12: 文档收尾 + 砍 impeccable + domain skills 转 hidden (completed)
 
-- **Started**: 2026-05-03 23:17
-- **Mode**: runner (预期 fallback)
+- **Started**: 2026-05-03 23:17 | **Completed**: 2026-05-03 23:26
+- **Mode**: runner → degraded (docs phase fallback)
 - **Type**: docs
+- **Commit**: `4973600 chore(v4-p12): v4.0.0 docs finalize + impeccable optional + domain skills hidden`
+- **Tests**: 515/515 passed (delta 0，纯文档 phase)
+- **Outcome**: package.json bump 3.0.0 → 4.0.0；CHANGELOG.md / README.md / 根 CLAUDE.md / templates/CLAUDE.md 全量同步 v4.0；新建 .ccg-migration/v3-to-v4.md 用户迁移指南；impeccable 改可选 + domain skills 全 hidden；build 261 KB pass。
+- **Plan**: `.claude/team-plan/phase-12-docs-cleanup-report.md`
+- **Dogfood 数据点**: 主线 context T11=49% → T12=**51%（+2%，最后 phase 文档批改主线参与较多）**
+
+---
+
+## 🏁 Milestone Summary: v4.0 dogfood
+
+**Started**: 2026-05-03 21:02
+**Ended**: 2026-05-03 23:26
+**Total Phases**: 12 + Phase 1.5 = 13
+**Total Wall Clock**: ~2h24min
+**Mode**: auto + offload + runner (G 方案)
+
+### 执行结果
+
+| Phase | 名称 | 状态 | Commit | Tests Δ | 主线 Δ |
+|-------|------|------|--------|---------|--------|
+| 1 | context_budget frontmatter | ✅ | 099843b | +11 | T0=31→33 (+2) |
+| 1.5 | phase-runner 协议 (G) | ✅ | 5f94ed4 | +30 | →43 (+10, foreground) |
+| 2 | CONTEXT/SUMMARY 状态机 | ✅ degraded | 97f3862 | +30 | →44 (+1) |
+| 3 | codebase-mapper | ✅ degraded | e389bd3 | +42 | →44 (+0) |
+| 4 | Scope Reduction Detection | ✅ degraded | ce88bac | +18 | →45 (+1) |
+| 5 | 命令收敛（删 5+合并 4）| ✅ degraded | 747dd4f | -8 | →46 (+1) |
+| 6 | plan-checker 5 维度 | ✅ degraded | bbab7ed | +29 | →46 (+0) |
+| 7 | 异步三件套 | ✅ degraded | e4bcd83 | +26 | →47 (+1) |
+| 8 | verifier Level 4 | ✅ degraded | dd8b854 | +31 | →47 (+0) |
+| 9 | 会话式 UAT + cold-start | ✅ degraded | fad9102 | +31 | →48 (+1) |
+| 10 | review --fix + worktree | ✅ degraded | 84f4ee4 | +57 | →49 (+1) |
+| 11 | debug-session-manager | ✅ degraded | ed3282b | +38 | →49 (+0) |
+| 12 | 文档收尾 + bump 4.0.0 | ✅ degraded | 4973600 | 0 | →51 (+2) |
+
+**总计**：测试 168 → 515（+347），主线 context 31% → 51%（+20%，13 phase 平均 +1.5%/phase）
+
+### G 方案 dogfood 验证结论
+
+✅ **GSD"主线 ≤15% / subagent fresh"论点经验证成立**：
+- 前 11 phase（runner 模式）平均 +0.6%/phase 主线增量
+- 跟主线自实施（Phase 1.5: +10%）形成 8-15× 量级差距
+- subagent fresh-context 隔离是 Claude Code 原生支持的
+
+⚠️ **已知约束**：
+- `Agent(general-purpose)` **不能**嵌套 spawn `Agent(codex/gemini:rescue)`（Claude Code 工具权限）
+- 11 phase 全走 fallback 路径（subagent 自实施）
+- 真"双层 spawn 包裹 codex 沙箱"路径未验证（需自定义 subagent 注册）
+
+### v4.0 关键能力交付（11 项）
+
+1. context_budget frontmatter 硬约束
+2. phase-runner subagent 协议 + 5 路 type routing
+3. .context/{phase,jobs,debug,uat,codebase}/ 5 个状态机协议
+4. codebase-mapper agent（GSD ROI #1）
+5. Scope Reduction Detection（GSD plan-checker dim 7b）
+6. plan-checker 5 维度 + max-3-loop（GSD ROI #4）
+7. 异步三件套 /ccg:status/result/cancel
+8. verifier Level 4 数据流 + override + deferred（GSD ROI #5）
+9. 会话式 UAT + cold-start smoke 注入（GSD ROI #2）
+10. review --fix + worktree 隔离 + transactional cleanup（GSD ROI #3）
+11. debug-session-manager 双层 manager + debugger（GSD ROI #3）
+
+### 命令面板变化
+
+- 删 5: frontend / backend / feat / forensics / extract-learnings
+- 合 4 → 1: verify-{change/quality/security/module} → /ccg:verify --gate
+- 加 4: status / result / cancel / verify
+- 加 4 subagents: phase-runner / code-fixer / debug-session-manager / debugger
+- 总计：35 → 31 命令，15 → 19 subagent
+
+### 经验提炼（→ v4.1）
+
+- **多模型协作生硬**：见 `.ccg-research/07-multimodel-collaboration-rethink.md`，v4.1 主轴
+- **autonomous 顺序执行慢**：12 phase 串行 ~2h24min，可加 wave-parallel 模式压缩 30-40%
+- **fallback 路径成主流**：v3.0 codex:rescue 沙箱限制让真嵌套很难，应在 phase-runner.md 把 fallback 改为默认而非降级
+
+### 推荐下一步
+
+1. v4.0 已完整交付，可 npm pack + 本地装 + 重启 Claude Code 验证 19 subagent 全部生效
+2. dogfood 数据归档完成，路线图可关
+3. v4.1 启动条件：用户体验反馈（多模型协作生硬被多人确认 + autonomous 长跑场景多）
+
+**v4.0 milestone complete.** 🏁
 
 - **Goal**: v4.0 收尾，命令面板和 skill 体系按 04-ecosystem-scan.md 目标形态收敛。
 - **任务清单**:
