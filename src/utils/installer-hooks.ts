@@ -32,10 +32,13 @@ interface HookContext {
  * Hook scripts shipped under templates/hooks/. Filenames are also the
  * sentinel substrings used to find/clean entries in settings.json.
  */
-const HOOK_FILES = ['ccg-context-monitor.js', 'ccg-statusline.js'] as const
+const HOOK_FILES = ['ccg-context-monitor.js', 'ccg-statusline.js', 'ccg-session-state.cjs'] as const
 
 const POST_TOOL_MATCHER = 'Bash|Edit|Write|MultiEdit|Agent|Task'
 const POST_TOOL_TIMEOUT_SEC = 10
+// SessionStart fires once per session before any tool use, so a slightly higher
+// timeout is safe and avoids losing the injection on a slow disk read.
+const SESSION_START_TIMEOUT_SEC = 15
 
 /**
  * Build the platform-appropriate `node <script>` command. Quotes the path
@@ -97,6 +100,7 @@ export async function patchSettingsJson(ctx: HookContext): Promise<void> {
   const hooksDir = join(ctx.installDir, 'hooks')
   const monitorPath = join(hooksDir, 'ccg-context-monitor.js')
   const statuslinePath = join(hooksDir, 'ccg-statusline.js')
+  const sessionStatePath = join(hooksDir, 'ccg-session-state.cjs')
 
   let settings: Record<string, any> = {}
   if (await fs.pathExists(settingsPath)) {
@@ -129,6 +133,36 @@ export async function patchSettingsJson(ctx: HookContext): Promise<void> {
             type: 'command',
             command: buildHookCommand(monitorPath),
             timeout: POST_TOOL_TIMEOUT_SEC,
+          },
+        ],
+      })
+      modified = true
+    }
+  }
+
+  // ── SessionStart: ccg-session-state.js ──
+  // Auto-injects CCG project memory (.ccg/roadmap.md head + active phase
+  // SUMMARY.md frontmatter) into a fresh session, so /clear or new windows
+  // do not lose the resume context. Idempotent by command substring.
+  if (await fs.pathExists(sessionStatePath)) {
+    if (!settings.hooks) settings.hooks = {}
+    if (!Array.isArray(settings.hooks.SessionStart)) settings.hooks.SessionStart = []
+
+    const alreadyRegistered = settings.hooks.SessionStart.some((entry: any) =>
+      entry?.hooks?.some((h: any) => typeof h?.command === 'string' && h.command.includes('ccg-session-state')),
+    )
+
+    if (!alreadyRegistered) {
+      settings.hooks.SessionStart.push({
+        // SessionStart entries do not require a tool matcher; we still emit a
+        // matcher field for schema parity with PostToolUse so settings.json
+        // stays uniformly readable. Empty string == "match anything".
+        matcher: '',
+        hooks: [
+          {
+            type: 'command',
+            command: buildHookCommand(sessionStatePath),
+            timeout: SESSION_START_TIMEOUT_SEC,
           },
         ],
       })
@@ -222,6 +256,26 @@ export async function uninstallHooks(installDir: string): Promise<{ removed: num
       if (settings.hooks.PostToolUse.length !== before) modified = true
       if (settings.hooks.PostToolUse.length === 0) {
         delete settings.hooks.PostToolUse
+        modified = true
+      }
+      if (settings.hooks && Object.keys(settings.hooks).length === 0) {
+        delete settings.hooks
+        modified = true
+      }
+    }
+
+    // Strip SessionStart entries that reference ccg-session-state
+    if (Array.isArray(settings.hooks?.SessionStart)) {
+      const before = settings.hooks.SessionStart.length
+      settings.hooks.SessionStart = settings.hooks.SessionStart.filter((entry: any) => {
+        const hasCcg = entry?.hooks?.some(
+          (h: any) => typeof h?.command === 'string' && h.command.includes('ccg-session-state'),
+        )
+        return !hasCcg
+      })
+      if (settings.hooks.SessionStart.length !== before) modified = true
+      if (settings.hooks.SessionStart.length === 0) {
+        delete settings.hooks.SessionStart
         modified = true
       }
       if (settings.hooks && Object.keys(settings.hooks).length === 0) {
