@@ -1027,6 +1027,75 @@ npm install -g ccg-workflow-4.2.0.tgz
 
 ---
 
+# CCG v4.2.1 Roadmap — Review-driven Patch
+
+**Started**: 2026-05-04 (planned)
+**Source**: 主对话 v4.2 commit 后 5 文件 + spec review（平均 8/10，发现 3 项真接口债）
+**Phase 编号续 v4.2**：24
+
+> **背景**：v4.2 review 发现 P22 重新引入接口债 + 算法粗糙。P21 刚清接口债，P22 自己又出一个 `planVerifyWave` 重复实现。同时 plan-aggregator 的 `extractDivergences` topic 分组算法在真数据上预估 30-50% 错位。这些问题在 mock 测试下全过，但 P23 dogfood 时大概率暴露。趁 v4.2.0 还热乎修掉，避免 v4.3 时累积更多。
+
+## v4.2.1 阶段总览
+
+| Phase | 标题 | Type | 工时 | 依赖 | Critical |
+|-------|------|------|------|------|----------|
+| 24 | v4.2.1 patch（planVerifyWave SSoT + extractDivergences 升级 + token-aware brief + 集成测试 + bump 4.2.1） | backend | 3h | 23 | false |
+
+## Phase 24: v4.2.1 patch (completed)
+
+- **Started**: 2026-05-04 02:35 | **Completed**: 2026-05-04 02:47 | **Mode**: runner (`--offload`) | **Baseline**: 91034ba
+- **Commit**: `182a0a4 fix(v4.2.1): planVerifyWave SSoT + extractDivergences token-set + token-aware brief`
+- **Tests**: 938/938 passed (delta +25 from 913)
+- **Plan**: `.claude/team-plan/phase-24-v421-patch-report.md`
+- **Outcome**: 3 review issue 一次性修复——planVerifyWave SSoT（quality-router 改 import verify-orchestrator）+ extractDivergences token-set ≥ 2 算法（替代 first-token，避免 "use Redis" / "use Memcached" 错配）+ estimateTokens token-aware brief（中文 1:1 / 英文 0.25:1，纯中文 brief 不再超 500 token 预算）+ 8 dogfood 风格集成测试 + package.json bump 4.2.0→4.2.1 + CHANGELOG v4.2.1 段。
+
+- **Goal**: 修 v4.2 review 暴露的 3 项接口债 / 算法粗糙问题，bump 4.2.0 → 4.2.1，加集成测试避免回归
+- **Acceptance**:
+  - **a. planVerifyWave SSoT**：
+    - verify-orchestrator.ts 的 `planVerifyWave()` 作为权威实现
+    - quality-router.ts 的 `buildVerifyWave()` 改为内部 import 调用，不再独立实现
+    - 删除 quality-router.ts 中重复的 cross-vendor verify 路由代码
+    - 单测 `qualityRouter.test.ts` / `verifyOrchestrator.test.ts` 行为不变（断言保留）
+  - **b. extractDivergences 算法升级**（plan-aggregator.ts）：
+    - 把"normalized 第一个 token 作 topic key"改为"token-set 共同 token ≥ N 算法"：
+      * 计算两个 bullet 的 token 交集
+      * 交集 ≥ 2 个非 stopword token 才算同 topic
+      * 单独 bullet（无 topic 同伴）独立成 divergence
+    - 这样避免 `"use Redis cache"` 和 `"use Memcached cache"` 因第一个 token 都是 `use` 错配
+    - 单测 `planAggregator.test.ts` 加：
+      * mock `["use Redis cache", "use Memcached cache", "add CDN layer"]` 跨 3 model
+      * 验证 Redis vs Memcached 进同一 divergence options，CDN 独立成 divergence
+  - **c. token-aware brief 长度限制**（plan-aggregator.ts:79）：
+    - `SERIALIZED_BRIEF_MAX_CHARS = 1000` 改为 token-aware 长度计算
+    - 新增 `estimateTokens(text)` helper：
+      * 英文 word 按 0.25 token/char（一个 word ≈ 1 token，平均 4 char）
+      * 中文按 1 token/char（GPT/Claude tokenizer 实测）
+      * 混合文本按字符类型加权求和
+    - `serializeBriefForPrompt` 用 `estimateTokens` 检查 ≤500 token 真实上限
+    - 中文密集 brief 不会再超 token 预算
+    - 单测覆盖纯英文 / 纯中文 / 混合三种长度估算
+  - **d. dogfood 风格集成测试**（新建 `tripleTierIntegrationDogfood.test.ts`）：
+    - 真冲突 plan 场景（不同 model 给完全相反建议）→ 验证 divergence 正确识别
+    - 中英混合 plan 场景 → 验证 token 长度估算 + brief 不超 500 token
+    - 模拟 plugin plan 输出多种格式（bullet list / 段落 / 编号 / JSON）→ 验证 splitIntoBullets 容错
+    - 至少 8 个端到端用例
+  - **e. bump version + CHANGELOG**：
+    - package.json 4.2.0 → 4.2.1
+    - CHANGELOG.md 顶部加 v4.2.1 段：
+      * 🐛 planVerifyWave 重复实现合并到 verify-orchestrator SSoT
+      * 🐛 extractDivergences topic 分组算法升级（token-set ≥ 2 替代 first-token）
+      * 🐛 plan-aggregator brief 长度 token-aware（修正中文偏差）
+      * ✅ +8 dogfood 风格集成测试
+    - **不需要** migration guide（patch 不破坏接口）
+    - **不更新** README / 根 CLAUDE.md（小 patch 不影响顶层文档）
+  - **f. 测试通过门**：≥ 913 + 你新增 + typecheck pass + build pass
+- **来源**: 主对话 v4.2 commit 后代码 review（quality-router.ts:278-366 vs verify-orchestrator.ts:89-168 / plan-aggregator.ts:271-279 / SERIALIZED_BRIEF_MAX_CHARS）
+- **Depends on**: 23 (commit 843a56a 含全部 v4.2.0 代码)
+- **Type**: backend
+- **Critical**: false（patch 修小问题，不破坏接口）
+
+---
+
 **Last Updated**: 2026-05-04（v4.2.0 release）
 
 - **Goal**: 用同一任务跑三档（fast / triple / debate）对比代码质量、壁钟、主线 token 消耗。写 v4.2.0 完整发布文档。
