@@ -1,154 +1,338 @@
 ---
 name: ccg:verify-work
-description: 验收编排器 - 按变更类型自动选择 verify-{module,security,quality,change} 子门 + verifier agent，输出聚合报告
-argument-hint: "[scope-path]"
+description: 会话式 UAT 工作流 - UAT.md 状态文件 + cold-start smoke 自动注入 + 自动 diagnose-plan-fix 收敛环（v4.0 P9）
+argument-hint: "[task-id]"
 allowed-tools:
   - Read
+  - Write
+  - Edit
   - Glob
   - Grep
   - Bash
+  - AskUserQuestion
   - Agent
 ---
 
-# Verify Work - 多门验收编排器
+# Verify Work — 会话式 UAT 工作流（v4.0 Phase 9）
 
-CCG 已有四个 verify-* 校验关卡：`verify-module` / `verify-security` / `verify-quality` / `verify-change`，外加 `verifier` agent 做需求矩阵核验。它们各自专精，但用户面对"我刚改完一坨代码该跑哪些门"时不该自己去拼。
+v3.0 的 verify-work 是纯**编排器**——按变更性质开 verify-{module,security,quality,change} 子门，跑完聚合报告。但它**没法做真正的 UAT**：
 
-本命令是**编排器**：根据变更性质自动决定开哪些门、按什么顺序、最后聚合成一张体检表。
+1. 用户得自己拿着报告人肉对照"这事儿到底验没验过"；
+2. `/clear` 后所有上下文丢失，UAT 进度归零；
+3. 只看代码不跑冷启动——race condition / silent seed failure / 缺环境变量在生产才暴露；
+4. 用户报 issue 后没有自动收敛环——靠用户手动来回贴报告。
+
+v4.0 把 verify-work 改造成**有状态的会话工作流**：
+
+- **UAT.md frontmatter 状态文件**：跨 `/clear` 持久化，下次进入命令自动 resume；
+- **逐项核对**（show expected → ask if matches）：每条期望行为都明示问，不让模糊滑过；
+- **Cold-start smoke 自动注入**：扫 git diff 命中关键路径即注入"杀进程 → 清临时态 → 冷启动 → 主查询返回数据"测试；
+- **自动 diagnose → planner --gaps → plan-checker 收敛环**（max 3 轮）：用户报 issue 立即触发，无需手动调度。
+
+**与 v3.0 的关系**：v3.0 的多门聚合不删，迁移为 Step 2（verify-* 子门作为静态扫描）。v4.0 的会话循环裹在外层（Step 0/1/3/4/5）。
+
+---
 
 ## 使用方法
 
 ```bash
-/ccg:verify-work                    # 自动判定 scope 和门类
-/ccg:verify-work src/auth           # 仅核验某路径
+/ccg:verify-work                      # 自动按 git diff / .context/state.md 推断 task-id
+/ccg:verify-work phase-09-uat-session # 显式指定 task-id
 ```
 
-## 决策矩阵：根据变更类型自动选门
+**第一次跑** → 新建 `.context/uat/<task-id>/UAT.md` 状态文件。
+**再次跑** → Read 状态文件，从 `pending_checks` 头部继续问。
 
-| 变更性质 | 触发判据（自动检测） | 门组 |
-|---------|--------------------|------|
-| **新模块** | `git status` 显示新增目录 + 含 README/DESIGN 期望位 | verify-module → gen-docs（如缺）→ verify-security → verify-quality |
-| **小改动** | git diff <= 30 行且无新文件 | verify-quality → verify-change |
-| **常规改动** | git diff 30-200 行 | verify-change → verify-quality → verifier agent |
-| **安全敏感** | diff 触及 auth/crypto/input/secret/sql 路径关键字 | verify-security → verify-change → verifier agent |
-| **重构** | git log message 含 `refactor:` 或大量改动无新增功能 | verify-change → verify-quality → verify-security |
-| **未知** | 无法判定 | 全开（所有门 + verifier agent）|
+---
 
-## 工作流程
-
-### Step 1：scope 与变更性质识别
-
-```bash
-# 收集变更面
-git status --short
-git diff --stat HEAD
-git log -1 --pretty=format:"%s%n%b"
-```
-
-判定逻辑：
-
-```
-1. $ARGUMENTS 给了路径 → scope = 该路径，仅看其内变更
-2. 检查 git status 是否有新增目录 → 命中"新模块"分支
-3. 计算 diff 行数总和 → 落入小/常规/重构区段
-4. Grep 变更文件名关键字（auth|login|crypto|password|token|sql|input|secret）→ 命中安全敏感分支
-```
-
-输出：选中的门类 + 执行顺序，向用户展示再开跑（如有 5+ 门则 AskUserQuestion 确认）。
-
-### Step 2：依次调用各门
-
-调用方式（皆通过 Skill / 子命令，**不直接调 codeagent-wrapper**）：
-
-| 门 | 调用 |
-|----|------|
-| verify-module | 调用 `verify-module` skill，传 scope 路径 |
-| verify-security | 调用 `verify-security` skill，传 scope 路径 |
-| verify-quality | 调用 `verify-quality` skill，传 scope 路径 |
-| verify-change | 调用 `verify-change` skill，默认 working 模式 |
-| verifier agent | 通过 `Agent(subagent_type="verifier")` 调用，传需求清单 + 变更范围 |
-
-每个门**收集结构化结果**（不要让模型自由叙述），固定字段：
+## UAT.md frontmatter schema（跨会话状态文件）
 
 ```yaml
-gate: verify-quality
-status: PASS | WARN | FAIL
-counts: { critical: 0, high: 1, medium: 3, low: 7 }
-top_findings:
-  - file: src/x.ts
-    line: 42
-    severity: high
-    msg: 函数复杂度 18 > 阈值 10
-artifacts: [报告文件路径]
+---
+task_id: phase-09-uat-session
+started_at: 2026-05-03T22:47:00Z
+cold_start_injected: true
+gaps:
+  - { symptom: "list empty after refresh", severity: high, status: open, loop_count: 1, plan_ref: ".context/uat/<id>/fix-G-01.md" }
+completed_checks:
+  - { id: C1, expected: "login button visible", matched: true }
+  - { id: C2, expected: "list shows 5 items", matched: false, gap_ref: G-01 }
+pending_checks:
+  - { id: C3, expected: "logout works" }
+---
 ```
 
-### Step 3：失败短路策略
+字段约定：
 
-- 任意门返回 **FAIL with critical** → 立即停止后续门，警示用户先修
-- 门返回 WARN → 继续，但在最终报告中聚合警告
-- 门内部出错（脚本崩溃）→ 不阻断，标记 `[gate-error]`，附错误信息
+| 字段 | 类型 | 含义 |
+|------|------|------|
+| `task_id` | string | 与 `.context/uat/<task-id>/` 路径同源；缺失 = 文件损坏，重建 |
+| `started_at` | ISO 8601 | 起始时间，用于跨会话审计 |
+| `cold_start_injected` | bool | 防止重复注入 |
+| `gaps[]` | list | 用户报告的偏离 / 失败，含 `symptom / severity / status / loop_count / plan_ref` |
+| `completed_checks[]` | list | 已问过的 check（matched=true/false）|
+| `pending_checks[]` | list | 待问的 check（顺序就是问的顺序）|
 
-### Step 4：聚合输出
+`severity ∈ {critical, high, medium, low}`，`status ∈ {open, fixed, deferred}`。
+
+**调用方算法以 `src/utils/uat-session.ts` 中的 `parseUatFrontmatter` / `renderUatFrontmatter` 为权威。** Node 脚本可直接 `import`，LLM 在会话中按本表手写也行——schema 一致即可。
+
+---
+
+## 工作流程（lifecycle）
+
+### Step 0 — Resume 检测
+
+```bash
+TASK_ID="${1:-$(detect-task-id)}"  # detect-task-id 见下
+UAT_DIR=".context/uat/${TASK_ID}"
+UAT_FILE="${UAT_DIR}/UAT.md"
+```
+
+`detect-task-id` 优先级：
+1. 命令参数 `$ARGUMENTS`（用户显式给）
+2. `.context/state.md` 当前 phase 字段
+3. `git rev-parse --abbrev-ref HEAD` 分支名（取最后一段）
+4. 用 `verify-work-$(date +%Y%m%d-%H%M)` 兜底
+
+```bash
+if [ -f "$UAT_FILE" ]; then
+  echo "Resume mode: existing UAT session for ${TASK_ID}"
+else
+  mkdir -p "$UAT_DIR"
+  # 新建 UAT.md（Step 1 完成后写入）
+fi
+```
+
+**Resume 时**：
+- Read UAT.md → 解析 frontmatter
+- 显示当前进度：`X/Y checks done, Z gaps open`
+- 跳到 Step 4，继续问 `pending_checks` 头部
+
+**新建时**：进 Step 1。
+
+### Step 1 — 收集 expected behaviors（生成 pending_checks）
+
+读取以下来源（按可用性逐个 fallback）：
+
+| 来源 | 字段 |
+|------|------|
+| `.ccg/roadmap.md` 当前 phase | `acceptance` 段每条独立 bullet |
+| OpenSpec proposal `proposal.md` | "Success criteria" / "Acceptance" |
+| PRD / SPEC.md | 用户可观察行为 |
+| git commit message 主语 | 主语转 expected（兜底） |
+
+每条转一个 `UatCheck`：
+
+```yaml
+{ id: C<n>, expected: "<人类可观察行为>" }
+```
+
+**只允许"用户可观察行为"**——禁止 "bcrypt installed" / "function exists"，必须是 "user can reset password" / "list shows correct count"。
+
+### Step 2 — 静态门 + cold-start smoke 注入
+
+#### 2a. 静态扫描（v3.0 多门保留）
+
+按 git diff 性质开门（v3.0 决策矩阵）：
+
+| 变更性质 | 触发判据 | 门组 |
+|---------|---------|------|
+| 新模块 | `git status` 显示新增目录 | verify-module → verify-security → verify-quality |
+| 小改动 | diff ≤ 30 行 | verify-quality → verify-change |
+| 常规改动 | diff 30-200 行 | verify-change → verify-quality → verifier agent |
+| 安全敏感 | 触及 auth/crypto/input/secret/sql 关键字 | verify-security → verify-change → verifier agent |
+| 重构 | 含 `refactor:` commit | verify-change → verify-quality → verify-security |
+
+每门返回结构化 `{ gate, status, counts, top_findings, artifacts }`，**FAIL with critical** 立即 short-circuit 用户先修，进 Step 5 前不继续问 UAT。
+
+#### 2b. Cold-start smoke 自动注入
+
+```bash
+CHANGED=$(git diff --name-only HEAD)
+```
+
+按 `src/utils/uat-session.ts:shouldInjectColdStart()` 等价规则扫：
+
+```
+触发正则（任一命中即注入）：
+- (^|/)server\.(ts|js|mjs|cjs|tsx)$
+- (^|/)app\.(ts|js|mjs|cjs|tsx)$
+- (^|/)main\.(ts|js|mjs|cjs|tsx|go|py|rs)$
+- (^|/)bootstrap\.(ts|js|mjs|cjs)$
+- (^|/)startup[._-]?[a-z]*
+- (^|/)database/
+- (^|/)db/
+- (^|/)migrations?/
+- (^|/)seeds?/
+- (^|/)docker-compose[a-z0-9._-]*\.ya?ml$
+- (^|/)Dockerfile[a-z0-9._-]*$
+- (^|/)\.env(\..+)?$
+- (^|/)k8s/
+- (^|/)kubernetes/
+```
+
+命中即把以下模板**作为 C0 插入 pending_checks 头部**（先问 cold-start，再问其他 expected）：
 
 ```markdown
-# 综合验收报告
+### Cold-Start Smoke Test (auto-injected)
 
-## 决策记录
-- **变更性质**: 常规改动（diff 87 行，触及 src/api/）
-- **选定门组**: verify-change → verify-quality → verifier
-- **执行顺序**: ↓
+**Trigger**: changes touched cold-start critical paths: `<file-list>`
 
-## 各门结果
+**Why this matters**: Race conditions / silent seed failures / missing env vars
+only surface on a fresh boot. Skipping this leaves prod cold-start bugs unverified.
 
-### ① verify-change
-- 状态：✅ PASS
-- 变更文件：5
-- 文档同步：⚠ DESIGN.md 需更新
-- 报告：<路径>
-
-### ② verify-quality
-- 状态：⚠ WARN
-- 复杂度警告：1
-- 命名问题：0
-- Top finding：`src/api/users.ts:42` 函数行数 67 > 50
-
-### ③ verifier (agent)
-- 状态：✅ PASS
-- 需求矩阵：3/3 PASS
-- 构建测试：✅ pnpm typecheck + pnpm test 通过
-- 报告：见 verifier 输出
-
-## 综合判决
-
-| 维度 | 状态 |
-|------|------|
-| 阻断项 | 0 |
-| 告警项 | 2 |
-| 修复优先级 | High → DESIGN.md 同步 / 函数拆分 |
-
-**建议**: ✅ 可交付，但建议处理 2 项告警。
+**Steps**:
+1. Kill any running process: `pkill -f <pattern>; docker compose down -v`
+2. Clear ephemeral state (caches/sockets/lock files; KEEP volumes/data unless required)
+3. Cold-boot from scratch: `pnpm dev` / `docker compose up -d` / `make run`
+4. Issue the primary query — expected non-empty payload, status 200, no 5xx/timeout
 ```
 
-### Step 5：与 .context 集成
+更新 `cold_start_injected: true`，禁止重复注入。
 
-- 报告写入 `.context/verifications/<YYYY-MM-DD-HHMM>.md`
-- `.context/state.md` 追加引用：`Verification: see verifications/...`
+### Step 3 — Persist UAT.md（首次写入）
+
+Render frontmatter（按上文 schema）+ 主体段："## Session Log"（每条 check 的 Q&A 时间戳追加于此）。Write 到 `${UAT_DIR}/UAT.md`。
+
+### Step 4 — 会话式 UAT（show expected → ask if matches）
+
+主循环（每轮处理 pending_checks 头部一条）：
+
+```
+1. 取 pending_checks[0]
+2. 向用户呈现：
+   "Check ${id}: ${expected}
+    Did this behave as expected? (y / n / skip / abort)"
+   使用 AskUserQuestion 工具
+3. 收到回答：
+   - y → completed_checks.push({ ...check, matched: true })
+   - n → 进入 Step 5（自动 diagnose）
+   - skip → completed_checks.push({ ...check, matched: undefined, note: "skipped" })
+   - abort → 写报告 + 退出
+4. 写回 UAT.md（每答一条都持久化，避免会话中断丢进度）
+5. pending_checks.shift(); 回到 1
+```
+
+所有 pending 答完 → 进 Step 6。
+
+### Step 5 — 自动 diagnose → planner --gaps → plan-checker 收敛环
+
+用户答 `n` 时：
+
+#### 5a. 推断严重度 + append gap
+
+按 `inferIssueSeverity(report)` 等价规则：critical → high → medium → low 顺序扫关键词，命中即定级，不命中默认 medium。
+
+```yaml
+gaps:
+  - { symptom: "<用户原话>", severity: <inferred>, status: open, loop_count: 0 }
+```
+
+#### 5b. 并行 spawn diagnose
+
+```
+Agent(subagent_type="ccg:debug", task=<symptom>, run_in_background=true)
+```
+
+debug agent 找根因，输出 `.context/uat/<task-id>/diagnose-G-<n>.md`。
+
+#### 5c. spawn planner --gaps
+
+```
+Agent(subagent_type="planner", mode="--gaps", input=diagnose_report)
+```
+
+输出修复 plan：`.context/uat/<task-id>/fix-G-<n>.md`。
+
+#### 5d. spawn plan-checker（复用 Phase 6 helper）
+
+```
+Agent(subagent_type="plan-checker", plan=<fix-plan>)
+```
+
+返回 `{ findings, hasBlocker, counts }`。
+
+#### 5e. max-3-loop 收敛
+
+```
+loop_count += 1
+if not hasBlocker:
+  - gap.status = fixed; gap.plan_ref = <fix-plan-path>
+  - apply fix（spawn codex/gemini-rescue 或 user 手改）
+  - 回到 Step 4 主循环（继续下一条 pending_check）
+elif loop_count >= 3:
+  - escalate to user via AskUserQuestion:
+    "Convergence loop exhausted (3/3). Choose:
+     (a) force-accept partial fix
+     (b) provide guidance & retry one more loop
+     (c) abort and roll back this gap"
+else:
+  - 把 plan-checker findings 喂回 planner --gaps，回到 5c
+```
+
+**3 轮上限是硬规约**——与 plan-review-convergence / code-review-fix 一致。
+
+### Step 6 — 终态报告
+
+所有 check 已答（含 skip）+ 所有 gap 状态 ∈ {fixed, deferred}：
+
+```markdown
+# Verify Work Final Report — <task-id>
+
+## Summary
+- Checks: <pass>/<total> matched, <skip> skipped
+- Gaps: <fixed>/<total> fixed, <deferred> deferred, <open> still open
+- Cold-start smoke: <PASS|FAIL|N/A>
+- Static gates: <verify-module|security|quality|change> 各自 status
+- Convergence loops triggered: <n>
+
+## 综合判决
+| 维度 | 状态 |
+|------|------|
+| 阻断项 | <n> |
+| 告警项 | <n> |
+| 修复优先级 | <列表> |
+
+**建议**: ✅ 可交付 | ⚠ 建议处理 N 项告警 | ❌ 阻断项需先修
+```
+
+报告写到 `.context/uat/<task-id>/REPORT.md`，UAT.md 保留作为审计 trail。
+
+---
+
+## 与 .context / roadmap 集成
+
+- 报告 + UAT.md 落 `.context/uat/<task-id>/`，不是临时目录
+- `.context/state.md` 追加引用：`UAT: see uat/<task-id>/REPORT.md`
+- 不修改 `.ccg/roadmap.md`（autonomous 主线管）
 
 ## 与各 verify-* skill 的契约
 
-| Skill | 输入 | 输出 |
-|-------|------|------|
-| verify-module | 模块路径 | README/DESIGN 完整性 + 推荐目录结构 |
-| verify-security | 扫描路径 | Critical/High/Medium/Low 漏洞计数 + 文件清单 |
-| verify-quality | 扫描路径 | 复杂度/命名/异味指标 + 问题清单 |
-| verify-change | mode flag | 变更摘要 + 文档同步状态 |
-| verifier agent | 需求清单 + 代码变更 | PASS/FAIL/PARTIAL 矩阵 + 构建测试结果 |
+| Skill | 在本工作流的角色 |
+|-------|-----------------|
+| verify-module | Step 2a 静态门，新模块场景必跑 |
+| verify-security | Step 2a 静态门，安全敏感场景必跑 |
+| verify-quality | Step 2a 静态门，30+ 行变更必跑 |
+| verify-change | Step 2a 静态门，常规改动必跑 |
+| verifier agent | Step 2a 末尾兜底，做需求矩阵反向溯源（v4 Phase 8 加 Level 4 数据流） |
 
-本命令**只编排，不实现**：所有检测能力来自上述子组件。
+## 与 v4.0 helper 的契约
+
+| Helper | 用途 |
+|--------|------|
+| `src/utils/uat-session.ts:shouldInjectColdStart` | Step 2b 触发判定 |
+| `src/utils/uat-session.ts:buildColdStartSmokeTemplate` | Step 2b 测试模板 |
+| `src/utils/uat-session.ts:parseUatFrontmatter` / `renderUatFrontmatter` | UAT.md 状态文件 IO |
+| `src/utils/uat-session.ts:inferIssueSeverity` | Step 5a 严重度推断 |
+| `src/utils/uat-session.ts:decideConvergence` | Step 5e max-3-loop 判定 |
+| `src/utils/plan-checker.ts:runPlanChecker` | Step 5d 修复计划静态校验 |
 
 ## 硬性约束
 
-- **不重复实现已有 skill 的检测逻辑**：仅按决策矩阵选门 + 调用 + 聚合
-- **变更性质判定必须明示**：决策记录要写清楚为何选这组门
-- **失败 short-circuit 必须明显**：用户应一眼看出"在哪一门挂了"
-- **报告路径固定**：始终落 `.context/verifications/`，便于历史比对
+- **不重复实现已有 skill 的检测逻辑**：Step 2a 完全复用 verify-* skill
+- **UAT.md 必须每条 check 答完即持久化**：避免 `/clear` 丢进度
+- **Cold-start smoke 不重复注入**：`cold_start_injected: true` 后跳过
+- **3 轮收敛上限严格执行**：不允许"再来一轮"，必须升级用户三选
+- **失败 short-circuit**：Step 2a 任一门 FAIL with critical 立即停 UAT 询问
+- **不修改 `.ccg/roadmap.md` / `.ccg-research/` / `templates/scripts/invoke-model.mjs`**
