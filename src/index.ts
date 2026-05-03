@@ -88,18 +88,23 @@ export {
   parseFrontmatter,
 } from './utils/skill-registry'
 export type { SkillCategory, SkillMeta, SkillRuntimeType } from './utils/skill-registry'
-// v4.1-p17: /ccg:debate primitive — multi-round propose/challenge/respond orchestrator
+// v4.1-p16: challenger flat orchestration (plugin advisor + specialist critic)
 export {
-  debateStateMachine,
-  parseRoundSummary,
-  shouldStop,
-} from './utils/debate-orchestrator'
+  decideFromSummaries,
+  parseChallengerSummary,
+  planChallengerSpawns,
+  synthesizeRevisionFeedback,
+} from './utils/challenger-orchestrator'
 export type {
-  DebateFallbackReason,
-  DebateLayer,
-  DebateModel,
-  DebateOptions,
-  DebateRoundKind,
-  DebateRoundPlan,
-  RoundSummary,
-} from './utils/debate-orchestrator'
+  ChallengeInput,
+  ChallengerAgent,
+  ChallengerDecision,
+  ChallengerPlan,
+  ChallengerSummary,
+  Finding,
+  FindingSeverity,
+  PluginAdvisor,
+  PluginAvailability,
+  SpawnEntry,
+  SpecialistCritic,
+} from './utils/challenger-orchestrator'
