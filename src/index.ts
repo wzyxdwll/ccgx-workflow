@@ -186,3 +186,21 @@ export type {
   PipelineError,
   PipelineErrorCategory,
 } from './utils/pipeline-check'
+
+// CCG v4.3 Phase 26 — ground truth sampler
+export {
+  sampleAll,
+  samplePluginList,
+  sampleSkillList,
+  sampleHookSchema,
+  samplePackageStructure,
+  summarizeGroundTruth,
+} from './utils/ground-truth-sampler'
+export type {
+  GroundTruth,
+  HookInfo,
+  PackageStructureInfo,
+  PluginInfo as GroundTruthPluginInfo,
+  SampleOptions,
+  SkillInfo as GroundTruthSkillInfo,
+} from './utils/ground-truth-sampler'
