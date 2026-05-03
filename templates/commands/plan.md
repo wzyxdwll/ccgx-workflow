@@ -50,6 +50,23 @@ $ARGUMENTS
 
 ---
 
+## 调用通道路由（v4.1 Phase 20，CCG codeagent 退役）
+
+CCG v4.1 把 6 核心命令的"双模型并行"通道从 `Bash(codeagent-wrapper)` **默认切换**为 plugin spawn。判定流程：
+
+1. **优先 plugin spawn 路径**（默认）：用户已装 `codex@openai-codex` 和 `gemini@google-gemini` plugin → 用 `Agent(subagent_type="codex:codex-rescue")` + `Agent(subagent_type="gemini:gemini-rescue")` 并行 spawn，主线只接 plugin 自家 ≤200 token 摘要协议（`STATUS: ... / FINDINGS: ... / NOTES: ...`）。
+2. **降级 codeagent-wrapper 路径**（v4.0 BC fallback）：plugin 未装 → fallback 到 `Bash(~/.claude/bin/codeagent-wrapper --backend ... resume ... <<'EOF' ... EOF)`，与 v4.0 行为完全一致。
+
+**判断方法**：preflight 用 `Bash` 跑 `ls ~/.claude/plugins/ 2>/dev/null | grep -E '^codex@'` 与 `... | grep -E '^gemini@'` 各一次。匹配到对应行 → plugin 已装。两个 plugin 独立判定，可分别 mix-and-match（仅 codex plugin 装了 → backend 走 plugin、frontend 走 codeagent）。
+
+**单一真相源**：plugin 检测逻辑 helper 见 `src/utils/plugin-detection.ts`（导出 `detectPlugin` / `detectPluginAvailability` / `bothPluginsInstalled`）。命令模板把判定结果渲染到执行计划，`Agent(...)` 调用与 `Bash(...)` 调用的具体语法见下面"多模型调用规范"段。
+
+**为什么默认 plugin**：v4.0.1 nested-spawn 测试证明 plugin advisor 摘要协议（≤200 token）压制了 codeagent stdout 全文回灌主线的痛点，主线 context 增量从 +5%/调用 降到 +1.5%/调用。详见 `.ccg-research/07-multimodel-collaboration-rethink.md`。
+
+⚠️ **重要**：本命令本身不在 subagent context 内（主线命令），**可以**调 `Agent(...)` 工具——这跟 `phase-runner` 等 subagent 的"引擎层禁止嵌套 spawn Agent"约束不冲突。
+
+---
+
 ## 多模型调用规范
 
 **工作目录**：
@@ -57,7 +74,30 @@ $ARGUMENTS
 - 如果用户通过 `/add-dir` 添加了多个工作区，先用 Glob/Grep 确定任务相关的工作区
 - 如果无法确定，用 `AskUserQuestion` 询问用户选择目标工作区
 
-**调用语法**（并行用 `run_in_background: true`）：
+**调用语法**（v4.1 Phase 20 双通道）：
+
+**通道 A — plugin spawn（默认）**：
+
+```
+Agent({
+  subagent_type: "<codex:codex-rescue|gemini:gemini-rescue>",
+  description: "Plan analysis: <backend|frontend>",
+  prompt: `ROLE_FILE: <角色提示词路径>
+
+<TASK>
+需求：<增强后的需求>
+上下文：<检索到的项目上下文>
+</TASK>
+
+OUTPUT: Step-by-step implementation plan with pseudo-code. DO NOT modify any files.
+Return ≤200 token structured summary (plugin-native protocol).
+`
+})
+```
+
+并行**两个 Agent 在同一 message 内同时 spawn**，主线接 plugin 摘要后无需 `TaskOutput` 轮询。
+
+**通道 B — codeagent-wrapper fallback**（plugin 未装时降级，并行用 `run_in_background: true`）：
 
 ```
 Bash({
@@ -74,6 +114,8 @@ EOF",
   description: "简短描述"
 })
 ```
+
+> ⚠️ 通道 B 走 `codeagent-wrapper`（Node 脚本 `templates/scripts/invoke-model.mjs`），v4.1 已标 **deprecated**，将在 v5.0 移除。建议用户安装 codex/gemini plugin 享受 v4.1 主线 context 优化。
 
 **角色提示词**：
 

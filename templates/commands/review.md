@@ -21,6 +21,8 @@ argument-hint: "[代码或描述] [--adversarial] [--fix [--all] [--auto]] [--ro
 
 双模型并行审查，交叉验证综合反馈。无参数时自动审查当前 git 变更。
 
+**v4.1 Phase 20**：双模型并行通道从 `Bash(codeagent-wrapper)` **默认切换**为 plugin spawn —— 装了 `codex@openai-codex` + `gemini@google-gemini` plugin → 用 `Agent(subagent_type="codex:codex-rescue")` + `Agent(subagent_type="gemini:gemini-rescue")` 并行，主线只接 ≤200 token 摘要；plugin 未装 → fallback 到 codeagent-wrapper 路径（v4.0 BC，将在 v5.0 移除）。preflight 用 `Bash` 跑 `ls ~/.claude/plugins/` 检测，helper 见 `src/utils/plugin-detection.ts`。
+
 `--adversarial` 模式下额外触发第三层"敌对视角"审查，由官方 codex plugin 的 `Agent(codex:rescue)` 在 fresh context 中专门挑前两轮意见的漏洞，适合极重要 PR / 安全敏感变更。需用户已装 `codex@openai-codex` plugin，否则降级为双模型审查。
 
 `--fix` 模式下额外触发**闭环修复**：审查产出 REVIEW.md 后 spawn `code-fixer` subagent 在 git worktree 隔离环境内修复 finding，原子 commit 后透明 ff-only merge 回主分支。
@@ -47,7 +49,30 @@ argument-hint: "[代码或描述] [--adversarial] [--fix [--all] [--auto]] [--ro
 - 如果用户通过 `/add-dir` 添加了多个工作区，先用 Glob/Grep 确定任务相关的工作区
 - 如果无法确定，用 `AskUserQuestion` 询问用户选择目标工作区
 
-**调用语法**（并行用 `run_in_background: true`）：
+**调用语法**（v4.1 Phase 20 双通道）：
+
+**通道 A — plugin spawn（默认）**：
+
+```
+Agent({
+  subagent_type: "<codex:codex-rescue|gemini:gemini-rescue>",
+  description: "Review: <backend|frontend>",
+  prompt: `ROLE_FILE: <角色提示词路径>
+
+<TASK>
+审查以下代码变更：
+<git diff 内容>
+</TASK>
+
+OUTPUT: 按 Critical/Major/Minor/Suggestion 分类列出问题
+Return ≤200 token structured summary (plugin-native protocol).
+`
+})
+```
+
+并行**两个 Agent 在同一 message 内同时 spawn**。
+
+**通道 B — codeagent-wrapper fallback**（plugin 未装时降级，并行用 `run_in_background: true`）：
 
 ```
 Bash({
@@ -64,6 +89,8 @@ EOF",
   description: "简短描述"
 })
 ```
+
+> ⚠️ 通道 B `codeagent-wrapper` 在 v4.1 已标 **deprecated**，将在 v5.0 移除。
 
 **角色提示词**：
 

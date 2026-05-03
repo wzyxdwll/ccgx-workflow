@@ -4,6 +4,28 @@
 //  ----------------------------------------------------------------------------
 //  Node ESM replacement for `codeagent-wrapper` (Go binary v5.10.0).
 //
+//  ⚠️ DEPRECATED in v4.1 (2026-05-04, Phase 20)
+//  ----------------------------------------------------------------------------
+//  Replaced by `Agent(subagent_type="codex:codex-rescue")` and
+//  `Agent(subagent_type="gemini:gemini-rescue")` in the 6 core CCG commands
+//  (plan / execute / analyze / optimize / test / review).
+//
+//  Why: v4.0.1 nested-spawn validation + objective comparison showed plugin
+//  rescue agents win 7 / 8 metrics (main-thread context drift, summary
+//  protocol, error recovery, etc); the only metric codeagent-wrapper wins
+//  ("full sandbox bypass") is unused in advisor scenarios.
+//
+//  Status: Kept as **BC fallback** when the user has not installed
+//  `codex@openai-codex` and/or `gemini@google-gemini` plugins. Templates
+//  detect plugin availability and route to the right path automatically.
+//
+//  Removal target: v5.0 (after 2 minor releases of dual-path coexistence).
+//
+//  Migration helper: `src/utils/plugin-detection.ts` exposes
+//  `bothPluginsInstalled()` and per-plugin probes used by command
+//  templates' fallback decision narrative.
+//  ----------------------------------------------------------------------------
+//
 //  Source of truth: `.ccg-migration/INVOKE-MODEL-SPEC.md`
 //  Cross-checked against `codeagent-wrapper/main.go`, `executor.go`,
 //  `parser.go`, `backend.go`, `config.go`, `utils.go`, `filter.go`.

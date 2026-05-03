@@ -108,3 +108,14 @@ export type {
   SpawnEntry,
   SpecialistCritic,
 } from './utils/challenger-orchestrator'
+// v4.1-p20: codeagent retirement + plugin detection
+export {
+  bothPluginsInstalled,
+  detectPlugin,
+  detectPluginAvailability,
+} from './utils/plugin-detection'
+export type {
+  PluginAvailability as PluginDetectionAvailability,
+  PluginDetectionResult,
+  PluginName,
+} from './utils/plugin-detection'

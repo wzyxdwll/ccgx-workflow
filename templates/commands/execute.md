@@ -20,6 +20,21 @@ $ARGUMENTS
 
 ---
 
+## 调用通道路由（v4.1 Phase 20，CCG codeagent 退役）
+
+CCG v4.1 把 6 核心命令的"双模型并行"通道从 `Bash(codeagent-wrapper)` **默认切换**为 plugin spawn。判定流程：
+
+1. **优先 plugin spawn 路径**（默认）：用户已装 `codex@openai-codex` 和 `gemini@google-gemini` plugin → 用 `Agent(subagent_type="codex:codex-rescue")` + `Agent(subagent_type="gemini:gemini-rescue")` 并行 spawn，主线只接 plugin 自家 ≤200 token 摘要。
+2. **降级 codeagent-wrapper 路径**（v4.0 BC fallback）：plugin 未装 → fallback 到 `Bash(~/.claude/bin/codeagent-wrapper ...)`，与 v4.0 行为完全一致。
+
+**判断方法**：preflight 用 `Bash` 跑 `ls ~/.claude/plugins/ 2>/dev/null | grep -E '^(codex|gemini)@'`；两个 plugin 独立判定。
+
+**单一真相源**：`src/utils/plugin-detection.ts`（导出 `detectPlugin` / `detectPluginAvailability` / `bothPluginsInstalled`）。
+
+⚠️ Execute 命令在主线 context 内，**允许**调 `Agent(...)`——与 subagent "引擎层禁止嵌套 spawn" 约束不冲突。
+
+---
+
 ## 多模型调用规范
 
 **工作目录**：
@@ -27,7 +42,30 @@ $ARGUMENTS
 - 如果用户通过 `/add-dir` 添加了多个工作区，先用 Glob/Grep 确定任务相关的工作区
 - 如果无法确定，用 `AskUserQuestion` 询问用户选择目标工作区
 
-**调用语法**（并行用 `run_in_background: true`）：
+**调用语法**（v4.1 Phase 20 双通道）：
+
+**通道 A — plugin spawn（默认，原型生成）**：
+
+```
+Agent({
+  subagent_type: "<codex:codex-rescue|gemini:gemini-rescue>",
+  description: "Execute prototype: <backend|frontend>",
+  prompt: `ROLE_FILE: <角色提示词路径>
+
+<TASK>
+需求：<任务描述>
+上下文：<计划内容 + 目标文件>
+</TASK>
+
+OUTPUT: Unified Diff Patch ONLY. Strictly prohibit any actual modifications.
+Return ≤200 token structured summary (plugin-native protocol).
+`
+})
+```
+
+> Plugin 上下文不需要 `resume <SESSION_ID>` —— plugin advisor 自己管理跨调用 session（用 `description` 区分阶段即可）。
+
+**通道 B — codeagent-wrapper fallback**（plugin 未装时降级，并行用 `run_in_background: true`）：
 
 ```
 # 复用会话调用（推荐）- 原型生成（Implementation Prototype）

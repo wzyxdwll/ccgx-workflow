@@ -35,6 +35,19 @@ argument-hint: "<分析问题或任务> [--role=architect|critic|implementer|tes
 
 ---
 
+## 调用通道路由（v4.1 Phase 20，CCG codeagent 退役）
+
+CCG v4.1 把双模型并行通道从 `Bash(codeagent-wrapper)` **默认切换**为 plugin spawn：
+
+1. **优先 plugin spawn**（默认）：装了 `codex@openai-codex` + `gemini@google-gemini` plugin → 用 `Agent(subagent_type="codex:codex-rescue")` + `Agent(subagent_type="gemini:gemini-rescue")` 并行，主线接 ≤200 token 摘要。
+2. **降级 codeagent-wrapper**（v4.0 BC fallback）：plugin 未装 → fallback 到 Bash 调用，行为与 v4.0 完全一致。
+
+**判定**：preflight `Bash` 跑 `ls ~/.claude/plugins/` 看有无 `codex@*` / `gemini@*` 子目录。helper 见 `src/utils/plugin-detection.ts`。
+
+⚠️ Analyze 命令在主线 context 内，**允许** `Agent(...)`——与 subagent "禁止嵌套 spawn" 约束不冲突。
+
+---
+
 ## 多模型调用规范
 
 **工作目录**：
@@ -42,7 +55,30 @@ argument-hint: "<分析问题或任务> [--role=architect|critic|implementer|tes
 - 如果用户通过 `/add-dir` 添加了多个工作区，先用 Glob/Grep 确定任务相关的工作区
 - 如果无法确定，用 `AskUserQuestion` 询问用户选择目标工作区
 
-**调用语法**（并行用 `run_in_background: true`）：
+**调用语法**（v4.1 Phase 20 双通道）：
+
+**通道 A — plugin spawn（默认）**：
+
+```
+Agent({
+  subagent_type: "<codex:codex-rescue|gemini:gemini-rescue>",
+  description: "Analyze: <backend|frontend>",
+  prompt: `ROLE_FILE: <角色提示词路径>
+
+<TASK>
+需求：<增强后的需求（如未增强则用 $ARGUMENTS）>
+上下文：<前序阶段检索到的代码上下文>
+</TASK>
+
+OUTPUT: 期望输出格式
+Return ≤200 token structured summary (plugin-native protocol).
+`
+})
+```
+
+并行**两个 Agent 在同一 message 内同时 spawn**。
+
+**通道 B — codeagent-wrapper fallback**（plugin 未装时降级，并行用 `run_in_background: true`）：
 
 ```
 Bash({
@@ -59,6 +95,8 @@ EOF",
   description: "简短描述"
 })
 ```
+
+> ⚠️ 通道 B `codeagent-wrapper` 在 v4.1 已标 **deprecated**，将在 v5.0 移除。
 
 **角色提示词**：
 
