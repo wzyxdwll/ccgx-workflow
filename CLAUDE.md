@@ -2,13 +2,29 @@
 
 > [根目录](../CLAUDE.md) > **skills-v2**
 
-**Last Updated**: 2026-05-04 (v4.1.0)
+**Last Updated**: 2026-05-04 (v4.2.0)
 
 ---
 
 ## 变更记录 (Changelog)
 
 > 完整变更历史请查看 [CHANGELOG.md](./CHANGELOG.md)
+
+### 2026-05-04 (v4.2.0) — 🎯 多模型协作深度升级版（P21-P23 三 phase dogfood）
+
+- ✨ **P21: multi-model routing SSoT**（commit `2881798`）：4 个独立路由模块的 Layer / Model / PluginAvailability 类型并集上提到 `src/utils/multi-model-routing.ts` 单一来源；`parseFindings` 鲁棒化（嵌套 `{}` / json fence / 单引号 JSON）；删 `specialist-router` 假设路由 `implementer/writer × frontend → null`（与 phase-runner layer-agnostic 实施者契约对齐）。
+- ✨ **P22: quality tier 三档 + Plan-Critic-Verify 编排**（commit `2be2130`）：`--quality=fast/triple/debate` 主线 flag + phase frontmatter `Quality:` override（优先级最高）。新建 3 helper：
+  - `quality-router.ts`（~550 行）：解析 flag → wave 计划。
+  - `plan-aggregator.ts`（~410 行）：plan wave 聚合 → DesignBrief（共识/分歧/必决策点），注入 phase-runner prompt。
+  - `verify-orchestrator.ts`（~265 行）：verify wave 综合 → advance/revise/escalate 决策。
+  - **fast** 2 wave (impl+verify) / **triple** 4 wave (plan+critic+impl+verify) / **debate** 7 wave (plan+3 round+critic+impl+verify, cap 3)。auto-degradation: 双缺 → fast；单缺 + debate → triple。126 单测覆盖。
+- ✨ **P23: 三档 dogfood 验证 + v4.2.0 docs**（本版本）：
+  - 新建 `qualityTierE2E.test.ts` 22 用例：mixed-quality roadmap 模拟 + plugin 降级矩阵 + verify decision matrix + spawn 预算锁死。
+  - 新建 `.claude/team-plan/phase-23-quality-tier-dogfood-report.md`：三档对比表 + 已被单测拦截 bug 类（8 例）+ latent bug 清单（5 项需用户 cold-start 验证）+ 5 步骤验证清单。
+  - 新建 `.ccg-migration/v4.1-to-v4.2.md`：完整迁移指南（默认行为变化 + 5 步骤验证 + 已知未验证项）。
+- 🔄 **autonomous 默认行为变化**：v4.1 单波 phase-runner → v4.2 默认 triple（4 wave）。复现 v4.1 行为：`--quality=fast`。
+- ⚠️ **已知未验证项**：引擎层约束（v4.0.1 commit `a7cdffd`）使 phase-runner 不能 spawn `codex:codex-rescue` plugin Agent，三档 dogfood 在 CI 里只能跑集成测试式模拟（33 用例）。真 plugin spawn 行为留待用户首次 cold-start 验证；详见 `.claude/team-plan/phase-23-quality-tier-dogfood-report.md` §4 + `.ccg-migration/v4.1-to-v4.2.md` §"Known unverified items"。
+- 📊 架构数字：测试 775+ → **913**，src/utils helpers ~12 → **15**（+ 4 新 helper），命令注册表 / subagent / skill 不变。
 
 ### 2026-05-04 (v4.1.0) — 🎯 使用体验精修版（P13-P20 8 phase 串行 dogfood）
 

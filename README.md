@@ -9,7 +9,7 @@
 [![npm version](https://img.shields.io/npm/v/ccg-workflow.svg)](https://www.npmjs.com/package/ccg-workflow)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Compatible-green.svg)](https://claude.ai/code)
-[![Tests](https://img.shields.io/badge/Tests-515%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-913%20passed-brightgreen.svg)]()
 [![Follow on X](https://img.shields.io/badge/X-@CCG__Workflow-black?logo=x&logoColor=white)](https://x.com/CCG_Workflow)
 ![star](https://atomgit.com/fengshao1227/ccg-workflow/star/badge.svg)
 
@@ -112,7 +112,7 @@ Supports: npm, homebrew, curl, powershell, cmd.
 | `/ccg:plan` | Multi-model collaborative planning (Phase 1-2) | Codex + Gemini |
 | `/ccg:execute` | Multi-model collaborative execution (Phase 3-5) | Codex + Gemini + Claude |
 | `/ccg:codex-exec` | Codex full execution (plan → code → review) | Codex + multi-model review |
-| `/ccg:autonomous` | Cross-phase long-run (drives roadmap.md via phase-runner) | phase-runner |
+| `/ccg:autonomous` | Cross-phase long-run (v4.2: `--quality=fast/triple/debate` tier flag) | phase-runner + Plan-Critic-Verify |
 | `/ccg:context` | Project context management (.context/ init, log, compress, history) | Claude |
 
 ### Analysis & Quality
@@ -172,6 +172,32 @@ Supports: npm, homebrew, curl, powershell, cmd.
 | Command | Description |
 |---------|-------------|
 | `/ccg:init` | Initialize project CLAUDE.md |
+
+## What's New in v4.2 (2026-05-04)
+
+> Full release notes in [CHANGELOG.md](./CHANGELOG.md#420---2026-05-04) · Upgrade guide in [.ccg-migration/v4.1-to-v4.2.md](./.ccg-migration/v4.1-to-v4.2.md)
+
+3-phase dogfood. Headline: **multi-model collaboration depth scales with `--quality` flag**.
+
+```bash
+/ccg:autonomous --quality=fast      # v4.1 behaviour (single-wave, 2 spawns)
+/ccg:autonomous                     # v4.2 default: triple (Plan→Critic→Impl→Verify, 4 waves, 8 spawns)
+/ccg:autonomous --quality=debate    # 7 waves, up to 14 spawns, 3-round propose/challenge/respond
+```
+
+| Tier | Waves | Spawns (backend) | Wall-clock | Use case |
+|------|-------|------------------|------------|----------|
+| `fast`   | 2 | 2  | +30%      | Hotfix / simple |
+| `triple` (default) | 4 | 8  | +60-90%   | Regular development |
+| `debate` | 7 | 11 | +100-150% | Critical decisions |
+
+**Per-phase override**: roadmap.md frontmatter `Quality: debate` wins over CLI flag.
+
+**Auto-degradation**: when codex/gemini plugins missing, `debate→triple→fast` degrades gracefully with banner notification.
+
+⚠️ **Default behaviour change**: v4.2 defaults to `triple` (4 waves per phase). Pass `--quality=fast` to reproduce v4.1 single-wave behaviour. See migration guide for details.
+
+⚠️ **Real plugin cold-start validation pending**: engine-layer constraints prevented real codex/gemini plugin spawn from CI dogfood subagent context. 33 integration tests cover orchestration logic; user cold-start is the first end-to-end exercise of plugin paths. See migration guide §"Known unverified items" + 5-step validation checklist.
 
 ## What's New in v4.1 (2026-05-04)
 

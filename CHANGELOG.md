@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.2.0] - 2026-05-04
+
+> 🎯 **多模型协作深度升级版**：3 phase dogfood（P21-P23）。引入 `--quality=fast|triple|debate` 三档分级，把单波 phase-runner 调度扩展为 Plan-Critic-Verify 三段式（默认 triple）+ 多轮对辩（debate）。**默认行为变化**：v4.2 默认 triple 4 wave，v4.1 单波行为用 `--quality=fast` 复现。
+
+### ✨ 新功能
+
+- **P21: multi-model routing SSoT**（commit `2881798`）：4 个独立路由模块（specialist-router / challenger-orchestrator / debate-orchestrator / phase-runner）的 Layer / Model / PluginAvailability 类型并集上提到 `src/utils/multi-model-routing.ts` 单一来源；各 router 通过 re-export 暴露给消费者，跨模块 import 类型互通。`parseFindings` 鲁棒化（嵌套 `{}` / json fence / 单引号 JSON 全部走 try/catch 兜底空数组）。删 `specialist-router` 假设路由 `implementer/writer × frontend → null`（与 v4.2 phase-runner 单实施者契约对齐）。新增 `parseFindingsRobust.test.ts` / `multiModelRouting.test.ts` 等 49 单测。
+- **P22: quality tier flag 三档 + Plan-Critic-Verify 编排**（commit `2be2130`）：
+  - 新建 `src/utils/quality-router.ts`（~550 行）：解析 `--quality=<tier>` flag → 算 wave 计划 → 输出完整 spawn 蓝图。
+  - 新建 `src/utils/plan-aggregator.ts`（~410 行）：triple/debate plan wave 完成后聚合 3 路 plan contribution → DesignBrief（共识 / 分歧 / 必决策点），主线注入 phase-runner prompt。
+  - 新建 `src/utils/verify-orchestrator.ts`（~265 行）：verify wave 完成后综合多路 verify report → advance/revise/escalate 决策；critical findings 合成修订反馈块。
+  - **fast tier**: 2 wave (impl + verify)，verify 单路 cross-vendor 反选（backend → gemini，frontend → codex）。
+  - **triple tier (默认)**: 4 wave (plan + critic + impl + verify)，plan 3 路 lateral diversity，critic 2 specialist (assumptions + nyquist)，impl 单 phase-runner，verify 双 vendor。
+  - **debate tier**: 7 wave (plan + 3× debate-round + critic + impl + verify)，cap 3 轮硬上限。fullstack 14 spawn / backend 11 spawn。
+  - **phase frontmatter `Quality:` override**（roadmap.md 单 phase 优先级最高）。
+  - **plugin auto-degradation**：双缺 → fast；单缺 + debate → triple。
+  - 单测：`qualityRouter.test.ts` 60+ 例 / `planAggregator.test.ts` 30+ 例 / `verifyOrchestrator.test.ts` 25+ 例 / `tripleTierIntegration.test.ts` 11 集成例。
+- **P23: 三档 dogfood 验证 + v4.2.0 docs**（本版本）：
+  - 新建 `src/utils/__tests__/qualityTierE2E.test.ts`（22 用例）：模拟 mixed-quality roadmap 走完整 pipeline（fast/triple/debate 三档 + plugin 降级 + verify decision matrix + spawn 预算 + 类型回归）。
+  - 新建 `.claude/team-plan/phase-23-quality-tier-dogfood-report.md`：三档对比表 + 单测拦截 bug 类（8 例）+ latent bug 清单（5 项需用户 cold-start 验证）+ 5 步骤验证清单。
+  - 新建 `.ccg-migration/v4.1-to-v4.2.md`：完整迁移指南（默认行为变化警告 + 新接口列表 + 验证清单 + 已知未验证项）。
+  - CHANGELOG / README / 根 CLAUDE.md 同步 v4.2 命令数 / helper 数 / 测试数。
+
+### 🔄 变更
+
+- **autonomous 默认行为变化**：v4.1 单波 phase-runner → v4.2 默认 triple（4 wave）。**复现 v4.1 行为**：`--quality=fast`。
+- **specialist-router 假设路由删除**（P21）：`implementer × frontend` / `writer × frontend` 路由返回 null（与 v4.2 phase-runner layer-agnostic 单实施者契约一致）。
+- **`PluginAvailability` interface** 不再在 plugin-detection.ts / challenger-orchestrator.ts 各自定义，统一从 multi-model-routing.ts SSoT 导出。
+
+### 🐛 修复
+
+- **`parseFindings` 鲁棒化**（P21）：嵌套 `{}` / markdown json fence / 单引号 JSON 不再抛异常，全部走兜底空数组。
+- **`PluginAvailability` 类型重复定义**：plugin-detection.ts + challenger-orchestrator.ts 重复 export 同名 interface，跨模块 import 失效，P21 SSoT 修复。
+
+### 📝 文档
+
+- 新建 `.ccg-migration/v4.1-to-v4.2.md`：完整迁移指南。
+- README.md 多模型协作章节：加 `--quality=fast/triple/debate` 三档表 + 降级路径说明。
+- 根 `CLAUDE.md` Last Updated → 2026-05-04 (v4.2.0)，加 v4.2 变更记录条目。
+- `templates/CLAUDE.md` 同步 autonomous 三档分支文档。
+
+### ⚠️ 已知未验证项
+
+引擎层约束（v4.0.1 commit `a7cdffd`）使得 phase-runner 不能 spawn `codex:codex-rescue` / `gemini:gemini-rescue` plugin Agent，三档 dogfood 在 CI 里只能跑集成测试式模拟（33 用例覆盖编排逻辑 + 摘要解析 + 决策路径），真 plugin spawn 行为留待用户首次 cold-start 验证。详见 `.claude/team-plan/phase-23-quality-tier-dogfood-report.md` §4 latent bug 清单 + `.ccg-migration/v4.1-to-v4.2.md` §"Known unverified items"。
+
+### 📊 架构数字
+
+- 命令注册表 28 → **28**（不变）
+- subagent 19 → **19**（不变）
+- skill 顶层目录 34 → **34**（不变）
+- `src/utils/` helpers ~12 → **15**（+ multi-model-routing, quality-router, plan-aggregator, verify-orchestrator）
+- 测试 775+ → **913**（+138 跨 P21+P22+P23 三 phase）
+- `--quality` flag — → ✓
+- phase `Quality:` frontmatter — → ✓
+- 默认 tier 单波 → **triple**
+
+---
+
 ## [4.1.0] - 2026-05-04
 
 > 🎯 **使用体验精修版**：8 phase 串行 dogfood 完成（P13-P20）。无破坏性变更，命令面板瘦身 / 默认行为优化 / 新原语注入。CHANGELOG 行号 = phase 编号。
