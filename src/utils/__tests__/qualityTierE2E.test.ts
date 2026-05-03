@@ -243,11 +243,11 @@ describe('Roadmap E2E — verify decision matrix', () => {
   it('clean reports → advance', () => {
     const reports = [
       parseVerifyReport(
-        'codex:codex-rescue',
+        'codex:rescue',
         'STATUS: complete\nFINDINGS: []\nNOTES: clean',
       ),
       parseVerifyReport(
-        'gemini:gemini-rescue',
+        'gemini:rescue',
         'STATUS: complete\nFINDINGS: []\nNOTES: clean',
       ),
     ]
@@ -259,11 +259,11 @@ describe('Roadmap E2E — verify decision matrix', () => {
   it('one critical race finding → revise + non-empty feedback', () => {
     const reports = [
       parseVerifyReport(
-        'codex:codex-rescue',
+        'codex:rescue',
         'STATUS: complete\nFINDINGS: []\nNOTES: ok',
       ),
       parseVerifyReport(
-        'gemini:gemini-rescue',
+        'gemini:rescue',
         'STATUS: complete\nFINDINGS: [{"severity":"critical","category":"race","message":"data drift between commit and verify wave"}]\nNOTES: fix needed',
       ),
     ]
@@ -277,13 +277,13 @@ describe('Roadmap E2E — verify decision matrix', () => {
   it('error status from one report → escalate', () => {
     const reports = [
       parseVerifyReport(
-        'codex:codex-rescue',
+        'codex:rescue',
         // bogus text: parseChallengerSummary should at least mark something off;
         // but if it parses cleanly, status='complete'. Force error via empty.
         '',
       ),
       parseVerifyReport(
-        'gemini:gemini-rescue',
+        'gemini:rescue',
         'STATUS: complete\nFINDINGS: []\nNOTES: ok',
       ),
     ]
@@ -300,11 +300,11 @@ describe('Roadmap E2E — verify decision matrix', () => {
   it('multiple critical findings collected from both reports', () => {
     const reports = [
       parseVerifyReport(
-        'codex:codex-rescue',
+        'codex:rescue',
         'STATUS: complete\nFINDINGS: [{"severity":"critical","category":"data-loss","message":"migration deletes user PII"}]\nNOTES: critical',
       ),
       parseVerifyReport(
-        'gemini:gemini-rescue',
+        'gemini:rescue',
         'STATUS: complete\nFINDINGS: [{"severity":"critical","category":"auth-bypass","message":"missing csrf check"}]\nNOTES: critical',
       ),
     ]

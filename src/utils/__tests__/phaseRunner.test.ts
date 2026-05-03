@@ -71,11 +71,11 @@ describe('phase-runner.md template (Phase 1.5 acceptance a)', () => {
 // ---------------------------------------------------------------------------
 describe('routePhaseType (Phase 1.5 acceptance c)', () => {
   it('routes backend to codex rescue', () => {
-    expect(routePhaseType('backend')).toBe('codex:codex-rescue')
+    expect(routePhaseType('backend')).toBe('codex:rescue')
   })
 
   it('routes frontend to gemini rescue', () => {
-    expect(routePhaseType('frontend')).toBe('gemini:gemini-rescue')
+    expect(routePhaseType('frontend')).toBe('gemini:rescue')
   })
 
   it('routes fullstack to sequential codex-then-gemini marker', () => {
@@ -83,11 +83,11 @@ describe('routePhaseType (Phase 1.5 acceptance c)', () => {
   })
 
   it('routes docs to codex (backend default)', () => {
-    expect(routePhaseType('docs')).toBe('codex:codex-rescue')
+    expect(routePhaseType('docs')).toBe('codex:rescue')
   })
 
   it('routes generic to codex (backend default)', () => {
-    expect(routePhaseType('generic')).toBe('codex:codex-rescue')
+    expect(routePhaseType('generic')).toBe('codex:rescue')
   })
 })
 

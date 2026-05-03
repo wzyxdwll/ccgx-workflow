@@ -291,8 +291,8 @@ describe('dogfood — quality-router + verify-orchestrator 联动 SSoT (P24)', (
     const verifyWave = plan.waves.find(w => w.kind === 'verify')!
     expect(verifyWave.spawns).toHaveLength(2)
     expect(verifyWave.spawns.map(s => s.agent).sort()).toEqual([
-      'codex:codex-rescue',
-      'gemini:gemini-rescue',
+      'codex:rescue',
+      'gemini:rescue',
     ])
     // 两个 spawn role 都是 verifier (adapter 注入)
     for (const s of verifyWave.spawns) {
@@ -308,15 +308,15 @@ describe('dogfood — quality-router + verify-orchestrator 联动 SSoT (P24)', (
     )
     const verifyWave = plan.waves.find(w => w.kind === 'verify')!
     expect(verifyWave.spawns).toHaveLength(1)
-    expect(verifyWave.spawns[0].agent).toBe('gemini:gemini-rescue')
+    expect(verifyWave.spawns[0].agent).toBe('gemini:rescue')
   })
 
   it('verify report 解析 + advance 决策', () => {
     const text = `STATUS: complete
 FINDINGS: []
 NOTES: all checks pass`
-    const r1 = parseVerifyReport('codex:codex-rescue', text)
-    const r2 = parseVerifyReport('gemini:gemini-rescue', text)
+    const r1 = parseVerifyReport('codex:rescue', text)
+    const r2 = parseVerifyReport('gemini:rescue', text)
     const decision = synthesizeVerifyResults([r1, r2])
     expect(decision).toBe('advance')
   })

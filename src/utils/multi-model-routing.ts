@@ -60,7 +60,7 @@ export function isLayer(value: unknown): value is Layer {
 
 /**
  * CCG 路由可达的底层模型 union。
- *   - codex / gemini：plugin subagent（`codex:codex-rescue` / `gemini:gemini-rescue`）
+ *   - codex / gemini：plugin subagent（`codex:rescue` / `gemini:rescue`）
  *   - claude：主线 Claude，无 external prompt
  *   - general-purpose：plugin 缺失降级（debate-orchestrator）；CCG 自家 prompt 模板兜底
  */

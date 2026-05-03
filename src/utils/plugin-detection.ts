@@ -4,8 +4,8 @@
  * Detects whether the user has installed Claude Code plugins that CCG's
  * 6 core commands prefer over `codeagent-wrapper`:
  *
- *   - codex@openai-codex (provides `Agent(subagent_type="codex:codex-rescue")`)
- *   - gemini@google-gemini (provides `Agent(subagent_type="gemini:gemini-rescue")`)
+ *   - codex@openai-codex (provides `Agent(subagent_type="codex:rescue")`)
+ *   - gemini@google-gemini (provides `Agent(subagent_type="gemini:rescue")`)
  *
  * Plugins live under `~/.claude/plugins/<plugin-name>/SKILL.md` (or any
  * marker file). The detection here is intentionally lightweight: if a

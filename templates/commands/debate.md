@@ -58,9 +58,9 @@ argument-hint: "<topic> [--max-rounds N] [--layer backend|frontend|fullstack]"
 
 1. 取 `round = plan[i]`
 2. 对 `round.models` 中的每个 model：
-   - **plugin 路径**（`pluginSubagent` = `codex:codex-rescue` 或 `gemini:gemini-rescue`）：spawn `Agent(subagent_type=round.pluginSubagent[idx], prompt=<下面的 prompt 模板>)`
-     - codex 模型 → `Agent(subagent_type="codex:codex-rescue", ...)`
-     - gemini 模型 → `Agent(subagent_type="gemini:gemini-rescue", ...)`
+   - **plugin 路径**（`pluginSubagent` = `codex:rescue` 或 `gemini:rescue`）：spawn `Agent(subagent_type=round.pluginSubagent[idx], prompt=<下面的 prompt 模板>)`
+     - codex 模型 → `Agent(subagent_type="codex:rescue", ...)`
+     - gemini 模型 → `Agent(subagent_type="gemini:rescue", ...)`
    - **降级路径**（`models[idx] === 'general-purpose'`）：spawn `Agent(subagent_type="general-purpose", prompt=<内嵌 round.ccgPromptFiles[idx] 文件全文> + <下面的 prompt 模板>)`
 3. **等待所有 model 返回**（`run_in_background: true` + `TaskOutput` 阻塞）
 4. 对每个返回的 ≤200 token 摘要调用 `parseRoundSummary(text)` → `RoundSummary`

@@ -16,7 +16,7 @@ color: cyan
 **Claude Code 引擎不允许任何 subagent 嵌套 spawn `Agent`**——你启动后实际工具列表**不含 Agent/Task**，无论本文件 frontmatter 怎么声明。
 
 **这意味着**：
-- 你**不能**调 `Agent(subagent_type="codex:codex-rescue")` 把代码改动派发给 codex 沙箱
+- 你**不能**调 `Agent(subagent_type="codex:rescue")` 把代码改动派发给 codex 沙箱
 - 早期 v4.0 G 方案设计的"subagent 双层包裹 rescue"在引擎层被拒
 - 实际工作模式 = **fresh-context subagent 自实施**：你用 Read/Write/Edit/Bash 直接做完所有事
 

@@ -50,8 +50,8 @@ export interface SpawnEntry {
   /**
    * 要 spawn 的 subagent_type。
    *   - phase-runner          — implementer
-   *   - codex:codex-rescue    — plugin advisor / verify
-   *   - gemini:gemini-rescue  — plugin advisor / verify
+   *   - codex:rescue    — plugin advisor / verify
+   *   - gemini:rescue  — plugin advisor / verify
    *   - assumptions-analyzer  — critic specialist
    *   - nyquist-auditor       — critic specialist
    *   - general-purpose       — 降级到 main-thread Claude（含 ccgPromptFile 引用）
@@ -184,7 +184,7 @@ function buildPlanWave(
   // codex 路：plugin 优先；缺失降级 general-purpose + codex/architect.md
   if (plugins.codex) {
     spawns.push({
-      agent: 'codex:codex-rescue',
+      agent: 'codex:rescue',
       role: 'planner',
       rationale: `backend / system-design plan path (${phase.phaseType})`,
     })
@@ -196,13 +196,13 @@ function buildPlanWave(
       ccgPromptFile: `${CCG_PROMPT_BASE}/codex/architect.md`,
     })
     degraded = true
-    dropped.push('codex:codex-rescue')
+    dropped.push('codex:rescue')
   }
 
   // gemini 路：plugin 优先；缺失降级 general-purpose + gemini/architect.md
   if (plugins.gemini) {
     spawns.push({
-      agent: 'gemini:gemini-rescue',
+      agent: 'gemini:rescue',
       role: 'planner',
       rationale: `frontend / UX plan path (${phase.phaseType})`,
     })
@@ -214,7 +214,7 @@ function buildPlanWave(
       ccgPromptFile: `${CCG_PROMPT_BASE}/gemini/architect.md`,
     })
     degraded = true
-    dropped.push('gemini:gemini-rescue')
+    dropped.push('gemini:rescue')
   }
 
   // claude opus 路：主线模型，无外部 prompt（lateral diversity 第三视角）
@@ -350,7 +350,7 @@ function buildDebateRound(
   for (const m of rawModels) {
     if (plugins[m]) {
       spawns.push({
-        agent: `${m}:${m}-rescue`,
+        agent: `${m}:rescue`,
         role: 'debater',
         rationale: `debate r${round} ${kind} (${m})`,
       })
@@ -362,7 +362,7 @@ function buildDebateRound(
         ccgPromptFile: `${CCG_PROMPT_BASE}/${m}/${promptName}`,
       })
       degraded = true
-      dropped.push(`${m}:${m}-rescue`)
+      dropped.push(`${m}:rescue`)
     }
   }
 

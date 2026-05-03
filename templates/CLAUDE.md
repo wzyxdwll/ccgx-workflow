@@ -26,7 +26,7 @@ v4.0 引入 4 个核心协议解决"主线 context 漂移"和"沙箱限制下 gi
 
 ### A. phase-runner subagent 协议（autonomous 长跑骨架）
 
-主线 spawn 普通 `Agent(general-purpose)` 包裹 `codex:codex-rescue` / `gemini:gemini-rescue`：
+主线 spawn 普通 `Agent(general-purpose)` 包裹 `codex:rescue` / `gemini:rescue`：
 
 ```
 主线 (autonomous) → Agent(general-purpose, "phase-runner") [fresh context, 全权限]
@@ -42,8 +42,8 @@ v4.0 引入 4 个核心协议解决"主线 context 漂移"和"沙箱限制下 gi
 
 | Type | 底层 spawn |
 |------|-----------|
-| `backend` | `Agent(codex:codex-rescue)` |
-| `frontend` | `Agent(gemini:gemini-rescue)` |
+| `backend` | `Agent(codex:rescue)` |
+| `frontend` | `Agent(gemini:rescue)` |
 | `fullstack` | 串行：先 codex（核心 schema/逻辑）→ 再 gemini（前端联动） |
 | `docs` | codex（默认 backend） |
 | `generic` | codex（默认 backend） |

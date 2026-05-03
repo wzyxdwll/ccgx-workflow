@@ -21,31 +21,31 @@ describe('planVerifyWave — fast tier (single)', () => {
     const p = planVerifyWave('fast', 'backend', PLUGINS_BOTH)
     expect(p.mode).toBe('single')
     expect(p.spawns).toHaveLength(1)
-    expect(p.spawns[0].agent).toBe('gemini:gemini-rescue')
+    expect(p.spawns[0].agent).toBe('gemini:rescue')
     expect(p.degraded).toBe(false)
   })
 
   it('frontend layer → codex verify', () => {
     const p = planVerifyWave('fast', 'frontend', PLUGINS_BOTH)
-    expect(p.spawns[0].agent).toBe('codex:codex-rescue')
+    expect(p.spawns[0].agent).toBe('codex:rescue')
   })
 
   it('docs / generic → gemini verify', () => {
     const p1 = planVerifyWave('fast', 'docs', PLUGINS_BOTH)
-    expect(p1.spawns[0].agent).toBe('gemini:gemini-rescue')
+    expect(p1.spawns[0].agent).toBe('gemini:rescue')
     const p2 = planVerifyWave('fast', 'generic', PLUGINS_BOTH)
-    expect(p2.spawns[0].agent).toBe('gemini:gemini-rescue')
+    expect(p2.spawns[0].agent).toBe('gemini:rescue')
   })
 
   it('fullstack → gemini verify (default cross-vendor)', () => {
     const p = planVerifyWave('fast', 'fullstack', PLUGINS_BOTH)
-    expect(p.spawns[0].agent).toBe('gemini:gemini-rescue')
+    expect(p.spawns[0].agent).toBe('gemini:rescue')
   })
 
   it('preferred plugin missing → fallback to other plugin (degraded)', () => {
     const p = planVerifyWave('fast', 'backend', PLUGINS_CODEX_ONLY)
     // preferred = gemini (backend reverse), fallback = codex
-    expect(p.spawns[0].agent).toBe('codex:codex-rescue')
+    expect(p.spawns[0].agent).toBe('codex:rescue')
     expect(p.degraded).toBe(true)
   })
 
@@ -63,8 +63,8 @@ describe('planVerifyWave — triple/debate tier (dual)', () => {
     expect(p.mode).toBe('dual')
     expect(p.spawns).toHaveLength(2)
     expect(p.spawns.map(s => s.agent)).toEqual([
-      'codex:codex-rescue',
-      'gemini:gemini-rescue',
+      'codex:rescue',
+      'gemini:rescue',
     ])
     expect(p.degraded).toBe(false)
   })
@@ -79,7 +79,7 @@ describe('planVerifyWave — triple/debate tier (dual)', () => {
     const p = planVerifyWave('triple', 'backend', PLUGINS_GEMINI_ONLY)
     expect(p.spawns[0].agent).toBe('general-purpose')
     expect(p.spawns[0].ccgPromptFile).toContain('codex/reviewer.md')
-    expect(p.spawns[1].agent).toBe('gemini:gemini-rescue')
+    expect(p.spawns[1].agent).toBe('gemini:rescue')
     expect(p.degraded).toBe(true)
   })
 
@@ -100,7 +100,7 @@ describe('parseVerifyReport', () => {
     const text = `STATUS: complete
 FINDINGS: [{"severity":"critical","category":"race","message":"commit drift detected"}]
 NOTES: needs revision`
-    const r = parseVerifyReport('codex:codex-rescue', text)
+    const r = parseVerifyReport('codex:rescue', text)
     expect(r.status).toBe('complete')
     expect(r.criticals).toHaveLength(1)
     expect(r.criticals[0].category).toBe('race')
@@ -111,7 +111,7 @@ NOTES: needs revision`
     const text = `STATUS: complete
 FINDINGS: []
 NOTES: looks good`
-    const r = parseVerifyReport('gemini:gemini-rescue', text)
+    const r = parseVerifyReport('gemini:rescue', text)
     expect(r.status).toBe('complete')
     expect(r.criticals).toHaveLength(0)
     expect(r.majors).toHaveLength(0)
@@ -121,21 +121,21 @@ NOTES: looks good`
     const text = `STATUS: complete
 FINDINGS: [{"severity":"critical","category":"race","message":"x"},{"severity":"major","category":"perf","message":"y"}]
 NOTES: ok`
-    const r = parseVerifyReport('codex:codex-rescue', text)
+    const r = parseVerifyReport('codex:rescue', text)
     expect(r.criticals).toHaveLength(1)
     expect(r.majors).toHaveLength(1)
   })
 
   it('missing STATUS → error report (does not throw)', () => {
     const text = `FINDINGS: []`
-    const r = parseVerifyReport('codex:codex-rescue', text)
+    const r = parseVerifyReport('codex:rescue', text)
     expect(r.status).toBe('error')
   })
 
   it('STATUS=error → returned as-is', () => {
     const text = `STATUS: error
 NOTES: spawned but crashed`
-    const r = parseVerifyReport('codex:codex-rescue', text)
+    const r = parseVerifyReport('codex:rescue', text)
     expect(r.status).toBe('error')
   })
 })
@@ -213,12 +213,12 @@ describe('synthesizeVerifyFeedback', () => {
 
   it('with critical → markdown block with findings list', () => {
     const fb = synthesizeVerifyFeedback([
-      criticalReport('codex:codex-rescue'),
-      criticalReport('gemini:gemini-rescue'),
+      criticalReport('codex:rescue'),
+      criticalReport('gemini:rescue'),
     ])
     expect(fb).toContain('Verify 反馈')
-    expect(fb).toContain('codex:codex-rescue')
-    expect(fb).toContain('gemini:gemini-rescue')
+    expect(fb).toContain('codex:rescue')
+    expect(fb).toContain('gemini:rescue')
     expect(fb).toContain('commit drift')
     expect(fb).toContain('修订要求')
   })

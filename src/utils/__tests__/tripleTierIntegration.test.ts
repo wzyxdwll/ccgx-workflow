@@ -62,11 +62,11 @@ describe('Triple-tier integration — triple tier', () => {
     // 模拟 verify wave 完成后两路 verify report → 决策
     const verifyReports = [
       parseVerifyReport(
-        'codex:codex-rescue',
+        'codex:rescue',
         'STATUS: complete\nFINDINGS: []\nNOTES: clean',
       ),
       parseVerifyReport(
-        'gemini:gemini-rescue',
+        'gemini:rescue',
         'STATUS: complete\nFINDINGS: []\nNOTES: clean',
       ),
     ]
@@ -79,11 +79,11 @@ describe('Triple-tier integration — triple tier', () => {
 
     const verifyReports = [
       parseVerifyReport(
-        'codex:codex-rescue',
+        'codex:rescue',
         'STATUS: complete\nFINDINGS: []\nNOTES: ok',
       ),
       parseVerifyReport(
-        'gemini:gemini-rescue',
+        'gemini:rescue',
         'STATUS: complete\nFINDINGS: [{"severity":"critical","category":"race","message":"data drift"}]\nNOTES: fix',
       ),
     ]

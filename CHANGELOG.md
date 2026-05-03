@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.2.3] - 2026-05-04
+
+> 🚨 **Release-blocker hotfix #2**：v4.2.x 全 release 把 plugin subagent_type 写成 `codex:codex-rescue` / `gemini:gemini-rescue`（重复 codex/gemini 前缀），但 Claude Code plugin marketplace 实际安装的 subagent_type 是 `codex:rescue` / `gemini:rescue`。所有 v4.2 三档分级（triple/debate）和 challenger 路径在真用户环境 spawn 时都会因 subagent-not-found 失败，自动降级到 general-purpose。
+
+### 🐛 修复
+
+- **plugin subagent_type 全仓库重命名**（28 文件）：`codex:codex-rescue` → `codex:rescue`，`gemini:gemini-rescue` → `gemini:rescue`。涉及：
+  - src/utils 8 helper：multi-model-routing / specialist-router / challenger-orchestrator / debate-orchestrator / quality-router / verify-orchestrator / plugin-detection / phase-runner
+  - 9 测试文件 expectation 同步修正
+  - 9 命令模板：autonomous / debate / plan / execute / analyze / optimize / test / review + agents/phase-runner
+  - templates/scripts/invoke-model.mjs / templates/CLAUDE.md
+  - .ccg-migration/v4.1-to-v4.2.md（用户面向文档）
+- **dynamic template literal 构造**：5 处 `` `${preferred}:${preferred}-rescue` `` 类构造改为 `` `${preferred}:rescue` ``（quality-router / verify-orchestrator）
+
+### ⚠️ 影响范围
+
+- **v4.2.0 - v4.2.2 用户**：三档质量分级（`--quality=triple|debate`）的真多模型 plan/critic/verify wave **全部不工作**——spawn 时 subagent_type 找不到，主线只能降级到 general-purpose subagent。**v4.2 旗舰多模型能力实际未生效**，建议立即升级 v4.2.3。
+- **历史段保留原文**：`.ccg/roadmap.md` / `.ccg-research/` / `.claude/team-plan/` / `.claude/plan/` / 已发版 CHANGELOG 段不动（历史快照不改写）。
+
+### 📝 根因 + 教训
+
+phase-runner 自实施 v4.2 P21/P22/P23 时**猜了 plugin subagent_type 命名规则**——按"plugin 名 + 子命令"模式假设是 `codex:codex-rescue`，但实际 Anthropic plugin marketplace 用的是更简单的 `codex:rescue` 形式。审计 review 已识别"基于未验证假设的路由"是高风险，但本次 cold-start 验证才真正暴露。修复路径：所有未来 plugin 引用必须 grep 用户机器实际 skill 列表确认名称，不基于推测。
+
+---
+
 ## [4.2.2] - 2026-05-04
 
 > 🚨 **Release-blocker hotfix**：v4.2.1 本地装完发现 `templates/commands/debate.md` **没进 npm tarball**——v4.1 P17 phase-runner 创建该文件但漏加到 `package.json` `files` 白名单（精确匹配模式）。tarball 缺失导致 `/ccg:debate` 命令在 v4.1.0 / v4.2.0 / v4.2.1 三个 release 上**全部不可用**。本 patch 仅修该一处。

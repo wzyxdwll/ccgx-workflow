@@ -24,7 +24,7 @@ $ARGUMENTS
 
 CCG v4.1 把 6 核心命令的"双模型并行"通道从 `Bash(codeagent-wrapper)` **默认切换**为 plugin spawn。判定流程：
 
-1. **优先 plugin spawn 路径**（默认）：用户已装 `codex@openai-codex` 和 `gemini@google-gemini` plugin → 用 `Agent(subagent_type="codex:codex-rescue")` + `Agent(subagent_type="gemini:gemini-rescue")` 并行 spawn，主线只接 plugin 自家 ≤200 token 摘要。
+1. **优先 plugin spawn 路径**（默认）：用户已装 `codex@openai-codex` 和 `gemini@google-gemini` plugin → 用 `Agent(subagent_type="codex:rescue")` + `Agent(subagent_type="gemini:rescue")` 并行 spawn，主线只接 plugin 自家 ≤200 token 摘要。
 2. **降级 codeagent-wrapper 路径**（v4.0 BC fallback）：plugin 未装 → fallback 到 `Bash(~/.claude/bin/codeagent-wrapper ...)`，与 v4.0 行为完全一致。
 
 **判断方法**：preflight 用 `Bash` 跑 `ls ~/.claude/plugins/ 2>/dev/null | grep -E '^(codex|gemini)@'`；两个 plugin 独立判定。
@@ -48,7 +48,7 @@ CCG v4.1 把 6 核心命令的"双模型并行"通道从 `Bash(codeagent-wrapper
 
 ```
 Agent({
-  subagent_type: "<codex:codex-rescue|gemini:gemini-rescue>",
+  subagent_type: "<codex:rescue|gemini:rescue>",
   description: "Execute prototype: <backend|frontend>",
   prompt: `ROLE_FILE: <角色提示词路径>
 
