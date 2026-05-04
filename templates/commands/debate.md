@@ -47,9 +47,12 @@ argument-hint: "<topic> [--max-rounds N] [--layer backend|frontend|fullstack]"
 
 1. 读 `$ARGUMENTS`，第一个非 flag token 即 topic（用引号包裹整段任务描述）
 2. 解析 `--max-rounds N` / `--layer X`
-3. **检测 plugin 可用性**：
-   - 看 `~/.claude/plugins/` 是否含 `codex-plugin` / `gemini-plugin`
-   - 任一缺失 → 该模型走 general-purpose 降级路径
+3. **检测 plugin 可用性（纯目录探测，禁止运行时探活）**：
+   - 用 `Bash` 跑 `ls ~/.claude/plugins/ 2>/dev/null` 找 `codex@*` / `gemini@*` 前缀子目录
+   - 子目录内须含 `SKILL.md` / `plugin.json` / `package.json` / `manifest.json` 任一 marker → 标 `installed: true`
+   - ⛔ **严禁**调用 `/gemini:status` / `/codex:status` / 任何 broker / runtime / health 探活——broker 是**懒启动**的，启动后才有；当前 `brokerRunning: false` 不代表 plugin 不可用
+   - 等价 helper：`detectPluginAvailability()`（`src/utils/plugin-detection.ts:156`）
+   - 任一 plugin 真未装 → 该模型走 general-purpose 降级路径
 4. 调用 helper：`debateStateMachine(topic, { maxRounds, layer, pluginsAvailable })` 得到 `DebateRoundPlan[]`
 
 **Step 1：按计划逐轮 spawn**
@@ -62,10 +65,11 @@ argument-hint: "<topic> [--max-rounds N] [--layer backend|frontend|fullstack]"
      - codex 模型 → `Agent(subagent_type="codex:rescue", ...)`
      - gemini 模型 → `Agent(subagent_type="gemini:rescue", ...)`
    - **降级路径**（`models[idx] === 'general-purpose'`）：spawn `Agent(subagent_type="general-purpose", prompt=<内嵌 round.ccgPromptFiles[idx] 文件全文> + <下面的 prompt 模板>)`
-3. **等待所有 model 返回**（`run_in_background: true` + `TaskOutput` 阻塞）
-4. 对每个返回的 ≤200 token 摘要调用 `parseRoundSummary(text)` → `RoundSummary`
-5. 把本轮的 `RoundSummary[]`（fullstack 为 2 条；backend/frontend 为 1 条）合成一条主 `RoundSummary`（取最长 length，合并 propose/challenge/respond/notes 字段）追加到累积数组
-6. **判收敛**：`shouldStop(累积 RoundSummary[], maxRounds)` → 返回 true 即跳出循环
+3. ⛔ **plugin spawn 失败必须重试**：若 `Agent(subagent_type="codex:rescue"|"gemini:rescue")` 调用失败（spawn 抛错 / 返回非结构化错误 / `parseRoundSummary` 返回 `parsed=false`），最多重试 **2 次**（间隔 **5 秒**）。仅当 **3 次全部失败**时才把该模型本轮替换为 general-purpose 降级路径，并在合成的 `RoundSummary.notes` 标 `plugin spawn failed after 3 attempts, degraded`。⛔ **禁止**单次失败或单次 broker 负信号即降级——broker 懒启动属正常态。
+4. **等待所有 model 返回**（`run_in_background: true` + `TaskOutput` 阻塞）
+5. 对每个返回的 ≤200 token 摘要调用 `parseRoundSummary(text)` → `RoundSummary`
+6. 把本轮的 `RoundSummary[]`（fullstack 为 2 条；backend/frontend 为 1 条）合成一条主 `RoundSummary`（取最长 length，合并 propose/challenge/respond/notes 字段）追加到累积数组
+7. **判收敛**：`shouldStop(累积 RoundSummary[], maxRounds)` → 返回 true 即跳出循环
 
 **Step 2：综合输出**
 
@@ -113,7 +117,7 @@ argument-hint: "<topic> [--max-rounds N] [--layer backend|frontend|fullstack]"
 
 | 触发条件 | 主线行为 |
 |---------|----------|
-| codex / gemini plugin 未安装 | `Agent(subagent_type="general-purpose", prompt=<内嵌 ~/.claude/.ccg/prompts/<model>/<file>.md 全文> + Round prompt 模板)` |
+| `detectPlugin(name)` 返回 `{ installed: false }`（目录或 marker 缺失）**或**同一模型连续 3 次 spawn 失败 | `Agent(subagent_type="general-purpose", prompt=<内嵌 ~/.claude/.ccg/prompts/<model>/<file>.md 全文> + Round prompt 模板)` |
 | `parseRoundSummary` 返回 `parsed=false`（subagent 摘要格式损坏） | 本轮主 RoundSummary 标 `parsed=false`，继续下一轮但在最终 NOTES 里标"未达成共识" |
 | 主线无法解析任何字段（连续 2 轮都 parsed=false） | 提前停止，输出"未达成共识 / 子模型摘要解析失败" 给用户 |
 
