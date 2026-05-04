@@ -63,6 +63,18 @@ export interface SpawnEntry {
   rationale: string
   /** 当 agent='general-purpose' 时引用的 CCG prompt 模板路径（降级路径） */
   ccgPromptFile?: string
+  /**
+   * v4.4.2 verify wave 字段透传（来自 verify-orchestrator.VerifySpawnEntry）：
+   * 'bash-direct' 走 Bash 直调 plugin script 跳过 sonnet wrapper（消除 silent
+   * fallback），'agent' 走传统 Agent spawn。仅 verify wave 当前使用，其他 wave
+   * 字段保持 undefined。
+   */
+  invocationMode?: 'agent' | 'bash-direct'
+  /**
+   * v4.4.2: 当 invocationMode='bash-direct' 时，主线 Bash 工具消费的命令模板
+   * （含 `<PROMPT>` 占位）。来自 verify-orchestrator.buildBashDirectCommand。
+   */
+  bashCommand?: string
 }
 
 /**
@@ -285,6 +297,11 @@ function verifyWavePlanToWavePlan(vwp: VerifyWavePlan, index: number): WavePlan 
     role: 'verifier',
     rationale: s.rationale,
     ccgPromptFile: s.ccgPromptFile,
+    // v4.4.2: 透传 invocationMode/bashCommand（之前 adapter drop 这两字段，
+    // 导致 useDirectBashInvocation 仅对直接调 planVerifyWave 的路径生效；
+    // autonomous Step 4.1 走 quality-router 路径时 silent fallback 风险残留）
+    invocationMode: s.invocationMode,
+    bashCommand: s.bashCommand,
   }))
   return {
     kind: 'verify',
@@ -315,7 +332,13 @@ function buildVerifyWave(
   plugins: PluginAvailability,
   tier: QualityTier,
 ): WavePlan {
-  const vwp = planVerifyWave(tier, phase.phaseType, plugins)
+  // v4.4.2: 强制 verify wave 走 Bash 直调（架构性消除 sonnet wrapper silent
+  // fallback）。autonomous / quality-router 路径必须显式传此 flag —— 上游
+  // planVerifyWave 默认 false 保 BC，此处显式 opt-in 与 templates/commands/
+  // review.md 等手写模板的行为对齐。
+  const vwp = planVerifyWave(tier, phase.phaseType, plugins, {
+    useDirectBashInvocation: true,
+  })
   const wavePlan = verifyWavePlanToWavePlan(vwp, index)
 
   // P27: triple/debate verify wave 追加 interface-auditor specialist。

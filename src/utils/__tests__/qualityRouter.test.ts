@@ -281,6 +281,73 @@ describe('planWavesForTier — plugin degradation', () => {
 })
 
 // ---------------------------------------------------------------------------
+// 4b. v4.4.2 Bash 直调字段透传（adapter 不可 drop invocationMode/bashCommand）
+// ---------------------------------------------------------------------------
+
+describe('verify wave: v4.4.2 Bash-direct field propagation', () => {
+  it('fast tier: plugin verify spawn carries invocationMode=bash-direct', () => {
+    const r = planWavesForTier('fast', phase(), PLUGINS_BOTH)
+    const verify = r.waves[1]
+    const pluginSpawn = verify.spawns.find(s => s.agent.includes(':'))
+    expect(pluginSpawn).toBeDefined()
+    expect(pluginSpawn!.invocationMode).toBe('bash-direct')
+    expect(pluginSpawn!.bashCommand).toMatch(/companion\.mjs/)
+    expect(pluginSpawn!.bashCommand).toMatch(/<PROMPT>/)
+  })
+
+  it('triple tier: both codex+gemini verify spawns carry bashCommand', () => {
+    const r = planWavesForTier('triple', phase(), PLUGINS_BOTH)
+    const verify = r.waves[3]
+    const pluginSpawns = verify.spawns.filter(s => s.agent.includes(':'))
+    expect(pluginSpawns).toHaveLength(2)
+    for (const s of pluginSpawns) {
+      expect(s.invocationMode).toBe('bash-direct')
+      expect(s.bashCommand).toBeDefined()
+      expect(s.bashCommand!.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('debate tier: verify wave (last) propagates bash-direct to plugin spawns', () => {
+    const r = planWavesForTier('debate', phase(), PLUGINS_BOTH)
+    const verify = r.waves[r.waves.length - 1]
+    const pluginSpawns = verify.spawns.filter(s => s.agent.includes(':'))
+    for (const s of pluginSpawns) {
+      expect(s.invocationMode).toBe('bash-direct')
+      expect(s.bashCommand).toMatch(/--json/)
+    }
+  })
+
+  it('interface-auditor (CCG-native) spawn does NOT get bash-direct fields', () => {
+    const r = planWavesForTier('triple', phase(), PLUGINS_BOTH)
+    const verify = r.waves[3]
+    const auditor = verify.spawns.find(s => s.agent === 'interface-auditor')
+    expect(auditor).toBeDefined()
+    expect(auditor!.invocationMode).toBeUndefined()
+    expect(auditor!.bashCommand).toBeUndefined()
+  })
+
+  it('general-purpose fallback spawn does NOT get bash-direct fields', () => {
+    const r = planWavesForTier('fast', phase(), PLUGINS_NONE)
+    const verify = r.waves[1]
+    const fallback = verify.spawns[0]
+    expect(fallback.agent).toBe('general-purpose')
+    expect(fallback.invocationMode).toBeUndefined()
+    expect(fallback.bashCommand).toBeUndefined()
+  })
+
+  it('non-verify waves (plan/critic/impl/debate) do NOT carry bash-direct fields', () => {
+    const r = planWavesForTier('debate', phase(), PLUGINS_BOTH)
+    for (const w of r.waves) {
+      if (w.kind === 'verify') continue
+      for (const s of w.spawns) {
+        expect(s.invocationMode).toBeUndefined()
+        expect(s.bashCommand).toBeUndefined()
+      }
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
 // 5. buildQualityPlan one-shot
 // ---------------------------------------------------------------------------
 
