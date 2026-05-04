@@ -275,8 +275,8 @@ describe('fixtures — round-trip with sampler', () => {
     // Known marketplace recognized
     const codex = plugins.find(p => p.shortName === 'codex')
     expect(codex).toBeDefined()
-    expect(codex!.subagentTypeHints).toContain('codex:rescue')
-    expect(codex!.subagentTypeHints).not.toContain('codex:codex-rescue')
+    expect(codex!.subagentTypeHints).toContain('codex:codex-rescue')
+    expect(codex!.subagentTypeHints).not.toContain('codex:rescue')  // v4.4.1: single-prefix is Skill name, not Agent
     // Unknown plugin gets undefined hints (no fabrication)
     const mystery = plugins.find(p => p.shortName === 'mystery-plugin')
     expect(mystery).toBeDefined()

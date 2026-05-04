@@ -38,7 +38,7 @@ export type { PluginAvailability } from './multi-model-routing'
  * for the codex / gemini rescue plugins shipped via the `claude-plugins-*`
  * marketplace.
  */
-export type PluginAdvisor = 'codex:rescue' | 'gemini:rescue'
+export type PluginAdvisor = 'codex:codex-rescue' | 'gemini:gemini-rescue'
 
 /**
  * CCG-built specialist critic agent. These ship with CCG installer
@@ -148,9 +148,9 @@ export type ChallengerDecision = 'revise' | 'advance' | 'escalate'
  *
  * Routing rules (acceptance c):
  *
- *   backend  + Critical=true → codex:rescue + assumptions-analyzer
- *   frontend + Critical=true → gemini:rescue + nyquist-auditor
- *   fullstack+ Critical=true → codex:rescue + gemini:rescue
+ *   backend  + Critical=true → codex:codex-rescue + assumptions-analyzer
+ *   frontend + Critical=true → gemini:gemini-rescue + nyquist-auditor
+ *   fullstack+ Critical=true → codex:codex-rescue + gemini:gemini-rescue
  *                              + assumptions-analyzer + nyquist-auditor
  *   docs     + Critical=true → assumptions-analyzer (single specialist)
  *   generic  + Critical=true → assumptions-analyzer (single specialist)
@@ -176,11 +176,11 @@ export function planChallengerSpawns(input: ChallengeInput): ChallengerPlan {
   const dropped: PluginAdvisor[] = []
 
   for (const agent of desired) {
-    if (agent === 'codex:rescue' && !input.plugins.codex) {
+    if (agent === 'codex:codex-rescue' && !input.plugins.codex) {
       dropped.push(agent)
       continue
     }
-    if (agent === 'gemini:rescue' && !input.plugins.gemini) {
+    if (agent === 'gemini:gemini-rescue' && !input.plugins.gemini) {
       dropped.push(agent)
       continue
     }
@@ -205,13 +205,13 @@ export function planChallengerSpawns(input: ChallengeInput): ChallengerPlan {
 function desiredAgentsForType(type: Layer): ChallengerAgent[] {
   switch (type) {
     case 'backend':
-      return ['codex:rescue', 'assumptions-analyzer']
+      return ['codex:codex-rescue', 'assumptions-analyzer']
     case 'frontend':
-      return ['gemini:rescue', 'nyquist-auditor']
+      return ['gemini:gemini-rescue', 'nyquist-auditor']
     case 'fullstack':
       return [
-        'codex:rescue',
-        'gemini:rescue',
+        'codex:codex-rescue',
+        'gemini:gemini-rescue',
         'assumptions-analyzer',
         'nyquist-auditor',
       ]
@@ -223,9 +223,9 @@ function desiredAgentsForType(type: Layer): ChallengerAgent[] {
 
 function rationaleFor(agent: ChallengerAgent, type: Layer): string {
   switch (agent) {
-    case 'codex:rescue':
+    case 'codex:codex-rescue':
       return `backend logic adversarial review (${type})`
-    case 'gemini:rescue':
+    case 'gemini:gemini-rescue':
       return `frontend/UX adversarial review (${type})`
     case 'assumptions-analyzer':
       return 'plan assumption audit (CCG specialist)'

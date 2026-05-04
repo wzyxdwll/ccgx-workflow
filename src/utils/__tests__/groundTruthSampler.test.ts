@@ -83,7 +83,7 @@ describe('samplePluginList — installed_plugins.json 解析', () => {
     expect(codex.version).toBe('1.0.0')
     expect(codex.installPath).toBe('/some/path')
     // subagent hints 命中已知 marketplace
-    expect(codex.subagentTypeHints).toContain('codex:rescue')
+    expect(codex.subagentTypeHints).toContain('codex:codex-rescue')
   })
 
   it('JSON 解析失败 → 空 + warning', () => {
@@ -407,7 +407,7 @@ describe('summarizeGroundTruth — markdown 摘要', () => {
           name: 'codex@x',
           shortName: 'codex',
           version: '1.0.0',
-          subagentTypeHints: ['codex:rescue', 'codex:setup'],
+          subagentTypeHints: ['codex:codex-rescue', 'codex:setup'],
         },
       ],
       skills: [],
@@ -415,7 +415,7 @@ describe('summarizeGroundTruth — markdown 摘要', () => {
       warnings: [],
     }
     const md = summarizeGroundTruth(gt)
-    expect(md).toContain('codex:rescue')
+    expect(md).toContain('codex:codex-rescue')
     expect(md).toContain('codex:setup')
   })
 

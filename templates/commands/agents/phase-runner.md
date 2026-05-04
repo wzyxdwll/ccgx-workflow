@@ -16,7 +16,7 @@ color: cyan
 **Claude Code 引擎不允许任何 subagent 嵌套 spawn `Agent`**——你启动后实际工具列表**不含 Agent/Task**，无论本文件 frontmatter 怎么声明。
 
 **这意味着**：
-- 你**不能**调 `Agent(subagent_type="codex:rescue")` 把代码改动派发给 codex 沙箱
+- 你**不能**调 `Agent(subagent_type="codex:codex-rescue")` 把代码改动派发给 codex 沙箱
 - 早期 v4.0 G 方案设计的"subagent 双层包裹 rescue"在引擎层被拒
 - 实际工作模式 = **fresh-context subagent 自实施**：你用 Read/Write/Edit/Bash 直接做完所有事
 
@@ -145,7 +145,7 @@ color: cyan
 | `build` | `pnpm build`，记录是否成功 |
 | `lint` | `pnpm lint`，记录 issue 数 |
 
-每项做完更新自己的 `handoff_taken` 记录。**这些动作 v3.0 codex:rescue 沙箱受限做不了，你 fresh-context subagent 全权限直接做**。
+每项做完更新自己的 `handoff_taken` 记录。**这些动作 v3.0 codex:codex-rescue 沙箱受限做不了，你 fresh-context subagent 全权限直接做**。
 
 ### Phase E. 验证 acceptance
 
@@ -217,7 +217,7 @@ NOTES: <一行关键发现 / 灰区决策点 / 下一步建议>
 🔒 **外部接口先验**（v4.4 P32 强约束 — 防 v4.2.0 codex:codex-rescue 同型猜接口事故）：
 - 主线在 prompt 里给你的 `ground_truth_path` 字段（默认 `<workdir>/.context/ground-truth/latest.json`）必须当**唯一真值**对待
 - 写涉及以下任意一类代码前，**必须先 `Read` ground_truth_path**：
-  - `subagent_type` 字符串（如 `codex:rescue` / `gemini:rescue` / 自定义 agent 名）
+  - `subagent_type` 字符串（如 `codex:codex-rescue` / `gemini:gemini-rescue` / 自定义 agent 名）
   - hook event 名（`PreToolUse` / `PostToolUse` / `SessionStart` 等）
   - `~/.claude/settings.json` schema 字段
   - skill 名（`/ccg:xxx` 命令 / SKILL.md `name` 字段）

@@ -10,7 +10,7 @@ allowed-tools:
 
 `/ccg:status` 看到 job 进入 `done` / `failed` / `canceled` 后，用本命令把 `.context/jobs/<id>/result.md` 内容拉回主线。
 
-result.md 的写入是后台子任务（codex:rescue / phase-runner）退出前的最后动作，约定 ≤ 200 token，包含：
+result.md 的写入是后台子任务（codex:codex-rescue / phase-runner）退出前的最后动作，约定 ≤ 200 token，包含：
 
 ```
 STATUS: completed | partial | failed | canceled

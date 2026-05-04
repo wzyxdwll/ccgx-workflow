@@ -12,7 +12,7 @@
  *   - mock 2：v4.1 P19 commit 8654fcb — SkillMeta.paths export 但消费端 import 缺失
  *     → leftover major（半成品）
  *   - mock 3：v4.2 P22 含硬编码 'codex:codex-rescue' subagent_type，与 P26
- *     ground-truth fixture（subagentTypeHints=['codex:rescue']）冲突 →
+ *     ground-truth fixture（subagentTypeHints=['codex:codex-rescue']）冲突 →
  *     magic-string-mismatch critical
  *
  * 注意：
@@ -229,7 +229,7 @@ describe('historical: magic-string-mismatch — v4.2.0 codex:codex-rescue 字符
     // P26 的 fixture（真 ground-truth）后来才把 subagentTypeHints 校准到实际可用 set。
     // P22 commit 2be2130 仍硬编码 'codex:codex-rescue'，即 magic-string-mismatch。
     const agentOutput = `STATUS: complete
-FINDINGS: [{"severity":"critical","category":"magic-string-mismatch","message":"agent: 'codex:codex-rescue' at quality-router.ts:343 conflicts with ground-truth fixtures/subagentTypes.json which lists only ['codex:rescue','gemini:rescue','phase-runner']"}]
+FINDINGS: [{"severity":"critical","category":"magic-string-mismatch","message":"agent: 'codex:codex-rescue' at quality-router.ts:343 conflicts with ground-truth fixtures/subagentTypes.json which lists only ['codex:codex-rescue','gemini:rescue','phase-runner']"}]
 NOTES: P22 still references unverified subagent type`
 
     const r = parseInterfaceAuditorReport(agentOutput)

@@ -11,7 +11,7 @@ import {
 /**
  * Phase 20 acceptance verification:
  *
- *   a. 6 templates contain plugin spawn (`Agent(subagent_type="codex:rescue")` / `gemini:rescue`) section
+ *   a. 6 templates contain plugin spawn (`Agent(subagent_type="codex:codex-rescue")` / `gemini:gemini-rescue`) section
  *   b. invoke-model.mjs has the deprecation comment block at top
  *   c. fallback paths (Bash codeagent-wrapper) preserved in templates
  *   d. plugin-detection helper detects install / not-install correctly
@@ -36,11 +36,11 @@ describe('Phase 20 — codeagent-wrapper retire + plugin migration', () => {
 
   describe('6 core templates — Agent spawn section', () => {
     for (const tmpl of SIX_CORE_TEMPLATES) {
-      it(`${tmpl} contains plugin spawn (codex:rescue OR gemini:rescue)`, async () => {
+      it(`${tmpl} contains plugin spawn (codex:codex-rescue OR gemini:gemini-rescue)`, async () => {
         const content = await fs.readFile(join(TEMPLATES_COMMANDS, tmpl), 'utf-8')
         // Must mention both plugin advisor types
-        expect(content).toMatch(/codex:rescue/)
-        expect(content).toMatch(/gemini:rescue/)
+        expect(content).toMatch(/codex:codex-rescue/)
+        expect(content).toMatch(/gemini:gemini-rescue/)
       })
 
       it(`${tmpl} contains Agent({ subagent_type: ...) call syntax`, async () => {
@@ -76,11 +76,11 @@ describe('Phase 20 — codeagent-wrapper retire + plugin migration', () => {
       expect(top).toMatch(/DEPRECATED in v4\.1/)
     })
 
-    it('mentions replacement Agent(codex:rescue) / Agent(gemini:rescue)', async () => {
+    it('mentions replacement Agent(codex:codex-rescue) / Agent(gemini:gemini-rescue)', async () => {
       const content = await fs.readFile(INVOKE_MODEL_PATH, 'utf-8')
       const top = content.split('\n').slice(0, 60).join('\n')
-      expect(top).toMatch(/codex:rescue/)
-      expect(top).toMatch(/gemini:rescue/)
+      expect(top).toMatch(/codex:codex-rescue/)
+      expect(top).toMatch(/gemini:gemini-rescue/)
     })
 
     it('mentions removal target v5.0 (BC retention discipline)', async () => {

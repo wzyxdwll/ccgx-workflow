@@ -33,9 +33,9 @@ describe('debateStateMachine — round plan generator', () => {
   it('backend layer: codex propose / gemini challenge / codex respond', () => {
     const plan = debateStateMachine('topic', { layer: 'backend' })
     expect(plan[0].models).toEqual(['codex'])
-    expect(plan[0].pluginSubagent).toEqual(['codex:rescue'])
+    expect(plan[0].pluginSubagent).toEqual(['codex:codex-rescue'])
     expect(plan[1].models).toEqual(['gemini'])
-    expect(plan[1].pluginSubagent).toEqual(['gemini:rescue'])
+    expect(plan[1].pluginSubagent).toEqual(['gemini:gemini-rescue'])
     expect(plan[2].models).toEqual(['codex'])
   })
 
@@ -51,8 +51,8 @@ describe('debateStateMachine — round plan generator', () => {
     for (const round of plan) {
       expect(round.models).toEqual(['codex', 'gemini'])
       expect(round.pluginSubagent).toEqual([
-        'codex:rescue',
-        'gemini:rescue',
+        'codex:codex-rescue',
+        'gemini:gemini-rescue',
       ])
     }
   })
@@ -345,10 +345,10 @@ describe('templates/commands/debate.md', () => {
     expect(content).toMatch(/respond/i)
   })
 
-  it('mentions both codex:rescue and gemini:rescue plugin spawn', () => {
+  it('mentions both codex:codex-rescue and gemini:gemini-rescue plugin spawn', () => {
     const content = readFileSync(DEBATE_TEMPLATE, 'utf8')
-    expect(content).toMatch(/codex:rescue/)
-    expect(content).toMatch(/gemini:rescue/)
+    expect(content).toMatch(/codex:codex-rescue/)
+    expect(content).toMatch(/gemini:gemini-rescue/)
   })
 
   it('mentions general-purpose fallback path', () => {

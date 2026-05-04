@@ -96,7 +96,7 @@ function rolePromptFile(role: SpecialistRole): string | null {
       return 'reviewer.md'  // reused with adversarial framing
     case 'implementer':
       // v4.2 P21: 删除"借用 architect.md"假设。implementer 无专属 prompt，
-      // 主线（或 phase-runner spawn 的 codex:rescue）按 phase 上下文
+      // 主线（或 phase-runner spawn 的 codex:codex-rescue）按 phase 上下文
       // 自行决定实施策略，不再走 specialist 路由。
       return null
     case 'tester':

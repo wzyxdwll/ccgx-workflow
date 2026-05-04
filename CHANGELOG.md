@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.4.1] - 2026-05-04 — 🚨 Hotfix: subagent_type 命名空间反向
+
+> CCG v4.0 → v4.4.0 整链路 `Agent(subagent_type="codex:rescue")` 全部用错单前缀，真名是双前缀 `codex:codex-rescue` / `gemini:gemini-rescue`。`codex:rescue` / `gemini:rescue` 实际是 **Skill** 命名空间名，与 Agent 命名空间不同。
+
+### 🐛 修复
+
+- **195 处 magic string 反向**（跨 40 文件）：`codex:rescue` → `codex:codex-rescue`，`gemini:rescue` → `gemini:gemini-rescue`
+  - 10 个 `src/utils/*.ts` production 文件（quality-router / debate-orchestrator / specialist-router / multi-model-routing / challenger-orchestrator / verify-orchestrator / phase-runner / jobs / plugin-detection / ground-truth-sampler）
+  - 13 个 `src/utils/__tests__/*.test.ts` 断言 + 注释
+  - 14 个 `templates/commands/*.md` + `templates/scripts/invoke-model.mjs` + `templates/CLAUDE.md`
+  - `tests/fixtures/ground-truth/agent-summaries.sample.json` + README.md
+- **v4.3 P27 interface-auditor 反例反向**：原示例把"双前缀名不存在"举为 critical finding，方向反了 → 改为"单前缀名不存在（Skill 名混用 Agent 命名空间）"
+- **CCG v4.3 CHANGELOG 反向叙述校正**：根 CLAUDE.md v4.3 段加 v4.4.1 hotfix 注释
+
+### 🔬 根因
+
+CCG 在 v4.0 引入 plugin spawn 协议时把"plugin 提供的 Skill 名 `codex:rescue`"误当作"Agent subagent_type 名"——两个名字看起来像同一个但分属不同命名空间：
+
+| Tool | 真名 |
+|------|------|
+| `Agent(subagent_type=...)` | `codex:codex-rescue` / `gemini:gemini-rescue`（双前缀） |
+| `Skill(skill=...)` | `codex:rescue` / `gemini:rescue`（单前缀） |
+| Plugin install dir | `codex@openai-codex` / `gemini@google-gemini` |
+
+### 🐛 防御机制为什么没拦截
+
+v4.3 P26 ground-truth-sampler / P27 interface-auditor / v4.4 P32 phase-runner ground-truth 的**基础设施都是对的**，但被防御的对象（fixtures + interface-auditor 反例）也写反了，致使内部交叉验证全过——**典型的"装了警报器但门锁本身反着装"**。
+
+### 🐛 dogfood 为什么没暴露
+
+CCG v4.0+ 12 phase 全部用 `phase-runner`（CCG 自家 subagent，注册名无前缀）自实施完成，**从未真正调用过 plugin spawn 路径**。错名潜伏到用户在 acms 项目 phase 9.x 主动触发 cross-vendor verify wave → spawn `gemini:rescue` 失败 → 引擎错误返回真名 `gemini:gemini-rescue` → 暴露。
+
+### ✅ 验证
+
+- `pnpm typecheck` ✓
+- `pnpm test` ✓ 1065/1065
+- `grep "Agent(subagent_type=\"(codex|gemini):rescue\")" templates/ src/` 命中 0
+- 双前缀 `codex:codex-rescue` / `gemini:gemini-rescue` 在 production / fixtures / templates 全一致
+
+### ⚠️ 升级注意
+
+升级到 4.4.1 后 `~/.claude/commands/ccg/*.md` 自动同步新 magic string。无 BC break——旧用户重装即可恢复 plugin spawn 路径。
+
+---
+
 ## [4.4.0] - 2026-05-04
 
 > 🎯 **Phase-runner 防御加固版本**：v4.3.x dogfood 暴露的两类真问题（v4.3 P27 集成漏项 + wave 并行 commit race）的工程闭环。**3 phase 完成**（P32+34 合并 + P33），不引入用户面新功能，全部是 phase-runner 自实施防御机制升级。

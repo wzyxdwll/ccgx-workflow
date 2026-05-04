@@ -96,12 +96,12 @@ describe('planWavesForTier — fast tier', () => {
     const r = planWavesForTier('fast', phase({ phaseType: 'backend' }), PLUGINS_BOTH)
     const verifyWave = r.waves[1]
     expect(verifyWave.spawns).toHaveLength(1)
-    expect(verifyWave.spawns[0].agent).toBe('gemini:rescue')
+    expect(verifyWave.spawns[0].agent).toBe('gemini:gemini-rescue')
   })
 
   it('fast verify: frontend phase → codex verify', () => {
     const r = planWavesForTier('fast', phase({ phaseType: 'frontend' }), PLUGINS_BOTH)
-    expect(r.waves[1].spawns[0].agent).toBe('codex:rescue')
+    expect(r.waves[1].spawns[0].agent).toBe('codex:codex-rescue')
   })
 
   it('fast verify: interface-auditor NOT present (fast 优先速度)', () => {
@@ -121,8 +121,8 @@ describe('planWavesForTier — triple tier', () => {
     const r = planWavesForTier('triple', phase(), PLUGINS_BOTH)
     const planWave = r.waves[0]
     expect(planWave.spawns).toHaveLength(3)
-    expect(planWave.spawns[0].agent).toBe('codex:rescue')
-    expect(planWave.spawns[1].agent).toBe('gemini:rescue')
+    expect(planWave.spawns[0].agent).toBe('codex:codex-rescue')
+    expect(planWave.spawns[1].agent).toBe('gemini:gemini-rescue')
     expect(planWave.spawns[2].agent).toBe('general-purpose')
     expect(planWave.spawns[2].ccgPromptFile).toContain('claude/architect.md')
   })
@@ -147,8 +147,8 @@ describe('planWavesForTier — triple tier', () => {
     const verify = r.waves[3]
     expect(verify.spawns).toHaveLength(3)
     expect(verify.spawns.map(s => s.agent)).toEqual([
-      'codex:rescue',
-      'gemini:rescue',
+      'codex:codex-rescue',
+      'gemini:gemini-rescue',
       'interface-auditor',
     ])
     // interface-auditor must be tagged role=verifier
@@ -189,9 +189,9 @@ describe('planWavesForTier — debate tier', () => {
     const r2 = r.waves[2] // challenge
     const r3 = r.waves[3] // respond
     // backend: propose=codex / challenge=gemini / respond=codex
-    expect(r1.spawns[0].agent).toBe('codex:rescue')
-    expect(r2.spawns[0].agent).toBe('gemini:rescue')
-    expect(r3.spawns[0].agent).toBe('codex:rescue')
+    expect(r1.spawns[0].agent).toBe('codex:codex-rescue')
+    expect(r2.spawns[0].agent).toBe('gemini:gemini-rescue')
+    expect(r3.spawns[0].agent).toBe('codex:codex-rescue')
   })
 
   it('debate fullstack r1 propose has both codex + gemini', () => {
@@ -199,8 +199,8 @@ describe('planWavesForTier — debate tier', () => {
     const r1 = r.waves[1]
     expect(r1.spawns).toHaveLength(2)
     expect(r1.spawns.map(s => s.agent).sort()).toEqual([
-      'codex:rescue',
-      'gemini:rescue',
+      'codex:codex-rescue',
+      'gemini:gemini-rescue',
     ])
   })
 
@@ -210,8 +210,8 @@ describe('planWavesForTier — debate tier', () => {
     expect(verify.kind).toBe('verify')
     expect(verify.spawns).toHaveLength(3)
     expect(verify.spawns.map(s => s.agent)).toEqual([
-      'codex:rescue',
-      'gemini:rescue',
+      'codex:codex-rescue',
+      'gemini:gemini-rescue',
       'interface-auditor',
     ])
   })
@@ -269,7 +269,7 @@ describe('planWavesForTier — plugin degradation', () => {
     const r = planWavesForTier('fast', phase({ phaseType: 'frontend' }), PLUGINS_GEMINI_ONLY)
     const verify = r.waves[1]
     expect(verify.degraded).toBe(true)
-    expect(verify.spawns[0].agent).toBe('gemini:rescue')
+    expect(verify.spawns[0].agent).toBe('gemini:gemini-rescue')
   })
 
   it('throws on invalid tier', () => {

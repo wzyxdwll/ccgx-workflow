@@ -6,8 +6,8 @@
 //
 //  ⚠️ DEPRECATED in v4.1 (2026-05-04, Phase 20)
 //  ----------------------------------------------------------------------------
-//  Replaced by `Agent(subagent_type="codex:rescue")` and
-//  `Agent(subagent_type="gemini:rescue")` in the 6 core CCG commands
+//  Replaced by `Agent(subagent_type="codex:codex-rescue")` and
+//  `Agent(subagent_type="gemini:gemini-rescue")` in the 6 core CCG commands
 //  (plan / execute / analyze / optimize / test / review).
 //
 //  Why: v4.0.1 nested-spawn validation + objective comparison showed plugin

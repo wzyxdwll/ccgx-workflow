@@ -37,7 +37,7 @@ describe('planChallengerSpawns — routing by phase type', () => {
     expect(plan.skipReason).toMatch(/not Critical/i)
   })
 
-  it('backend + Critical=true → codex:rescue + assumptions-analyzer', () => {
+  it('backend + Critical=true → codex:codex-rescue + assumptions-analyzer', () => {
     const plan = planChallengerSpawns({
       phaseId: '16',
       phaseType: 'backend',
@@ -46,14 +46,14 @@ describe('planChallengerSpawns — routing by phase type', () => {
     })
     expect(plan.skipped).toBe(false)
     expect(plan.spawns.map(s => s.agent)).toEqual([
-      'codex:rescue',
+      'codex:codex-rescue',
       'assumptions-analyzer',
     ])
     expect(plan.spawns.every(s => s.adversarial === true)).toBe(true)
     expect(plan.degraded).toBe(false)
   })
 
-  it('frontend + Critical=true → gemini:rescue + nyquist-auditor', () => {
+  it('frontend + Critical=true → gemini:gemini-rescue + nyquist-auditor', () => {
     const plan = planChallengerSpawns({
       phaseId: '17',
       phaseType: 'frontend',
@@ -61,7 +61,7 @@ describe('planChallengerSpawns — routing by phase type', () => {
       plugins: PLUGINS_BOTH,
     })
     expect(plan.spawns.map(s => s.agent)).toEqual([
-      'gemini:rescue',
+      'gemini:gemini-rescue',
       'nyquist-auditor',
     ])
   })
@@ -75,8 +75,8 @@ describe('planChallengerSpawns — routing by phase type', () => {
     })
     expect(plan.spawns).toHaveLength(4)
     expect(plan.spawns.map(s => s.agent)).toEqual([
-      'codex:rescue',
-      'gemini:rescue',
+      'codex:codex-rescue',
+      'gemini:gemini-rescue',
       'assumptions-analyzer',
       'nyquist-auditor',
     ])
@@ -118,7 +118,7 @@ describe('planChallengerSpawns — plugin degradation', () => {
     expect(plan.skipped).toBe(false)
     expect(plan.spawns.map(s => s.agent)).toEqual(['assumptions-analyzer'])
     expect(plan.degraded).toBe(true)
-    expect(plan.degradeNote).toMatch(/codex:rescue/)
+    expect(plan.degradeNote).toMatch(/codex:codex-rescue/)
   })
 
   it('frontend + gemini plugin missing → only nyquist-auditor, degraded=true', () => {
@@ -130,7 +130,7 @@ describe('planChallengerSpawns — plugin degradation', () => {
     })
     expect(plan.spawns.map(s => s.agent)).toEqual(['nyquist-auditor'])
     expect(plan.degraded).toBe(true)
-    expect(plan.degradeNote).toMatch(/gemini:rescue/)
+    expect(plan.degradeNote).toMatch(/gemini:gemini-rescue/)
   })
 
   it('fullstack + only gemini plugin available → drops codex, keeps gemini + both specialists', () => {
@@ -141,12 +141,12 @@ describe('planChallengerSpawns — plugin degradation', () => {
       plugins: PLUGINS_GEMINI_ONLY,
     })
     expect(plan.spawns.map(s => s.agent)).toEqual([
-      'gemini:rescue',
+      'gemini:gemini-rescue',
       'assumptions-analyzer',
       'nyquist-auditor',
     ])
     expect(plan.degraded).toBe(true)
-    expect(plan.degradeNote).toMatch(/codex:rescue/)
+    expect(plan.degradeNote).toMatch(/codex:codex-rescue/)
   })
 
   it('docs + plugins missing → still single specialist, degraded=false (no plugin needed)', () => {
@@ -194,7 +194,7 @@ NOTES: ok`
     const text = `STATUS: complete
 FINDINGS: []
 NOTES: clean`
-    const s = parseChallengerSummary('codex:rescue', text)
+    const s = parseChallengerSummary('codex:codex-rescue', text)
     expect(s.findings).toEqual([])
   })
 
@@ -207,7 +207,7 @@ NOTES: clean`
   it('accepts STATUS: error', () => {
     const text = `STATUS: error
 NOTES: plugin spawn failed`
-    const s = parseChallengerSummary('codex:rescue', text)
+    const s = parseChallengerSummary('codex:codex-rescue', text)
     expect(s.status).toBe('error')
   })
 })
@@ -227,10 +227,10 @@ describe('decideFromSummaries — main thread decision', () => {
 
   it('4 路摘要含 1 critical → revise', () => {
     const summaries: ChallengerSummary[] = [
-      mkSummary('codex:rescue', [
+      mkSummary('codex:codex-rescue', [
         { severity: 'critical', category: 'design', message: 'race condition' },
       ]),
-      mkSummary('gemini:rescue', [{ severity: 'major', category: 'ux', message: 'm' }]),
+      mkSummary('gemini:gemini-rescue', [{ severity: 'major', category: 'ux', message: 'm' }]),
       mkSummary('assumptions-analyzer', []),
       mkSummary('nyquist-auditor', [{ severity: 'info', category: 'edge', message: 'i' }]),
     ]
@@ -239,8 +239,8 @@ describe('decideFromSummaries — main thread decision', () => {
 
   it('4 路摘要无 critical → advance', () => {
     const summaries: ChallengerSummary[] = [
-      mkSummary('codex:rescue', [{ severity: 'major', category: 'design', message: 'm' }]),
-      mkSummary('gemini:rescue', []),
+      mkSummary('codex:codex-rescue', [{ severity: 'major', category: 'design', message: 'm' }]),
+      mkSummary('gemini:gemini-rescue', []),
       mkSummary('assumptions-analyzer', [{ severity: 'info', category: 'note', message: 'n' }]),
       mkSummary('nyquist-auditor', []),
     ]
@@ -249,7 +249,7 @@ describe('decideFromSummaries — main thread decision', () => {
 
   it('any error status → escalate', () => {
     const summaries: ChallengerSummary[] = [
-      mkSummary('codex:rescue', [], 'error'),
+      mkSummary('codex:codex-rescue', [], 'error'),
       mkSummary('assumptions-analyzer', []),
     ]
     expect(decideFromSummaries(summaries)).toBe('escalate')
@@ -274,14 +274,14 @@ describe('synthesizeRevisionFeedback', () => {
 
   it('returns empty string when no critical findings', () => {
     const fb = synthesizeRevisionFeedback([
-      mkSummary('codex:rescue', [{ severity: 'major', category: 'a', message: 'b' }]),
+      mkSummary('codex:codex-rescue', [{ severity: 'major', category: 'a', message: 'b' }]),
     ])
     expect(fb).toBe('')
   })
 
   it('aggregates critical findings across challengers with provenance', () => {
     const fb = synthesizeRevisionFeedback([
-      mkSummary('codex:rescue', [
+      mkSummary('codex:codex-rescue', [
         { severity: 'critical', category: 'race', message: 'msg-1' },
         { severity: 'major', category: 'x', message: 'ignore' },
       ]),
@@ -290,7 +290,7 @@ describe('synthesizeRevisionFeedback', () => {
       ]),
     ])
     expect(fb).toContain('Challenger 反馈')
-    expect(fb).toContain('[codex:rescue]')
+    expect(fb).toContain('[codex:codex-rescue]')
     expect(fb).toContain('msg-1')
     expect(fb).toContain('[assumptions-analyzer]')
     expect(fb).toContain('msg-2')
@@ -307,7 +307,7 @@ describe('synthesizeRevisionFeedback', () => {
 // Goal: replace inline mock JSON with real-shaped subagent summaries from
 // tests/fixtures/ground-truth/agent-summaries.sample.json. This guards against
 // the "mock-self-consistent ≠ real-correct" failure mode (e.g., codex:codex-rescue
-// vs codex:rescue, v4.2.3 fix).
+// vs codex:codex-rescue, v4.2.3 fix).
 // ---------------------------------------------------------------------------
 
 describe('parseChallengerSummary — fixtures-driven (P28)', () => {
@@ -318,15 +318,15 @@ describe('parseChallengerSummary — fixtures-driven (P28)', () => {
     expect(s.findings.length).toBeGreaterThanOrEqual(1)
     const critical = s.findings.find(f => f.severity === 'critical')
     expect(critical).toBeDefined()
-    // Reality check: the fixture references the real codex:rescue name (not the
+    // Reality check: the fixture references the real codex:codex-rescue name (not the
     // v4.2.0 codex:codex-rescue typo). Parser does not normalize names.
-    expect(critical!.message).toMatch(/codex:codex-rescue|codex:rescue/)
+    expect(critical!.message).toMatch(/codex:codex-rescue|codex:codex-rescue/)
     expect(s.notes.length).toBeGreaterThan(0)
   })
 
   it('parses fixture: complete_no_findings → empty findings array', () => {
     const text = AGENT_FIXTURES.challengerSummaries.complete_no_findings
-    const s = parseChallengerSummary('codex:rescue', text)
+    const s = parseChallengerSummary('codex:codex-rescue', text)
     expect(s.status).toBe('complete')
     expect(s.findings).toEqual([])
   })
@@ -342,17 +342,17 @@ describe('parseChallengerSummary — fixtures-driven (P28)', () => {
 
   it('parses fixture: error_spawn_failed → status=error preserved', () => {
     const text = AGENT_FIXTURES.challengerSummaries.error_spawn_failed
-    const s = parseChallengerSummary('codex:rescue', text)
+    const s = parseChallengerSummary('codex:codex-rescue', text)
     expect(s.status).toBe('error')
     expect(s.notes).toMatch(/spawn refused|plugin/)
   })
 
   it('decideFromSummaries on fixture-built summaries reflects real-shape decisions', () => {
-    const critical = parseChallengerSummary('codex:rescue', AGENT_FIXTURES.challengerSummaries.complete_with_critical)
+    const critical = parseChallengerSummary('codex:codex-rescue', AGENT_FIXTURES.challengerSummaries.complete_with_critical)
     const clean = parseChallengerSummary('assumptions-analyzer', AGENT_FIXTURES.challengerSummaries.complete_no_findings)
     expect(decideFromSummaries([critical, clean])).toBe('revise')
 
-    const error = parseChallengerSummary('codex:rescue', AGENT_FIXTURES.challengerSummaries.error_spawn_failed)
+    const error = parseChallengerSummary('codex:codex-rescue', AGENT_FIXTURES.challengerSummaries.error_spawn_failed)
     expect(decideFromSummaries([error, clean])).toBe('escalate')
 
     expect(decideFromSummaries([clean])).toBe('advance')

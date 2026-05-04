@@ -2,7 +2,7 @@
  * Job state management for async background tasks (v4.0 Phase 7).
  *
  * Commands `/ccg:status`, `/ccg:result`, `/ccg:cancel` use these helpers to
- * make long-running background work (codex:rescue / gemini:rescue / autonomous
+ * make long-running background work (codex:codex-rescue / gemini:gemini-rescue / autonomous
  * phases) observable from the user level. Job state lives entirely on the
  * filesystem under `<workdir>/.context/jobs/<job-id>/`:
  *

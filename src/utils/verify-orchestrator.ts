@@ -108,7 +108,7 @@ export function planVerifyWave(
   if (dual) {
     if (plugins.codex) {
       spawns.push({
-        agent: 'codex:rescue',
+        agent: 'codex:codex-rescue',
         rationale: 'cross-vendor verify (codex)',
       })
     } else {
@@ -118,11 +118,11 @@ export function planVerifyWave(
         ccgPromptFile: `${CCG_PROMPT_BASE}/codex/reviewer.md`,
       })
       degraded = true
-      dropped.push('codex:rescue')
+      dropped.push('codex:codex-rescue')
     }
     if (plugins.gemini) {
       spawns.push({
-        agent: 'gemini:rescue',
+        agent: 'gemini:gemini-rescue',
         rationale: 'cross-vendor verify (gemini)',
       })
     } else {
@@ -132,7 +132,7 @@ export function planVerifyWave(
         ccgPromptFile: `${CCG_PROMPT_BASE}/gemini/reviewer.md`,
       })
       degraded = true
-      dropped.push('gemini:rescue')
+      dropped.push('gemini:gemini-rescue')
     }
   } else {
     // single verify; layer-based 反选
@@ -141,16 +141,16 @@ export function planVerifyWave(
 
     if (plugins[preferred]) {
       spawns.push({
-        agent: `${preferred}:rescue`,
+        agent: `${preferred}:${preferred}-rescue`,
         rationale: `cross-vendor verify (${preferred}, layer=${layer})`,
       })
     } else if (plugins[fallback]) {
       spawns.push({
-        agent: `${fallback}:rescue`,
+        agent: `${fallback}:${fallback}-rescue`,
         rationale: `verify fallback (${fallback}, preferred ${preferred} unavailable)`,
       })
       degraded = true
-      dropped.push(`${preferred}:rescue`)
+      dropped.push(`${preferred}:${preferred}-rescue`)
     } else {
       spawns.push({
         agent: 'general-purpose',
@@ -158,7 +158,7 @@ export function planVerifyWave(
         ccgPromptFile: `${CCG_PROMPT_BASE}/claude/reviewer.md`,
       })
       degraded = true
-      dropped.push('codex:rescue', 'gemini:rescue')
+      dropped.push('codex:codex-rescue', 'gemini:gemini-rescue')
     }
   }
 
@@ -188,7 +188,7 @@ export function planVerifyWave(
  */
 export function parseVerifyReport(agent: string, text: string): VerifyReport {
   // challenger parser 要求 ChallengerAgent union；verify agent 可能是
-  // codex:rescue / gemini:rescue / general-purpose / 其他自定义。
+  // codex:codex-rescue / gemini:gemini-rescue / general-purpose / 其他自定义。
   // 用 union 兼容名直接转 cast，parser 内部不强校验 agent 字符串。
   let raw: ReturnType<typeof parseChallengerSummary>
   try {

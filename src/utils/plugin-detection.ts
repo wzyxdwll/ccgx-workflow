@@ -4,8 +4,12 @@
  * Detects whether the user has installed Claude Code plugins that CCG's
  * 6 core commands prefer over `codeagent-wrapper`:
  *
- *   - codex@openai-codex (provides `Agent(subagent_type="codex:rescue")`)
- *   - gemini@google-gemini (provides `Agent(subagent_type="gemini:rescue")`)
+ *   - codex@openai-codex (provides `Agent(subagent_type="codex:codex-rescue")` — Agent 双前缀)
+ *   - gemini@google-gemini (provides `Agent(subagent_type="gemini:gemini-rescue")` — Agent 双前缀)
+ *
+ * 命名空间分离（v4.4.1 校正）：
+ *   - Agent(subagent_type=...) 真名 = `codex:codex-rescue` / `gemini:gemini-rescue`（双前缀）
+ *   - Skill(skill=...)         真名 = `codex:rescue` / `gemini:rescue`（单前缀）
  *
  * Plugins live under `~/.claude/plugins/<plugin-name>/SKILL.md` (or any
  * marker file). The detection here is intentionally lightweight: if a

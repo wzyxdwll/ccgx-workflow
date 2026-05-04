@@ -56,8 +56,9 @@ export interface PluginInfo {
   installPath?: string
   /**
    * 经验性 subagent_type 名称提示（基于已知 marketplace 命名规则）：
-   *   - codex@... → "codex:rescue", "codex:setup"
-   *   - gemini@... → "gemini:rescue", "gemini:setup"
+   *   - codex@... → "codex:codex-rescue" (Agent), "codex:setup"
+   *   - gemini@... → "gemini:gemini-rescue" (Agent), "gemini:setup"
+   * 命名空间分离（v4.4.1）：Agent subagent_type 双前缀；Skill 单前缀。
    * 仅供 phase-runner 参考；真值需 user 机器实际 system prompt 验证。
    */
   subagentTypeHints?: string[]
@@ -130,8 +131,8 @@ export interface GroundTruth {
  * 仅作启发，不是权威源——phase-runner 还要看 system prompt 真 skill 列表确认。
  */
 const KNOWN_SUBAGENT_HINTS: Record<string, string[]> = {
-  codex: ['codex:rescue', 'codex:setup'],
-  gemini: ['gemini:rescue', 'gemini:setup'],
+  codex: ['codex:codex-rescue', 'codex:setup'],
+  gemini: ['gemini:gemini-rescue', 'gemini:setup'],
   'frontend-design': ['frontend-design:frontend-design'],
   'code-review': ['code-review:code-review'],
 }

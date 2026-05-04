@@ -66,7 +66,7 @@ phase_files: [<本 phase 修改/新增的相对路径>]
 
 ### 3. Magic string vs ground truth（critical）
 
-**目的**：检测代码里硬编码的 `subagent_type` / plugin 名 / hook event 是否跟 ground truth latest.json 实际值一致（v4.2.0 `codex:codex-rescue` 同型事故）。
+**目的**：检测代码里硬编码的 `subagent_type` / plugin 名 / hook event 是否跟 ground truth latest.json 实际值一致（v4.4.1 hotfix 校正：v4.0–4.4.0 全仓 `codex:rescue` / `gemini:rescue` 单前缀同型事故 — Agent subagent_type 真名是 `codex:codex-rescue` / `gemini:gemini-rescue` 双前缀；单前缀是 Skill 名，命名空间不同）。
 
 **怎么做**：
 1. Read ground_truth_path（若不存在 → skip 本检查 + info finding）
@@ -80,7 +80,7 @@ phase_files: [<本 phase 修改/新增的相对路径>]
 
 **critical 例子**：
 ```
-[{severity: critical, category: magic-string-mismatch, message: "subagent_type 'codex:codex-rescue' at quality-router.ts:189 — ground truth latest.json 下 subagentTypeHints=['codex:rescue']，代码用了不存在的双前缀名"}]
+[{severity: critical, category: magic-string-mismatch, message: "subagent_type 'codex:rescue' at quality-router.ts:189 — ground truth latest.json 下 subagentTypeHints=['codex:codex-rescue']，代码用了 Skill 命名空间的单前缀名（Agent 命名空间真名是双前缀）"}]
 ```
 
 ### 4. Commit message vs diff 一致性（major）

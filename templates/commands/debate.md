@@ -61,11 +61,11 @@ argument-hint: "<topic> [--max-rounds N] [--layer backend|frontend|fullstack]"
 
 1. 取 `round = plan[i]`
 2. 对 `round.models` 中的每个 model：
-   - **plugin 路径**（`pluginSubagent` = `codex:rescue` 或 `gemini:rescue`）：spawn `Agent(subagent_type=round.pluginSubagent[idx], prompt=<下面的 prompt 模板>)`
-     - codex 模型 → `Agent(subagent_type="codex:rescue", ...)`
-     - gemini 模型 → `Agent(subagent_type="gemini:rescue", ...)`
+   - **plugin 路径**（`pluginSubagent` = `codex:codex-rescue` 或 `gemini:gemini-rescue`）：spawn `Agent(subagent_type=round.pluginSubagent[idx], prompt=<下面的 prompt 模板>)`
+     - codex 模型 → `Agent(subagent_type="codex:codex-rescue", ...)`
+     - gemini 模型 → `Agent(subagent_type="gemini:gemini-rescue", ...)`
    - **降级路径**（`models[idx] === 'general-purpose'`）：spawn `Agent(subagent_type="general-purpose", prompt=<内嵌 round.ccgPromptFiles[idx] 文件全文> + <下面的 prompt 模板>)`
-3. ⛔ **plugin spawn 失败必须重试**：若 `Agent(subagent_type="codex:rescue"|"gemini:rescue")` 调用失败（spawn 抛错 / 返回非结构化错误 / `parseRoundSummary` 返回 `parsed=false`），最多重试 **2 次**（间隔 **5 秒**）。仅当 **3 次全部失败**时才把该模型本轮替换为 general-purpose 降级路径，并在合成的 `RoundSummary.notes` 标 `plugin spawn failed after 3 attempts, degraded`。⛔ **禁止**单次失败或单次 broker 负信号即降级——broker 懒启动属正常态。
+3. ⛔ **plugin spawn 失败必须重试**：若 `Agent(subagent_type="codex:codex-rescue"|"gemini:gemini-rescue")` 调用失败（spawn 抛错 / 返回非结构化错误 / `parseRoundSummary` 返回 `parsed=false`），最多重试 **2 次**（间隔 **5 秒**）。仅当 **3 次全部失败**时才把该模型本轮替换为 general-purpose 降级路径，并在合成的 `RoundSummary.notes` 标 `plugin spawn failed after 3 attempts, degraded`。⛔ **禁止**单次失败或单次 broker 负信号即降级——broker 懒启动属正常态。
 4. **等待所有 model 返回**（`run_in_background: true` + `TaskOutput` 阻塞）
 5. 对每个返回的 ≤200 token 摘要调用 `parseRoundSummary(text)` → `RoundSummary`
 6. 把本轮的 `RoundSummary[]`（fullstack 为 2 条；backend/frontend 为 1 条）合成一条主 `RoundSummary`（取最长 length，合并 propose/challenge/respond/notes 字段）追加到累积数组

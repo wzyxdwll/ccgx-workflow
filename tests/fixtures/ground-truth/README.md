@@ -8,9 +8,13 @@ used to drive unit tests with real-schema mock data instead of inline assumption
 The v4.0 → v4.2 dogfood exposed a quality gap: **mock data self-consistent ≠
 real-world correct**. Examples that single-test passes hid:
 
-- `codex:codex-rescue` vs. `codex:rescue` (v4.2.3 fix `9a36a4f`) — every test
-  that referenced the plugin subagent name agreed with itself but disagreed
-  with the real installed marketplace name.
+- `codex:codex-rescue` vs. `codex:rescue` namespace separation (v4.4.1 hotfix) —
+  the **real** Agent(subagent_type=...) name is the **double-prefix**
+  `codex:codex-rescue` / `gemini:gemini-rescue`; the **single-prefix**
+  `codex:rescue` / `gemini:rescue` is the **Skill** name. CCG v4.0–4.4.0
+  consistently used the wrong (single-prefix) string for Agent spawn calls;
+  fixtures + interface-auditor reference data also stored the wrong direction,
+  so internal cross-validation passed while real plugin spawn failed.
 - SessionStart hook `matcher` field type guess (string vs. array vs. absent) —
   inline tests assumed array, real Claude Code engine accepts string `""`.
 - `package.json` `files` whitelist drift — `templates/commands/debate.md` shipped

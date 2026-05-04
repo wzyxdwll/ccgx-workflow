@@ -9,7 +9,7 @@ allowed-tools:
 
 # Status - 后台任务观测
 
-CCG v4.0 起，长任务（codex:rescue / gemini:rescue / phase-runner / autonomous）以**后台 job** 形式运行。状态文件落盘在 `<workdir>/.context/jobs/<job-id>/`：
+CCG v4.0 起，长任务（codex:codex-rescue / gemini:rescue / phase-runner / autonomous）以**后台 job** 形式运行。状态文件落盘在 `<workdir>/.context/jobs/<job-id>/`：
 
 | 文件 | 内容 |
 |------|------|

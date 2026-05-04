@@ -14,8 +14,8 @@ import type { Layer } from './multi-model-routing'
 export type PhaseType = Layer
 
 export type RescueSubagentType =
-  | 'codex:rescue'
-  | 'gemini:rescue'
+  | 'codex:codex-rescue'
+  | 'gemini:gemini-rescue'
   | 'sequential:codex-then-gemini'
 
 export type PhaseRunnerStatus = 'completed' | 'partial' | 'failed' | 'degraded'
@@ -49,13 +49,13 @@ export interface PhaseRunnerSummary {
 export function routePhaseType(type: PhaseType): RescueSubagentType {
   switch (type) {
     case 'frontend':
-      return 'gemini:rescue'
+      return 'gemini:gemini-rescue'
     case 'fullstack':
       return 'sequential:codex-then-gemini'
     case 'backend':
     case 'docs':
     case 'generic':
-      return 'codex:rescue'
+      return 'codex:codex-rescue'
   }
 }
 

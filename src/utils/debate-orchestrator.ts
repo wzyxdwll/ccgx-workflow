@@ -200,7 +200,7 @@ function buildRoundPlan(
     const available = plugins[m]
     if (available) {
       models.push(m)
-      pluginSubagent.push(m === 'codex' ? 'codex:rescue' : 'gemini:rescue')
+      pluginSubagent.push(m === 'codex' ? 'codex:codex-rescue' : 'gemini:gemini-rescue')
     } else {
       // 降级：plugin 缺失 → general-purpose + CCG prompt 模板
       models.push('general-purpose')

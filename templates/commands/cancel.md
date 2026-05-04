@@ -9,7 +9,7 @@ allowed-tools:
 
 # Cancel - 中止活跃后台任务
 
-写一个**协作式**取消信号到 `.context/jobs/<job-id>/cancel.flag`。后台子任务（codex:rescue / phase-runner / autonomous loop）每次推进步骤前轮询此文件，发现存在则清理并退出，把 `state.json.status` 改为 `canceled`。
+写一个**协作式**取消信号到 `.context/jobs/<job-id>/cancel.flag`。后台子任务（codex:codex-rescue / phase-runner / autonomous loop）每次推进步骤前轮询此文件，发现存在则清理并退出，把 `state.json.status` 改为 `canceled`。
 
 > ⚠️ 这是**协作式**取消而非强制 kill。如果子任务卡在不可中断的 syscall（如远程 LLM 推理），cancel.flag 要等本次推理返回后才生效。需要立即停掉的极端情况，自行 `kill -9` 后用 `/ccg:status` 检查残留 job 目录。
 
@@ -47,7 +47,7 @@ allowed-tools:
 ✓ Cancel signal sent to job <id>.
 Status: <current-status> (cancel_requested=true)
 
-Child task will pick up the flag on its next polling tick (typically < 30s for codex:rescue / phase-runner).
+Child task will pick up the flag on its next polling tick (typically < 30s for codex:codex-rescue / phase-runner).
 Run /ccg:status <id> --wait --timeout-ms 60000 to confirm transition to 'canceled'.
 ```
 
@@ -87,7 +87,7 @@ if (isCancelRequested(workdir, jobId)) {
 }
 ```
 
-phase-runner / codex:rescue / autonomous loop 在 v4.0 Phase 7 落地后会逐步接入此契约。
+phase-runner / codex:codex-rescue / autonomous loop 在 v4.0 Phase 7 落地后会逐步接入此契约。
 
 ## 与其他命令的协作
 
