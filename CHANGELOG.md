@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.3.2] - 2026-05-04
+
+> 🚮 **Removal hotfix**：v4.3 P29 引入的 `ccg-commit-msg-review.cjs` git hook 在 dogfood + 真实使用反馈中证实**真实收益接近 0**——v4.3 自身 30+ commit 没抓到一次真错配；启用成本（每 repo 手工写 wrapper + Windows 兼容性）超过潜在防护价值；启发式 #1 把版本号字面量误识别为文件名（v4.3.1 commit 自己被拦下）。删除整个 hook 系统。
+
+### 🚮 删除
+
+- `templates/hooks/ccg-commit-msg-review.cjs`（hook 实现）
+- `templates/hooks/README-commit-msg-review.md`（启用文档）
+- `src/utils/__tests__/commitMsgReview.test.ts`（30 单测）
+- `src/utils/installer-hooks.ts` `HOOK_FILES` 数组移除一项
+
+### ⚠️ 影响范围
+
+- v4.3.0 / v4.3.1 已启用 hook 的用户：升级到 4.3.2 后 `~/.claude/hooks/ccg-commit-msg-review.cjs` 不再被刷新（旧文件可手工删 + 删 `.git/hooks/commit-msg` wrapper）。
+- 未启用用户：无感升级。
+- 测试：1078 → 1048（-30，全部来自删掉的 commitMsgReview.test.ts；其他测试 0 回归）。
+
+### 📝 设计教训
+
+P29 是 v4.3 五项防御机制中**唯一需要用户手工启用**的 + **唯一覆盖率不可知**（CI 不能 git commit 触发 hook）+ **dogfood 0 命中**——三个红色信号叠加。提醒未来 phase 设计：
+1. 防御机制必须"安装即生效零配置"（pipeline-check / ground-truth-sampler / interface-auditor / fixtures 都符合）。
+2. 必须在真实集成路径上 dogfood，不能仅靠纯函数单测。
+3. 假设型功能（防 spec drift）实施前先量化"目标场景频率"——如果一年发生不了几次，0 收益基本就是结论。
+
+---
+
 ## [4.3.1] - 2026-05-04
 
 > 🚨 **Doc hotfix**：v4.3.0 P29 README Option A 推荐 `ln -sf` / `cp` / `Copy-Item` 直接复制 `ccg-commit-msg-review.cjs` 到 `.git/hooks/commit-msg`——但 git 调用 hook 时不带扩展名，Node 24+ 默认按 ESM 模式跑，hook 内的 `require(...)` 立即 `ReferenceError: require is not defined in ES module scope` 崩溃。**所有按 v4.3.0 README Option A 启用 hook 的用户全部撞这个错**。
