@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  auditAlienFilesStaged,
   criticalFindings,
   hasBlockingFindings,
+  isFileInScope,
   majorFindings,
   parseInterfaceAuditorReport,
 } from '../interface-auditor'
@@ -210,5 +212,95 @@ NOTES: failed`)
 FINDINGS: []
 NOTES: clean`)
     expect(hasBlockingFindings(r)).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 5. alien-files-staged audit (v4.4 P34 — wave race detection)
+// ---------------------------------------------------------------------------
+
+describe('auditAlienFilesStaged + isFileInScope (v4.4 P34)', () => {
+  const scope = {
+    phaseId: 'phase-32',
+    allowedPaths: [
+      'templates/commands/autonomous.md',
+      'templates/commands/agents/phase-runner.md',
+      'src/utils/interface-auditor.ts',
+      'src/utils/__tests__/interfaceAuditor.test.ts',
+      '.claude/team-plan/phase-32-34-report.md',
+    ],
+  }
+
+  it('clean: all staged files in scope → 0 findings', () => {
+    const raw = `templates/commands/autonomous.md
+src/utils/interface-auditor.ts
+.claude/team-plan/phase-32-34-report.md`
+    expect(auditAlienFilesStaged(raw, scope)).toEqual([])
+  })
+
+  it('detects alien staged file → 1 critical finding', () => {
+    const raw = `templates/commands/autonomous.md
+src/utils/wave-scheduler.ts
+src/utils/interface-auditor.ts`
+    const out = auditAlienFilesStaged(raw, scope)
+    expect(out).toHaveLength(1)
+    expect(out[0].severity).toBe('critical')
+    expect(out[0].category).toBe('alien-files-staged')
+    expect(out[0].message).toContain('wave-scheduler.ts')
+    expect(out[0].message).toContain('phase-32')
+  })
+
+  it('multiple aliens listed in single finding (truncated to 5)', () => {
+    const raw = [
+      'templates/commands/autonomous.md',  // ok
+      'src/foo1.ts', 'src/foo2.ts', 'src/foo3.ts',
+      'src/foo4.ts', 'src/foo5.ts', 'src/foo6.ts', 'src/foo7.ts',
+    ].join('\n')
+    const out = auditAlienFilesStaged(raw, scope)
+    expect(out).toHaveLength(1)
+    expect(out[0].message).toMatch(/staged 7 alien file/)
+    expect(out[0].message).toMatch(/\+2 more/)
+  })
+
+  it('glob ** matches recursively', () => {
+    const recScope = {
+      phaseId: 'phase-X',
+      allowedPaths: ['src/utils/**'],
+    }
+    expect(isFileInScope('src/utils/foo.ts', recScope)).toBe(true)
+    expect(isFileInScope('src/utils/sub/deep/bar.ts', recScope)).toBe(true)
+    expect(isFileInScope('src/cli.ts', recScope)).toBe(false)
+  })
+
+  it('glob single * does not cross /', () => {
+    const sScope = {
+      phaseId: 'phase-X',
+      allowedPaths: ['src/*.ts'],
+    }
+    expect(isFileInScope('src/cli.ts', sScope)).toBe(true)
+    expect(isFileInScope('src/utils/foo.ts', sScope)).toBe(false)
+  })
+
+  it('directory-prefix path (trailing /) matches all under it', () => {
+    const dScope = {
+      phaseId: 'phase-X',
+      allowedPaths: ['src/utils/'],
+    }
+    expect(isFileInScope('src/utils/foo.ts', dScope)).toBe(true)
+    expect(isFileInScope('src/utils/sub/bar.ts', dScope)).toBe(true)
+    expect(isFileInScope('src/cli.ts', dScope)).toBe(false)
+  })
+
+  it('Windows-style backslash paths normalized to forward slash', () => {
+    const out = auditAlienFilesStaged(
+      'src\\utils\\interface-auditor.ts',
+      scope,
+    )
+    expect(out).toEqual([])  // backslash version still in scope
+  })
+
+  it('empty staged stdout → 0 findings (clean phase committed nothing yet)', () => {
+    expect(auditAlienFilesStaged('', scope)).toEqual([])
+    expect(auditAlienFilesStaged('\n  \n  \n', scope)).toEqual([])
   })
 })

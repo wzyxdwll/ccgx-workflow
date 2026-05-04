@@ -214,6 +214,23 @@ NOTES: <一行关键发现 / 灰区决策点 / 下一步建议>
 - 完成 git commit + test + typecheck（你 fresh-context 全权限直接做）
 - 摘要严格 ≤ 200 token，结构化
 
+🔒 **外部接口先验**（v4.4 P32 强约束 — 防 v4.2.0 codex:codex-rescue 同型猜接口事故）：
+- 主线在 prompt 里给你的 `ground_truth_path` 字段（默认 `<workdir>/.context/ground-truth/latest.json`）必须当**唯一真值**对待
+- 写涉及以下任意一类代码前，**必须先 `Read` ground_truth_path**：
+  - `subagent_type` 字符串（如 `codex:rescue` / `gemini:rescue` / 自定义 agent 名）
+  - hook event 名（`PreToolUse` / `PostToolUse` / `SessionStart` 等）
+  - `~/.claude/settings.json` schema 字段
+  - skill 名（`/ccg:xxx` 命令 / SKILL.md `name` 字段）
+  - plugin marketplace identifier
+- 文件不存在 → 摘要 `NOTES` 标 `ground-truth-missing`，**继续工作但禁止凭训练数据猜**——不确定的接口名直接在报告 `Critical issues` 列出，不写代码
+- 禁止凭"我记得 v4.2 用过 codex:codex-rescue"这种训练记忆做编码决策
+
+🔒 **git add 显式列文件**（v4.4 P34 强约束 — 防 wave 1 race 把同伴 staged 文件一并带走）：
+- `git add` **必须**显式列出本 phase 范围内的文件，例如 `git add src/utils/foo.ts templates/commands/foo.md`
+- **禁用** `git add .` / `git add -A` / `git add --all` / `git add -u` / `git add -p`（任何会拉取范围外 staged 文件的写法）
+- 若需添加新建目录下多文件，逐一展开（或用明确 glob 如 `git add 'src/utils/foo/*.ts'`，不能 `git add .`）
+- 同一个 wave 里另一个 phase-runner 可能正同时改其他文件——你的 `git add` 不能误抓——这是 wave 1 race 的轻量解（替代 worktree 隔离 5-6 天工时）
+
 ❌ **不应做**：
 - **尝试 spawn `Agent`**（引擎层会拒绝，浪费工具调用）
 - 修改 `.ccg/roadmap.md`（主线管）

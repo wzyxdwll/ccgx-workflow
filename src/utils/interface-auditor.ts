@@ -5,7 +5,7 @@
  * triple/debate 模式的 verify wave 内并行 spawn 一次（与 codex+gemini cross-vendor
  * verify 并列）。
  *
- * 检测 5 类**真实事故型**风险：
+ * 检测 6 类**真实事故型**风险：
  *
  *   1. SSoT 违反（critical）— 重复 type / 重复实现（v4.2 P22 重新引入 planVerifyWave 同型）
  *   2. 半成品（major）— export 但无 import consumer（v4.1 P19 paths 字段无 consumer 同型）
@@ -13,6 +13,8 @@
  *      跟 P26 sampler 实采集合不符（v4.2.0 codex:codex-rescue 同型）
  *   4. commit message vs diff 一致性（major）— 与 P29 hook 协作的事后审
  *   5. mock 与 ground truth schema 偏差（info/major）— 与 P28 fixtures 协作的线索提供
+ *   6. alien files staged（critical）— `git diff --cached --name-only` 含本 phase 范围
+ *      外文件（v4.4 P34：wave 1 race 检查；与 phase-runner.md "git add 显式列文件"约束配套）
  *
  * 设计原则（与 v4.2.1 verify-orchestrator / challenger-orchestrator 一致）：
  *   - 纯函数：本模块仅提供 parser + 类型 schema；agent 实现逻辑放 prompt 里
@@ -54,6 +56,7 @@ export type InterfaceAuditCategory =
   | 'magic-string-mismatch'
   | 'commit-diff-drift'
   | 'mock-drift'
+  | 'alien-files-staged'
   | 'unknown'
 
 /**
@@ -89,6 +92,7 @@ const VALID_CATEGORIES: readonly InterfaceAuditCategory[] = [
   'magic-string-mismatch',
   'commit-diff-drift',
   'mock-drift',
+  'alien-files-staged',
   'unknown',
 ] as const
 
@@ -171,4 +175,104 @@ export function majorFindings(report: InterfaceAuditReport): InterfaceAuditFindi
  */
 export function hasBlockingFindings(report: InterfaceAuditReport): boolean {
   return report.findings.some(f => f.severity === 'critical')
+}
+
+// ---------------------------------------------------------------------------
+// 5. alien-files-staged 检查（v4.4 P34）
+// ---------------------------------------------------------------------------
+
+/**
+ * Phase scope spec — 每 phase 主线 spawn phase-runner 时已知的"该 phase 允许碰
+ * 的文件"白名单。常用编码方式：
+ *   - 显式路径列表（如 `['src/utils/foo.ts', 'templates/commands/foo.md']`）
+ *   - glob 模式（如 `'src/utils/foo/**'` — 用 minimatch 风格的简化语法）
+ *
+ * 简化语法（避免引入额外依赖 minimatch / picomatch）：
+ *   - `*`  → 匹配单段不含 `/` 的路径
+ *   - `**` → 匹配任意段（含 `/`）
+ *   - 其他字符精确匹配
+ */
+export interface PhaseScope {
+  /** phase id（仅 message 用） */
+  phaseId: string
+  /** 允许碰的文件路径或 glob */
+  allowedPaths: string[]
+}
+
+/**
+ * 把简化 glob（含 *, **) 转成 RegExp。内部 helper，pure。
+ */
+function globToRegExp(glob: string): RegExp {
+  // 转义除 * 外所有 regex meta；** → .*；* → [^/]*
+  let pat = ''
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i]
+    if (c === '*') {
+      if (glob[i + 1] === '*') {
+        pat += '.*'
+        i++
+      }
+      else {
+        pat += '[^/]*'
+      }
+    }
+    else if (/[.+?^${}()|[\]\\]/.test(c)) {
+      pat += '\\' + c
+    }
+    else {
+      pat += c
+    }
+  }
+  return new RegExp('^' + pat + '$')
+}
+
+/**
+ * 单个文件路径是否落在 phase scope 白名单内。
+ * 路径分隔符统一为 `/`（跨平台对齐 git 输出）。
+ */
+export function isFileInScope(filePath: string, scope: PhaseScope): boolean {
+  const normalized = filePath.replace(/\\/g, '/').trim()
+  if (!normalized) return true   // 空字符串视为 in-scope（不报）
+
+  return scope.allowedPaths.some((allowed) => {
+    const allowedNorm = allowed.replace(/\\/g, '/').trim()
+    if (!allowedNorm) return false
+    if (allowedNorm.includes('*')) {
+      return globToRegExp(allowedNorm).test(normalized)
+    }
+    // 精确匹配 OR 目录前缀（`src/utils/` 匹配 `src/utils/foo.ts`）
+    if (allowedNorm.endsWith('/')) {
+      return normalized.startsWith(allowedNorm)
+    }
+    return normalized === allowedNorm
+  })
+}
+
+/**
+ * 审计 `git diff --cached --name-only` 输出（每行一个文件）是否含本 phase 范
+ * 围外的 staged 文件，命中 → critical finding。
+ *
+ * 与 phase-runner.md "git add 显式列文件" 约束配套：phase-runner commit 后由主
+ * 线在 verify wave 跑此审计，命中即 revise（让 phase-runner 解释或回滚）。
+ *
+ * @param stagedFilesRaw  `git diff --cached --name-only` 的原始 stdout 文本
+ * @param scope           本 phase 允许碰的文件 spec
+ */
+export function auditAlienFilesStaged(
+  stagedFilesRaw: string,
+  scope: PhaseScope,
+): InterfaceAuditFinding[] {
+  const files = stagedFilesRaw
+    .split('\n')
+    .map(s => s.trim())
+    .filter(Boolean)
+
+  const alien = files.filter(f => !isFileInScope(f, scope))
+  if (alien.length === 0) return []
+
+  return [{
+    severity: 'critical',
+    category: 'alien-files-staged',
+    message: `phase ${scope.phaseId} staged ${alien.length} alien file(s) outside scope: ${alien.slice(0, 5).join(', ')}${alien.length > 5 ? ` (+${alien.length - 5} more)` : ''}`,
+  }]
 }

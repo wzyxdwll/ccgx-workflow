@@ -139,6 +139,35 @@ allowed-tools:
 
 ### Step 4: Phase 主循环（v4.1 wave 并行 + v4.2 P22 质量档分级）
 
+#### 4.0 Ground-Truth 采样（v4.3 P26 / v4.4 P32 集成）
+
+**进入主循环前**，主线必须采样真实外部接口状态，写入 `.context/ground-truth/<ISO timestamp>.json` + 软链 `latest.json`。
+phase-runner 的 prompt 强约束 "写涉及 plugin subagent_type / hook event / settings.json schema / skill 名 等代码前必须 Read latest.json"，避免 v4.2.0 `codex:codex-rescue` 同型猜接口事故重演。
+
+**主线动作**（伪码）：
+
+```js
+import { sampleAll, summarizeGroundTruth } from 'src/utils/ground-truth-sampler'
+
+const gt = sampleAll({ workdir: process.cwd() })
+const ts = gt.sampledAt.replace(/[:.]/g, '-')   // 文件名安全
+const dir = '.context/ground-truth'
+
+mkdirSync(dir, { recursive: true })
+writeFileSync(`${dir}/${ts}.json`, JSON.stringify(gt, null, 2))
+
+// 软链 latest.json（POSIX symlinkSync；Windows 退化为复制写入）
+try { unlinkSync(`${dir}/latest.json`) } catch {}
+try { symlinkSync(`${ts}.json`, `${dir}/latest.json`) }
+catch { writeFileSync(`${dir}/latest.json`, JSON.stringify(gt, null, 2)) }
+
+console.log(summarizeGroundTruth(gt))   // ≤500 token brief 写入主线对话以便 phase-runner 拷贝
+```
+
+**容错**：若采样抛错，主线打印警告但**不阻塞推进**——单 phase 仍可工作（degraded：phase-runner prompt 走"无 ground truth"分支，凭 spec 文档猜，恢复至 v4.2 行为）。
+
+**phase-runner 注入路径**：每次 spawn phase-runner 时，主线在 prompt 里加一行 `ground_truth_path: <workdir>/.context/ground-truth/latest.json`，并要求子 agent 在动外部接口代码前必须 Read 该文件。
+
 #### 4.0a 质量档解析（v4.2 P22 新增，单 phase 内调度）
 
 每个 phase 进入主循环前，主线先确定**该 phase 内部使用什么质量档**——这决定单个 phase 的 wave 编排（不是整个 milestone 的 wave 拓扑，那是 4.0b）。
