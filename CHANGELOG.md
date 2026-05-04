@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.4.0] - 2026-05-04
+
+> 🎯 **Phase-runner 防御加固版本**：v4.3.x dogfood 暴露的两类真问题（v4.3 P27 集成漏项 + wave 并行 commit race）的工程闭环。**3 phase 完成**（P32+34 合并 + P33），不引入用户面新功能，全部是 phase-runner 自实施防御机制升级。
+
+### ✨ 新功能
+
+- **P32+34（合并）：phase-runner prompt 双约束 + interface-auditor 第 6 项检查**（commit `10d9892`）
+  - autonomous.md Step 4.0 加 sampler 启动调用段（v4.3 P27 漏做的集成项）
+  - phase-runner.md prompt 强约束 ① "外部接口先验：写涉及 plugin / hook / settings / skill 名前必须 Read .context/ground-truth/latest.json，禁止凭训练数据猜"
+  - phase-runner.md prompt 强约束 ② "git add 必须显式列文件名，禁用 -A / . / -u，避免 wave 并行时吸收其他 phase staged 文件"（替代 worktree 隔离 5-6 天工时的轻量解）
+  - interface-auditor.ts 加第 6 项 `alien-files-staged` 检查：grep `git diff --cached --name-only` 看 staged 是否含本 phase 范围外的文件
+  - +8 单测覆盖
+- **P33：interface-auditor 反向验证历史 commit**（commit `a532e37`）
+  - 新建 `interfaceAuditorHistorical.test.ts`（9 cases）反向跑 v4.1/v4.2 真历史 commit（v4.2 P22 planVerifyWave 重复 / v4.1 P19 paths 半成品 / v4.2 codex:codex-rescue 命名错），**8/8 hit rate** 验证 P27 5 项检查能抓真错配
+  - 报告 `phase-33-historical-validation-report.md` 含抓取率统计 + v4.5 改进点（5 项检查仍漏的 case 类型，留作后续）
+
+### 🔄 变更
+
+- **测试基线**：1048 (v4.3.2) → 1065（+17，全来自 P32+34 的 +8 alien-files 测试 + P33 的 +9 historical cases）
+- 整个 v4.3 → v4.4：929 → 1065（+136，覆盖率提升专注在 phase-runner 防御网）
+
+### ⚠️ 用户须知
+
+- v4.3.0 / v4.3.1 启用过 `commit-msg-review` hook 的用户：v4.3.2 已删源文件但 ~/.claude/hooks/ccg-commit-msg-review.cjs 残留可能继续拦截。**建议手动清**：
+  ```bash
+  rm -f ~/.claude/hooks/ccg-commit-msg-review.cjs
+  rm -f .git/hooks/commit-msg  # 你启用过的 wrapper
+  ```
+- 升级即生效：sampler 集成 / prompt 约束 / alien-files-staged 检查都在 phase-runner / autonomous 自动路径，无需额外配置。
+
+### 🐛 讽刺验证
+
+P32+34 commit 期间 stale `commit-msg-review` hook 三次拦下自己的 commit（启发式 #1 把 `v4.3` / `latest.json` / `4.0` / `4.7` 字面量误识别为路径）——这正是 v4.3.2 决定删 hook 的额外佐证：**它本身的 false-positive 率比抓到的 true-positive 高**。
+
+---
+
 ## [4.3.2] - 2026-05-04
 
 > 🚮 **Removal hotfix**：v4.3 P29 引入的 `ccg-commit-msg-review.cjs` git hook 在 dogfood + 真实使用反馈中证实**真实收益接近 0**——v4.3 自身 30+ commit 没抓到一次真错配；启用成本（每 repo 手工写 wrapper + Windows 兼容性）超过潜在防护价值；启发式 #1 把版本号字面量误识别为文件名（v4.3.1 commit 自己被拦下）。删除整个 hook 系统。
