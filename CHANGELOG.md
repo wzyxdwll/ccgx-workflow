@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.4.2] - 2026-05-04 — 🛡 Hotfix: verify wave 切 Bash 直调（消除 silent contamination）
+
+> v4.4.1 把 plugin spawn 名字修对了，但留了一个**架构层 silent fallback** 隐患：`Agent(subagent_type="codex:codex-rescue" | "gemini:gemini-rescue")` 实际是启一个 sonnet 进程当 wrapper，body 里 forward 到 broker。当 broker 故障 / CLI 空答时 sonnet wrapper 会 instruct-tuning 反射"我自己答"，主线收到 looks-normal ≤200 token 摘要——cross-vendor diversity 假象，实际是同源 Claude 视角。最严重在 verify wave（决策直接落 advance/revise/escalate，无下游兜底）。
+
+### ✨ 新增
+
+- **`useDirectBashInvocation` 选项**（`src/utils/verify-orchestrator.ts:planVerifyWave`）：true 时所有 plugin spawn entry 标 `invocationMode: 'bash-direct'` + 附 `bashCommand`（含 plugin script 路径 + `--json` flag），主线模板渲染为 Bash 直调。default false 保持向后兼容。
+- 新导出类型 `PlanVerifyWaveOptions` / `VerifyInvocationMode`（`src/index.ts`）
+- 7 个新单测覆盖 default / explicit-false / dual + bash-direct / fast + bash-direct / frontend layer / plugin missing fallback / both missing 路径
+
+### 🔄 模板切换（verify wave 用例）
+
+- **`templates/commands/review.md`** Phase 2 双模型审查：从 `Agent(subagent_type="codex:codex-rescue"|"gemini:gemini-rescue")` 切到 `Bash(node $(ls ~/.claude/plugins/cache/.../*-companion.mjs | head -1) task -p "..." --json)`。stdout 为完整 JSON 响应，主线读 `result.text` 字段。
+- **`templates/commands/review.md`** Phase 2.5 `--adversarial`：同上切 Bash 直调。
+- **`templates/commands/autonomous.md`** Step 4.4 verify wave 注释加 `useDirectBashInvocation: true` 说明（实际 spawn 由 `qualityPlan.waves[].spawns[].invocationMode` 路由）。
+- 失败信号（exit ≠ 0 OR stdout < 100 bytes）触发 v1.7.87 标准 2-retry / 5s / 3-attempts 规则。
+
+### 🔬 不动的部分
+
+- impl / autonomous / debate 用例**仍走 Agent spawn**（context 预算敏感，下游有 verify 兜底，contamination 进不到最终交付）
+- verify-work.md（用 verify-* static skills 不走 plugin）
+- plugin agent.md `model: sonnet` frontmatter（plugin 包硬编码，CCG 改不动；且换 opus 反而让 silent fallback 更难检测）
+- v4.4.1 magic string 修复（已对，不重做）
+
+### 📊 决策依据
+
+- codex 咨询 EF 双修（verify Bash + PostToolUse hook），用户选 E only：架构性消除 verify wave 风险，不引入 hook 全局副作用
+- claude-code-guide 官方文档证实：PostToolUse hook 能 detection-only + exit 2 block 但**不能 replace/re-run**，且并发 plugin spawn 时 broker.log 容易冲突误判 — 不值得 200 行
+- Bash 直调 stdout 5-50KB 回灌主线 vs ≤200 token 摘要：verify wave 是 phase 末段，影响窗口短，可接受
+
+### 🐛 已知未做
+
+- 其他用例（impl/autonomous/debate）silent fallback 风险**仍在**——靠下游 verify wave Bash 直调拦最终交付层。如果实测发现 impl 阶段 silent fallback 影响明显，再考虑 v4.5 加 PostToolUse hook（候选 F）。
+- broker.log 并发 spawn 冲突 false positive 是 hook 路径的核心隐患（codex 提的最大未标记 gap），E only 路径不触发该问题。
+
+### ✅ 验证
+
+- `pnpm typecheck` ✓
+- `pnpm test` ✓ 1072/1072（v4.4.1 1065 + 新 7 用例）
+- 模板切换无遗漏：`grep "Agent(subagent_type=\"(codex|gemini):.*-rescue\"" templates/commands/review.md` 命中 0
+- `templates/commands/autonomous.md` 含 `useDirectBashInvocation: true` 注释 ✓
+
+---
+
 ## [4.4.1] - 2026-05-04 — 🚨 Hotfix: subagent_type 命名空间反向
 
 > CCG v4.0 → v4.4.0 整链路 `Agent(subagent_type="codex:rescue")` 全部用错单前缀，真名是双前缀 `codex:codex-rescue` / `gemini:gemini-rescue`。`codex:rescue` / `gemini:rescue` 实际是 **Skill** 命名空间名，与 Agent 命名空间不同。

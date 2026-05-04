@@ -55,12 +55,40 @@ export interface VerifyReport {
 /** 主线决策：advance / revise / escalate（与 challenger 一致） */
 export type VerifyDecision = 'advance' | 'revise' | 'escalate'
 
+/**
+ * 调用方式（v4.4.2 起 verify wave 支持两种）：
+ *   - 'agent'       — Agent(subagent_type=...) plugin spawn（含 sonnet wrapper，silent fallback 风险）
+ *   - 'bash-direct' — Bash 直调 plugin script（codex-companion.mjs / gemini-companion.mjs）跳过 wrapper
+ *
+ * v4.4.2 verify wave 默认切到 'bash-direct' 架构性消除 silent contamination。
+ * 其他用例（impl/autonomous/debate）仍走 'agent' 保 ≤200 token 摘要预算。
+ */
+export type VerifyInvocationMode = 'agent' | 'bash-direct'
+
 /** Verify wave spawn entry（与 quality-router 的 SpawnEntry 子集对齐） */
 export interface VerifySpawnEntry {
   agent: string
   rationale: string
   /** plugin 缺失走 general-purpose 时引用的 prompt 文件 */
   ccgPromptFile?: string
+  /** v4.4.2: 'agent' 走 Agent spawn / 'bash-direct' 走 Bash 直调 plugin script */
+  invocationMode?: VerifyInvocationMode
+  /**
+   * v4.4.2: 当 invocationMode='bash-direct' 时，模板渲染用的 Bash 命令模板。
+   * 主线 Bash 工具直接执行此命令，stdout 为 plugin 完整 JSON 响应。
+   * Plugin 脚本路径用 glob `~/.claude/plugins/cache/<vendor>/<plugin>/*\/scripts/*-companion.mjs`，
+   * 主线消费时按需 ls 解析具体版本号。
+   */
+  bashCommand?: string
+}
+
+/** v4.4.2 planVerifyWave 选项 */
+export interface PlanVerifyWaveOptions {
+  /**
+   * 把所有 plugin spawn entry 切成 'bash-direct' 模式（v4.4.2 verify wave 默认 true）。
+   * 仅影响 plugin 路径，general-purpose 降级路径不受影响。
+   */
+  useDirectBashInvocation?: boolean
 }
 
 /** Verify wave 计划输出 */
@@ -82,6 +110,19 @@ const CCG_PROMPT_BASE = '~/.claude/.ccg/prompts'
 // ---------------------------------------------------------------------------
 
 /**
+ * v4.4.2: 给定 plugin 名构造 Bash 直调命令（绕开 sonnet wrapper）。
+ *
+ * Plugin 脚本路径含版本号（如 `codex/1.0.4/scripts/codex-companion.mjs`），
+ * 这里用 glob 通配，主线模板 Bash 跑时用 `ls` 解析具体版本。
+ */
+function buildBashDirectCommand(plugin: 'codex' | 'gemini'): string {
+  const vendor = plugin === 'codex' ? 'openai-codex' : 'google-gemini'
+  const scriptName = `${plugin}-companion.mjs`
+  // 注：模板消费时主线先跑 ls 拿真实版本号，下面是带 glob 的占位
+  return `node "$(ls ~/.claude/plugins/cache/${vendor}/${plugin}/*/scripts/${scriptName} | head -1)" task -p "<PROMPT>" --json`
+}
+
+/**
  * 给定 quality tier + phase layer + plugin 可用性，构造 verify wave 计划。
  *
  *   - fast    → single verify (cross-vendor: layer=frontend → codex；其他 → gemini)
@@ -90,27 +131,49 @@ const CCG_PROMPT_BASE = '~/.claude/.ccg/prompts'
  *
  * **SSoT (v4.2.1)**：quality-router.buildVerifyWave 必须 import 此函数 + 走
  * schema adapter，不得复制路由实现。
+ *
+ * **v4.4.2 (E only)**：`options.useDirectBashInvocation=true` 时所有 plugin
+ * spawn entry 标 invocationMode='bash-direct' + 附 bashCommand，主线模板渲染
+ * 为 Bash 直调跳过 sonnet wrapper（架构性消除 silent contamination）。默认
+ * false 保持向后兼容（v4.4.1 及以前的 Agent spawn 行为）。
  */
 export function planVerifyWave(
   tier: 'fast' | 'triple' | 'debate',
   layer: Layer,
   plugins: PluginAvailability,
+  options: PlanVerifyWaveOptions = {},
 ): VerifyWavePlan {
   if (!['fast', 'triple', 'debate'].includes(tier)) {
     throw new Error(`planVerifyWave: invalid tier "${tier}"`)
   }
 
+  const useBashDirect = options.useDirectBashInvocation === true
   const dual = tier === 'triple' || tier === 'debate'
   const spawns: VerifySpawnEntry[] = []
   let degraded = false
   const dropped: string[] = []
 
+  // v4.4.2 helper: 生成 plugin spawn entry 时按 useBashDirect 决定调用模式
+  const pluginEntry = (
+    plugin: 'codex' | 'gemini',
+    rationale: string,
+  ): VerifySpawnEntry => {
+    const base: VerifySpawnEntry = {
+      agent: `${plugin}:${plugin}-rescue`,
+      rationale,
+    }
+    if (useBashDirect) {
+      base.invocationMode = 'bash-direct'
+      base.bashCommand = buildBashDirectCommand(plugin)
+    } else {
+      base.invocationMode = 'agent'
+    }
+    return base
+  }
+
   if (dual) {
     if (plugins.codex) {
-      spawns.push({
-        agent: 'codex:codex-rescue',
-        rationale: 'cross-vendor verify (codex)',
-      })
+      spawns.push(pluginEntry('codex', 'cross-vendor verify (codex)'))
     } else {
       spawns.push({
         agent: 'general-purpose',
@@ -121,10 +184,7 @@ export function planVerifyWave(
       dropped.push('codex:codex-rescue')
     }
     if (plugins.gemini) {
-      spawns.push({
-        agent: 'gemini:gemini-rescue',
-        rationale: 'cross-vendor verify (gemini)',
-      })
+      spawns.push(pluginEntry('gemini', 'cross-vendor verify (gemini)'))
     } else {
       spawns.push({
         agent: 'general-purpose',
@@ -140,15 +200,9 @@ export function planVerifyWave(
     const fallback: 'codex' | 'gemini' = preferred === 'codex' ? 'gemini' : 'codex'
 
     if (plugins[preferred]) {
-      spawns.push({
-        agent: `${preferred}:${preferred}-rescue`,
-        rationale: `cross-vendor verify (${preferred}, layer=${layer})`,
-      })
+      spawns.push(pluginEntry(preferred, `cross-vendor verify (${preferred}, layer=${layer})`))
     } else if (plugins[fallback]) {
-      spawns.push({
-        agent: `${fallback}:${fallback}-rescue`,
-        rationale: `verify fallback (${fallback}, preferred ${preferred} unavailable)`,
-      })
+      spawns.push(pluginEntry(fallback, `verify fallback (${fallback}, preferred ${preferred} unavailable)`))
       degraded = true
       dropped.push(`${preferred}:${preferred}-rescue`)
     } else {

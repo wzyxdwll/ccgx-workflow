@@ -311,6 +311,17 @@ runPhaseWithQualityPlan(phase, plan):
                 #                         magic-string vs ground truth /
                 #                         commit-diff drift / mock-drift）
                 # fast 模式不加 interface-auditor（fast 优先速度）。
+                #
+                # ⛔ v4.4.2 verify wave 强制 Bash 直调 plugin script：
+                #   verifyWave = planVerifyWave(tier, layer, plugins,
+                #                               { useDirectBashInvocation: true })
+                #   for each spawn entry where invocationMode === 'bash-direct':
+                #     主线用 Bash 工具跑 spawn.bashCommand（而非 Agent(subagent_type=...)）。
+                #     — 绕开 plugin sonnet wrapper，避免 broker 故障 / 空答时的
+                #       silent contamination（sonnet 自答冒充 cross-vendor 视角）。
+                #     — Bash exit≠0 OR stdout 字节<阈值 → 失败信号 loud，主线据此重试。
+                #   interface-auditor 仍走 Agent(subagent_type="interface-auditor")
+                #     —— CCG 自家 agent 无 sonnet wrapper 风险。
                 verifyReports = spawn_parallel(innerWave.spawns)
                 # 主线综合：原 verifier critical 任一 + interface-auditor critical
                 # 任一 → revise（synthesizeVerifyResults 已统一处理 STATUS/FINDINGS

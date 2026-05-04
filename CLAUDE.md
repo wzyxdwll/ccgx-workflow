@@ -10,6 +10,15 @@
 
 > 完整变更历史请查看 [CHANGELOG.md](./CHANGELOG.md)
 
+### 2026-05-04 (v4.4.2) — 🛡 verify wave 切 Bash 直调，架构性消除 silent contamination
+
+- 🐛 **plugin spawn silent fallback 修复**：`Agent(subagent_type="codex:codex-rescue" | "gemini:gemini-rescue")` 引擎实际启 sonnet wrapper（agent.md frontmatter `model: sonnet`），broker 故障 / CLI 空答时 wrapper 会 instruct-tuning 反射自答冒充 cross-vendor 视角。最严重在 verify wave（决策直接落 advance/revise/escalate，无下游兜底）。
+- ✨ **`useDirectBashInvocation` 选项**：`planVerifyWave(tier, layer, plugins, options)` 加第 4 参数。true 时 plugin spawn entry 标 `invocationMode: 'bash-direct'` + 附 `bashCommand`，主线模板渲染为 `Bash(node $(ls ~/.claude/plugins/cache/<vendor>/<plugin>/*/scripts/<plugin>-companion.mjs | head -1) task -p "..." --json)` —— 跳过 sonnet wrapper，stdout 即 plugin 完整响应。
+- 🔄 **模板切换**：`review.md` Phase 2（双模型审查）+ Phase 2.5（`--adversarial`）+ `autonomous.md` Step 4.4 verify wave 注释。其他用例（impl / autonomous / debate）仍走 Agent spawn 保 ≤200 token 摘要预算。
+- 📊 **决策**：codex 推荐 EF（Bash + hook）；用户选 E only（架构性消除 verify 风险，不引入全局 hook）。`PostToolUse` hook 路径未做（broker.log 并发 spawn 冲突 false positive 是核心隐患，opt-in 摩擦也大）。
+- ✅ 测试 1065 → **1072**（+7），typecheck pass。
+- 📋 详见 [CHANGELOG.md](./CHANGELOG.md#442---2026-05-04)。
+
 ### 2026-05-04 (v4.3.0) — 🎯 动态防御机制版本（P25-P29 + P30 收尾，5 phase dogfood）
 
 > v4.3 是把 v4.2.x 三连 hotfix（4.2.1 / 4.2.2 / 4.2.3）暴露的根因变成自动化拦截的工程闭环加固版本。**没有引入新用户面 feature**，全部是基础设施层防御。

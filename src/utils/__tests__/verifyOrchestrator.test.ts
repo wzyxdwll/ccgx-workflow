@@ -100,6 +100,75 @@ describe('planVerifyWave — triple/debate tier (dual)', () => {
 })
 
 // ---------------------------------------------------------------------------
+// 1b. v4.4.2 — useDirectBashInvocation option
+// ---------------------------------------------------------------------------
+
+describe('planVerifyWave — v4.4.2 useDirectBashInvocation', () => {
+  it('default (no options) keeps agent invocation mode (backward compat)', () => {
+    const p = planVerifyWave('triple', 'backend', PLUGINS_BOTH)
+    expect(p.spawns[0].invocationMode).toBe('agent')
+    expect(p.spawns[1].invocationMode).toBe('agent')
+    expect(p.spawns[0].bashCommand).toBeUndefined()
+    expect(p.spawns[1].bashCommand).toBeUndefined()
+  })
+
+  it('useDirectBashInvocation=false explicit keeps agent mode', () => {
+    const p = planVerifyWave('triple', 'backend', PLUGINS_BOTH, { useDirectBashInvocation: false })
+    expect(p.spawns[0].invocationMode).toBe('agent')
+  })
+
+  it('useDirectBashInvocation=true switches plugin entries to bash-direct', () => {
+    const p = planVerifyWave('triple', 'backend', PLUGINS_BOTH, { useDirectBashInvocation: true })
+    expect(p.spawns).toHaveLength(2)
+    // codex entry
+    expect(p.spawns[0].agent).toBe('codex:codex-rescue')
+    expect(p.spawns[0].invocationMode).toBe('bash-direct')
+    expect(p.spawns[0].bashCommand).toContain('codex-companion.mjs')
+    expect(p.spawns[0].bashCommand).toContain('openai-codex/codex/')
+    expect(p.spawns[0].bashCommand).toContain('--json')
+    // gemini entry
+    expect(p.spawns[1].agent).toBe('gemini:gemini-rescue')
+    expect(p.spawns[1].invocationMode).toBe('bash-direct')
+    expect(p.spawns[1].bashCommand).toContain('gemini-companion.mjs')
+    expect(p.spawns[1].bashCommand).toContain('google-gemini/gemini/')
+  })
+
+  it('fast tier + bash-direct: single plugin entry switches', () => {
+    const p = planVerifyWave('fast', 'backend', PLUGINS_BOTH, { useDirectBashInvocation: true })
+    expect(p.spawns).toHaveLength(1)
+    expect(p.spawns[0].agent).toBe('gemini:gemini-rescue')
+    expect(p.spawns[0].invocationMode).toBe('bash-direct')
+    expect(p.spawns[0].bashCommand).toContain('gemini-companion.mjs')
+  })
+
+  it('fast tier + bash-direct + frontend layer: codex bash-direct', () => {
+    const p = planVerifyWave('fast', 'frontend', PLUGINS_BOTH, { useDirectBashInvocation: true })
+    expect(p.spawns[0].agent).toBe('codex:codex-rescue')
+    expect(p.spawns[0].invocationMode).toBe('bash-direct')
+    expect(p.spawns[0].bashCommand).toContain('codex-companion.mjs')
+  })
+
+  it('plugin missing + bash-direct: general-purpose entry NOT marked bash-direct (no plugin script to call)', () => {
+    const p = planVerifyWave('triple', 'backend', PLUGINS_GEMINI_ONLY, { useDirectBashInvocation: true })
+    // codex 缺失 → general-purpose（不应该 bash-direct，因为没 plugin script）
+    expect(p.spawns[0].agent).toBe('general-purpose')
+    expect(p.spawns[0].invocationMode).toBeUndefined()
+    expect(p.spawns[0].bashCommand).toBeUndefined()
+    // gemini 在 → 仍然 bash-direct
+    expect(p.spawns[1].agent).toBe('gemini:gemini-rescue')
+    expect(p.spawns[1].invocationMode).toBe('bash-direct')
+  })
+
+  it('both plugins missing + bash-direct: general-purpose only, no bash-direct', () => {
+    const p = planVerifyWave('fast', 'backend', PLUGINS_NONE, { useDirectBashInvocation: true })
+    expect(p.spawns[0].agent).toBe('general-purpose')
+    expect(p.spawns[0].invocationMode).toBeUndefined()
+    expect(p.spawns[0].bashCommand).toBeUndefined()
+    expect(p.degraded).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // 2. parseVerifyReport (复用 challenger parser)
 // ---------------------------------------------------------------------------
 

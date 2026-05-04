@@ -49,28 +49,33 @@ argument-hint: "[代码或描述] [--adversarial] [--fix [--all] [--auto]] [--ro
 - 如果用户通过 `/add-dir` 添加了多个工作区，先用 Glob/Grep 确定任务相关的工作区
 - 如果无法确定，用 `AskUserQuestion` 询问用户选择目标工作区
 
-**调用语法**（v4.1 Phase 20 双通道）：
+**调用语法**（v4.4.2 起 review/verify 路径默认走 Bash 直调）：
 
-**通道 A — plugin spawn（默认）**：
+**通道 A — Bash 直调 plugin script（v4.4.2 默认，绕开 sonnet wrapper）**：
 
 ```
-Agent({
-  subagent_type: "<codex:codex-rescue|gemini:gemini-rescue>",
-  description: "Review: <backend|frontend>",
-  prompt: `ROLE_FILE: <角色提示词路径>
+Bash({
+  command: `node "$(ls ~/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs | head -1)" task -p "<整段 prompt 含 ROLE_FILE + TASK + OUTPUT 要求>" --json`,
+  description: "Review: backend (codex direct)",
+  run_in_background: true,
+  timeout: 3600000
+})
 
-<TASK>
-审查以下代码变更：
-<git diff 内容>
-</TASK>
-
-OUTPUT: 按 Critical/Major/Minor/Suggestion 分类列出问题
-Return ≤200 token structured summary (plugin-native protocol).
-`
+Bash({
+  command: `node "$(ls ~/.claude/plugins/cache/google-gemini/gemini/*/scripts/gemini-companion.mjs | head -1)" task -p "<整段 prompt>" --json`,
+  description: "Review: frontend (gemini direct)",
+  run_in_background: true,
+  timeout: 3600000
 })
 ```
 
-并行**两个 Agent 在同一 message 内同时 spawn**。
+⛔ **不要**用 `Agent(subagent_type="codex:codex-rescue"|"gemini:gemini-rescue")` —— plugin spawn 走 sonnet wrapper，broker 故障/CLI 空答时 wrapper 可能 silent fallback 自答冒充 cross-vendor 视角（v4.4.2 hotfix 决策，详见 `src/utils/verify-orchestrator.ts:planVerifyWave` `useDirectBashInvocation` 选项）。
+
+主线接 stdout JSON（5-50KB），按 plugin --json schema 解析 `result.text` 字段，失败信号：
+- exit code ≠ 0 → loud fail，触发 v1.7.87 标准 2-retry / 5s / 3-attempts 规则
+- stdout 空 / 字节 < 100 → 同上视为失败
+
+并行**两个 Bash 在同一 message 内 `run_in_background: true` 同时 spawn**。
 
 **通道 B — codeagent-wrapper fallback**（plugin 未装时降级，并行用 `run_in_background: true`）：
 
@@ -154,13 +159,11 @@ TaskOutput({ task_id: "<task_id>", block: true, timeout: 600000 })
 
 **仅当 `$ARGUMENTS` 含 `--adversarial` 字面量时启动**。否则跳过本阶段。
 
-调用方式（fresh context，主线 token 不被吃）：
+调用方式（v4.4.2 起 Bash 直调，绕开 sonnet wrapper）：
 
 ```
-Agent({
-  subagent_type: "codex:codex-rescue",
-  description: "Adversarial review",
-  prompt: `--adversarial-review
+Bash({
+  command: `node "$(ls ~/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs | head -1)" task -p "--adversarial-review
 
 请对以下代码变更进行敌对视角审查：
 
@@ -175,12 +178,16 @@ Agent({
 你的任务：
 1. 找出前两轮**未发现或低估**的安全/性能/正确性漏洞
 2. 假设代码作者刻意误导，挑刺
-3. 输出格式：[Critical-Adversarial] / [Major-Adversarial] 列表，每条标"为什么前两轮没发现"
-`
+3. 输出格式：[Critical-Adversarial] / [Major-Adversarial] 列表，每条标'为什么前两轮没发现'" --json`,
+  description: "Adversarial review (codex direct)",
+  run_in_background: true,
+  timeout: 3600000
 })
 ```
 
-收到结果后保留待阶段 3 综合。
+⛔ 不用 `Agent(subagent_type="codex:codex-rescue")` —— v4.4.2 决策：review/verify 路径绕开 sonnet wrapper，避免 silent fallback 冒充 adversarial 视角。
+
+收到 stdout JSON 后解析 `result.text` 字段保留待阶段 3 综合。stdout 空或 exit≠0 → 走标准 2-retry 规则。
 
 **降级**：若 `codex:codex-rescue` 不可用（用户没装 `codex@openai-codex` plugin），输出"⚠️ 跳过敌对审查，未检测到 codex plugin"并继续阶段 3，不阻塞流程。
 

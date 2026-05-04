@@ -165,7 +165,9 @@ export {
   synthesizeVerifyResults,
 } from './utils/verify-orchestrator'
 export type {
+  PlanVerifyWaveOptions,
   VerifyDecision,
+  VerifyInvocationMode,
   VerifyMode,
   VerifyReport,
   VerifySpawnEntry,
