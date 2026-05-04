@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.4.3] - 2026-05-05 — 🔒 silent fallback 治理收尾：verify path 补齐 + debate retry protocol 硬约束
+
+> v4.4.2 在 `verify-orchestrator.planVerifyWave` 加了 `useDirectBashInvocation` 选项让 verify wave 跳过 sonnet wrapper，但 `quality-router.verifyWavePlanToWavePlan` adapter 只挑 4 个字段（agent/role/rationale/ccgPromptFile），**把 `invocationMode` / `bashCommand` drop 了**；`buildVerifyWave` 调 `planVerifyWave` 也未显式传 `useDirectBashInvocation: true`。结果：autonomous Step 4.1 / `triple` / `debate` 档跑 verify wave 时仍走普通 Agent spawn (sonnet wrapper)，silent fallback 风险残留。
+>
+> 同时把 `templates/commands/debate.md` 的 "plugin spawn 失败必须重试 2 次（共 3 次），仅 3 次全败才标 degraded" 协议从 prompt instruction 软约束硬化为 TS schema 强校验——主线 LLM 实测会跳过软约束（v4.4.2 dogfood 案例：单次 fallback 即接受未重试也未标 degraded）。
+
+### 🐛 修复（C2 prerequisite — verify path 治理收尾）
+
+- **`src/utils/quality-router.ts`** `SpawnEntry` 加 `invocationMode?` + `bashCommand?` 两个 optional 字段
+- **`src/utils/quality-router.ts`** `verifyWavePlanToWavePlan` adapter 显式拷贝 `invocationMode` + `bashCommand`（修补 SSoT 泄漏）
+- **`src/utils/quality-router.ts`** `buildVerifyWave` 调 `planVerifyWave` 时显式传 `{ useDirectBashInvocation: true }`（修复 v4.4.2 注释承诺"verify wave 默认 true"但代码未启用的 bug）
+- 影响：autonomous 默认档（triple）verify 路径**现在真的会**走 Bash 直调跳过 sonnet wrapper—— v4.4.2 hotfix 在 quality-router 路径的"未完成态"补齐
+
+### ✨ 新增（debate retry protocol schema 硬约束）
+
+- **`src/utils/debate-orchestrator.ts`** 新 export：
+  - `DegradedMarker` interface (`{ attempts, reason }`)
+  - `RoundSummary.degraded?: DegradedMarker` 字段
+  - `RetryProtocolViolationKind` 枚举 4 类违规：`parse-failed-no-degraded` / `insufficient-attempts` / `missing-reason` / `silent-success`
+  - `RetryProtocolViolation` + `RetryProtocolReport` interface
+  - `validateRetryProtocol(rounds: RoundSummary[]): RetryProtocolReport` helper
+  - `REQUIRED_RETRY_ATTEMPTS = 3` 常量（与文档同步）
+- **`parseRoundSummary`** 自动从 NOTES 抽取三种 degraded 标记形态：
+  - 规约形态：`plugin spawn failed after N attempts, degraded[: reason]`
+  - 替代形态：`degraded after N attempts: reason`
+  - 极简形态：`degraded[: reason]`（attempts 默认 1，由 validator 抓违规）
+
+### 🔄 模板切换
+
+- **`templates/commands/debate.md`** Step 1.3 加 v4.4.3 schema 硬约束说明：标记格式必须是三段式 `plugin spawn failed after N attempts, degraded: <reason>`，N ≥ 3，reason 必须非占位
+- **`templates/commands/debate.md`** Step 2 综合输出强制：调 `validateRetryProtocol`，非 compliant 时主线**必须**独立成段输出 `## ⚠️ Retry Protocol Violations`，逐条列违规（让用户可见）
+- **`templates/commands/debate.md`** Helper 段加新 export 引用
+
+### 📊 设计哲学（first principles）
+
+debate R2 的 **Schema-Bypass Hallucination** 击穿了"加密码学 evidence 校验"思路（B4 + B7 + broker tx_id 密签 / prev_hash chain / nonce locks 等）共同前提——这些方案都假设 "wrapper 真去执行 companion"，但 instruct-tuned wrapper 完全可以跳过执行直接编 schema-compliant JSON。**openclaw 路线**（架构上根本不让 wrapper LLM 当 bridge）才是真根因解，但在 debate / impl 路径受 token 预算约束暂无法采用。
+
+两层防御：
+- **架构消除**（v4.4.2 + v4.4.3 verify 补齐）→ verify wave / review 路径决策直接落地，必须 Bash 直调
+- **协议硬校验**（v4.4.3 debate）→ debate / impl 路径残余 silent fallback 风险用 schema 层 4 类违规枚举抓住，违规必现于最终输出
+
+### ✅ 验证
+
+- `pnpm typecheck` ✓
+- `pnpm test` ✓ **1100/1100**（v4.4.2 1072 + 6 个 quality-router 透传测试 + 22 个 debate orchestrator schema 测试）
+- 单测覆盖：`fast`/`triple`/`debate` 三档 verify 透传 + `interface-auditor` / `general-purpose` / 非 verify wave 反例 + degraded 抽取 + validateRetryProtocol 协议合规/违规/管道集成 + v4.4.2 实测违规场景回归测试
+
+### 🐛 已知未做
+
+- debate / impl 路径的 silent fallback 风险**仍在**（schema 校验只能事后抓不能事前阻止），完全消除需要 openclaw 路线（debate 也全 Bash 直调，token 预算硬伤）→ v4.5+ 候选
+- B4 schema-first JSON / B7 文件通道 / broker tx_id 密签 / prev_hash chain 等 R1 propose 方案**完全放弃**（debate R2 Schema-Bypass Hallucination 击穿）
+
+---
+
 ## [4.4.2] - 2026-05-04 — 🛡 Hotfix: verify wave 切 Bash 直调（消除 silent contamination）
 
 > v4.4.1 把 plugin spawn 名字修对了，但留了一个**架构层 silent fallback** 隐患：`Agent(subagent_type="codex:codex-rescue" | "gemini:gemini-rescue")` 实际是启一个 sonnet 进程当 wrapper，body 里 forward 到 broker。当 broker 故障 / CLI 空答时 sonnet wrapper 会 instruct-tuning 反射"我自己答"，主线收到 looks-normal ≤200 token 摘要——cross-vendor diversity 假象，实际是同源 Claude 视角。最严重在 verify wave（决策直接落 advance/revise/escalate，无下游兜底）。

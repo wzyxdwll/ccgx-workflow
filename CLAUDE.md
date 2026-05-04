@@ -2,13 +2,29 @@
 
 > [根目录](../CLAUDE.md) > **skills-v2**
 
-**Last Updated**: 2026-05-04 (v4.3.0)
+**Last Updated**: 2026-05-05 (v4.4.3)
 
 ---
 
 ## 变更记录 (Changelog)
 
 > 完整变更历史请查看 [CHANGELOG.md](./CHANGELOG.md)
+
+### 2026-05-05 (v4.4.3) — 🔒 silent fallback 治理收尾（verify path 补齐 + debate retry protocol 硬约束）
+
+- 🐛 **C2 prerequisite 修复（verify path 治理收尾）**：v4.4.2 在 `verify-orchestrator.planVerifyWave` 加了 `useDirectBashInvocation` 选项让 verify wave 跳 sonnet wrapper，但 `quality-router.verifyWavePlanToWavePlan` adapter 只挑 4 字段（agent/role/rationale/ccgPromptFile），**把 `invocationMode` / `bashCommand` drop 了**；`buildVerifyWave` 调 `planVerifyWave` 也未显式传 `useDirectBashInvocation: true`。结果 autonomous Step 4.1 / `triple` / `debate` 档跑 verify wave 时仍走普通 Agent spawn (sonnet wrapper)，silent fallback 风险残留。修复：`SpawnEntry` 加 `invocationMode?` + `bashCommand?` 透传；adapter 显式拷贝；`buildVerifyWave` 显式传 `{ useDirectBashInvocation: true }`。autonomous 默认档（triple）verify 路径**现在真的会**走 Bash 直调跳过 sonnet wrapper。
+- ✨ **debate retry protocol schema 硬约束**：`templates/commands/debate.md` 的 "plugin spawn 失败必须重试 2 次（共 3 次）+ degraded 标记" 协议从 prompt 软约束硬化为 TS schema 强校验（实测主线 LLM 会跳过软约束 — v4.4.2 dogfood：单次 fallback 即接受未重试也未标 degraded）。
+  - `RoundSummary` 加 `degraded?: { attempts, reason }` 字段
+  - `parseRoundSummary` 自动从 NOTES 抽取三种标记形态（规约 / 替代 / 极简）
+  - 新 helper `validateRetryProtocol(rounds)` → `RetryProtocolReport`，4 类违规枚举：`parse-failed-no-degraded` / `insufficient-attempts` / `missing-reason` / `silent-success`
+  - 新常量 `REQUIRED_RETRY_ATTEMPTS = 3` 与文档同步
+  - debate.md Step 1.3 加 schema 硬约束说明（标记格式三段式 N≥3 reason 非占位）
+  - debate.md Step 2 综合输出强制：非 compliant 时主线必须独立成段输出 `## ⚠️ Retry Protocol Violations`，逐条列违规
+- 📊 **设计哲学（first principles）**：debate R2 的 **Schema-Bypass Hallucination** 击穿了"加密码学 evidence 校验"思路（B4 schema-first JSON / B7 文件通道 / broker tx_id 密签 / prev_hash chain / nonce locks）共同前提——这些方案都假设 "wrapper 真去执行 companion"，但 instruct-tuned wrapper 完全可以跳过执行直接编 schema-compliant JSON。openclaw 路线（架构上根本不让 wrapper LLM 当 bridge）才是真根因解，但 debate / impl 路径受 token 预算约束暂无法采用。
+- 🛡 **两层防御**：架构消除（verify wave / review，决策直接落地，必须 Bash 直调）+ 协议硬校验（debate / impl，schema 层 4 类违规枚举抓 silent fallback 残骸）。
+- ✅ 测试 1072 → **1100**（+28：6 quality-router 透传 + 22 debate orchestrator schema），typecheck pass。
+- 🐛 **已知未做**：debate / impl 路径完全消除 silent fallback 需 openclaw 路线（debate 也全 Bash 直调，token 预算硬伤）→ v4.5+ 候选。
+- 📋 详见 [CHANGELOG.md](./CHANGELOG.md#443---2026-05-05)。
 
 ### 2026-05-04 (v4.4.2) — 🛡 verify wave 切 Bash 直调，架构性消除 silent contamination
 
