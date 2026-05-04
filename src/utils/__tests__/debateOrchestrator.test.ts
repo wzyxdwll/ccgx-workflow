@@ -5,6 +5,8 @@ import {
   debateStateMachine,
   parseRoundSummary,
   shouldStop,
+  validateRetryProtocol,
+  REQUIRED_RETRY_ATTEMPTS,
   type DebateLayer,
   type RoundSummary,
 } from '../debate-orchestrator'
@@ -405,5 +407,231 @@ describe('parseRoundSummary — fixtures-driven (P28)', () => {
     const r1 = parseRoundSummary(AGENT_FIXTURES.debateRoundSummaries.propose_round)
     const r2 = parseRoundSummary(AGENT_FIXTURES.debateRoundSummaries.convergence_signal)
     expect(shouldStop([r1, r2], 5)).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 6. v4.4.3 degraded marker extraction (parseRoundSummary)
+// ---------------------------------------------------------------------------
+
+describe('parseRoundSummary — degraded marker extraction (v4.4.3)', () => {
+  it('extracts canonical "plugin spawn failed after N attempts, degraded: <reason>"', () => {
+    const text = `STATUS: completed
+PROPOSE: fallback content
+NOTES: plugin spawn failed after 3 attempts, degraded: broker timeout`
+    const s = parseRoundSummary(text)
+    expect(s.degraded).toBeDefined()
+    expect(s.degraded!.attempts).toBe(3)
+    expect(s.degraded!.reason).toBe('broker timeout')
+  })
+
+  it('extracts retry count from canonical form even when reason omitted', () => {
+    const text = `NOTES: plugin spawn failed after 3 attempts, degraded`
+    const s = parseRoundSummary(text)
+    expect(s.degraded).toBeDefined()
+    expect(s.degraded!.attempts).toBe(3)
+    expect(s.degraded!.reason).toBe('plugin spawn failed')
+  })
+
+  it('extracts "degraded after N attempts: reason" alternate form', () => {
+    const text = `NOTES: degraded after 5 attempts: API quota exhausted`
+    const s = parseRoundSummary(text)
+    expect(s.degraded).toBeDefined()
+    expect(s.degraded!.attempts).toBe(5)
+    expect(s.degraded!.reason).toBe('API quota exhausted')
+  })
+
+  it('extracts minimal "degraded: reason" form (attempts defaults to 1)', () => {
+    const text = `NOTES: degraded: parse-failed`
+    const s = parseRoundSummary(text)
+    expect(s.degraded).toBeDefined()
+    expect(s.degraded!.attempts).toBe(1)
+    expect(s.degraded!.reason).toBe('parse-failed')
+  })
+
+  it('extracts bare "degraded" with no reason as placeholder (attempts=1)', () => {
+    const text = `STATUS: completed
+PROPOSE: x
+NOTES: something happened, degraded`
+    const s = parseRoundSummary(text)
+    expect(s.degraded).toBeDefined()
+    expect(s.degraded!.attempts).toBe(1)
+    // 该位置的 reason 由正则贪婪匹配后续文本，但本例 NOTES 行尾即结束
+  })
+
+  it('returns undefined degraded when text contains no marker', () => {
+    const text = `STATUS: completed
+PROPOSE: clean run
+NOTES: no issue, agreement reached`
+    const s = parseRoundSummary(text)
+    expect(s.degraded).toBeUndefined()
+  })
+
+  it('clean propose without degraded does NOT spuriously match', () => {
+    const text = `STATUS: completed
+PROPOSE: my plan is to refactor X
+NOTES: 2 risks predicted`
+    const s = parseRoundSummary(text)
+    expect(s.degraded).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 7. v4.4.3 validateRetryProtocol — schema-level hard constraint
+// ---------------------------------------------------------------------------
+
+describe('validateRetryProtocol — retry protocol enforcement (v4.4.3)', () => {
+  it('exposes REQUIRED_RETRY_ATTEMPTS = 3 (synced with debate.md doc)', () => {
+    expect(REQUIRED_RETRY_ATTEMPTS).toBe(3)
+  })
+
+  it('compliant: round with full content + no degraded passes', () => {
+    const round: RoundSummary = {
+      propose: 'design X',
+      notes: 'good',
+      length: 50,
+      parsed: true,
+    }
+    const r = validateRetryProtocol([round])
+    expect(r.compliant).toBe(true)
+    expect(r.violations).toEqual([])
+  })
+
+  it('compliant: round with attempts=3 + concrete reason passes', () => {
+    const round: RoundSummary = {
+      propose: 'fallback content',
+      notes: 'plugin spawn failed after 3 attempts, degraded: broker timeout',
+      length: 80,
+      parsed: true,
+      degraded: { attempts: 3, reason: 'broker timeout' },
+    }
+    const r = validateRetryProtocol([round])
+    expect(r.compliant).toBe(true)
+  })
+
+  it('compliant: empty array (no rounds yet)', () => {
+    expect(validateRetryProtocol([]).compliant).toBe(true)
+  })
+
+  it('compliant: not-an-array input falls back to compliant (no throw)', () => {
+    // @ts-expect-error intentional bad input
+    const r = validateRetryProtocol(null)
+    expect(r.compliant).toBe(true)
+  })
+
+  it('violation V1: parsed=false + no degraded → parse-failed-no-degraded', () => {
+    const round: RoundSummary = { length: 0, parsed: false }
+    const r = validateRetryProtocol([round])
+    expect(r.compliant).toBe(false)
+    expect(r.violations).toHaveLength(1)
+    expect(r.violations[0].kind).toBe('parse-failed-no-degraded')
+    expect(r.violations[0].round).toBe(1)
+    expect(r.violations[0].message).toMatch(/parse/i)
+  })
+
+  it('violation V2: insufficient attempts (1 < 3) → insufficient-attempts', () => {
+    const round: RoundSummary = {
+      propose: 'soft fallback',
+      length: 30,
+      parsed: true,
+      degraded: { attempts: 1, reason: 'broker timeout' },
+    }
+    const r = validateRetryProtocol([round])
+    expect(r.compliant).toBe(false)
+    expect(r.violations[0].kind).toBe('insufficient-attempts')
+    expect(r.violations[0].message).toMatch(/3/)
+  })
+
+  it('violation V3: attempts=2 still violates 3-attempt floor', () => {
+    const round: RoundSummary = {
+      propose: 'partial',
+      length: 30,
+      parsed: true,
+      degraded: { attempts: 2, reason: 'API quota' },
+    }
+    const r = validateRetryProtocol([round])
+    expect(r.violations[0].kind).toBe('insufficient-attempts')
+  })
+
+  it('violation V4: missing-reason (placeholder text)', () => {
+    const round: RoundSummary = {
+      propose: 'fallback',
+      length: 30,
+      parsed: true,
+      degraded: { attempts: 3, reason: 'unknown' },
+    }
+    const r = validateRetryProtocol([round])
+    expect(r.violations.some(v => v.kind === 'missing-reason')).toBe(true)
+  })
+
+  it('violation V5: empty reason string treated as placeholder', () => {
+    const round: RoundSummary = {
+      propose: 'fallback',
+      length: 30,
+      parsed: true,
+      degraded: { attempts: 3, reason: '' },
+    }
+    const r = validateRetryProtocol([round])
+    expect(r.violations.some(v => v.kind === 'missing-reason')).toBe(true)
+  })
+
+  it('violation V6: "degraded (no reason given)" placeholder caught', () => {
+    const round: RoundSummary = {
+      propose: 'x',
+      length: 10,
+      parsed: true,
+      degraded: { attempts: 3, reason: 'degraded (no reason given)' },
+    }
+    const r = validateRetryProtocol([round])
+    expect(r.violations.some(v => v.kind === 'missing-reason')).toBe(true)
+  })
+
+  it('compound violation: insufficient attempts AND missing reason both fire', () => {
+    const round: RoundSummary = {
+      propose: 'x',
+      length: 10,
+      parsed: true,
+      degraded: { attempts: 1, reason: 'unknown' },
+    }
+    const r = validateRetryProtocol([round])
+    expect(r.violations.length).toBeGreaterThanOrEqual(2)
+    const kinds = r.violations.map(v => v.kind).sort()
+    expect(kinds).toContain('insufficient-attempts')
+    expect(kinds).toContain('missing-reason')
+  })
+
+  it('multi-round: violations track 1-indexed round numbers', () => {
+    const rounds: RoundSummary[] = [
+      { propose: 'r1 ok', length: 30, parsed: true },
+      { propose: 'r2 partial', length: 30, parsed: true, degraded: { attempts: 1, reason: 'broker' } },
+      { length: 0, parsed: false },
+    ]
+    const r = validateRetryProtocol(rounds)
+    expect(r.compliant).toBe(false)
+    const r2v = r.violations.find(v => v.round === 2)
+    const r3v = r.violations.find(v => v.round === 3)
+    expect(r2v?.kind).toBe('insufficient-attempts')
+    expect(r3v?.kind).toBe('parse-failed-no-degraded')
+  })
+
+  it('regression: the v4.4.2 main-thread "single-fallback acceptance" bug now hard-fails', () => {
+    // 复现实测违规：主线 R1 一次 fallback 接受未重试也未标 degraded
+    // 表现为 RoundSummary 缺 propose 但 parsed=false 且无 degraded
+    const offending: RoundSummary = { length: 0, parsed: false }
+    const r = validateRetryProtocol([offending])
+    expect(r.compliant).toBe(false)
+    expect(r.violations[0].kind).toBe('parse-failed-no-degraded')
+  })
+
+  it('parseRoundSummary + validateRetryProtocol pipeline: insufficient attempts caught end-to-end', () => {
+    // 模拟主线偷懒只标 1 次 attempt 的违规摘要
+    const text = `STATUS: completed
+PROPOSE: rushed fallback
+NOTES: degraded after 1 attempts: gave up early`
+    const parsed = parseRoundSummary(text)
+    expect(parsed.degraded?.attempts).toBe(1)
+    const r = validateRetryProtocol([parsed])
+    expect(r.compliant).toBe(false)
+    expect(r.violations.some(v => v.kind === 'insufficient-attempts')).toBe(true)
   })
 })

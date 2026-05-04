@@ -65,7 +65,9 @@ argument-hint: "<topic> [--max-rounds N] [--layer backend|frontend|fullstack]"
      - codex 模型 → `Agent(subagent_type="codex:codex-rescue", ...)`
      - gemini 模型 → `Agent(subagent_type="gemini:gemini-rescue", ...)`
    - **降级路径**（`models[idx] === 'general-purpose'`）：spawn `Agent(subagent_type="general-purpose", prompt=<内嵌 round.ccgPromptFiles[idx] 文件全文> + <下面的 prompt 模板>)`
-3. ⛔ **plugin spawn 失败必须重试**：若 `Agent(subagent_type="codex:codex-rescue"|"gemini:gemini-rescue")` 调用失败（spawn 抛错 / 返回非结构化错误 / `parseRoundSummary` 返回 `parsed=false`），最多重试 **2 次**（间隔 **5 秒**）。仅当 **3 次全部失败**时才把该模型本轮替换为 general-purpose 降级路径，并在合成的 `RoundSummary.notes` 标 `plugin spawn failed after 3 attempts, degraded`。⛔ **禁止**单次失败或单次 broker 负信号即降级——broker 懒启动属正常态。
+3. ⛔ **plugin spawn 失败必须重试**：若 `Agent(subagent_type="codex:codex-rescue"|"gemini:gemini-rescue")` 调用失败（spawn 抛错 / 返回非结构化错误 / `parseRoundSummary` 返回 `parsed=false`），最多重试 **2 次**（间隔 **5 秒**）。仅当 **3 次全部失败**时才把该模型本轮替换为 general-purpose 降级路径，并在合成的 `RoundSummary.notes` 标 `plugin spawn failed after 3 attempts, degraded: <具体根因>`。⛔ **禁止**单次失败或单次 broker 负信号即降级——broker 懒启动属正常态。
+
+   **v4.4.3 schema 硬约束**：标记格式必须是 `plugin spawn failed after N attempts, degraded: <reason>` 三段式（N 必须 ≥ 3，reason 必须给具体根因如 `broker timeout` / `API quota` / `parse-failed`，禁用占位文本如 `unknown` / `n/a`）。`parseRoundSummary` 自动从 NOTES 抽取 populate `RoundSummary.degraded`，Step 2 综合阶段会调 `validateRetryProtocol(累积 RoundSummary[])` 校验合规——违规会出现在最终输出的 ⚠️ 协议违规区段（用户可见）。这是把"3 次重试 + degraded 标记"从 prompt 软约束硬化为 schema-level 校验。
 4. **等待所有 model 返回**（`run_in_background: true` + `TaskOutput` 阻塞）
 5. 对每个返回的 ≤200 token 摘要调用 `parseRoundSummary(text)` → `RoundSummary`
 6. 把本轮的 `RoundSummary[]`（fullstack 为 2 条；backend/frontend 为 1 条）合成一条主 `RoundSummary`（取最长 length，合并 propose/challenge/respond/notes 字段）追加到累积数组
@@ -78,6 +80,11 @@ argument-hint: "<topic> [--max-rounds N] [--layer backend|frontend|fullstack]"
 - **分歧点列表**（所有 challenge 内容去重 + 简化）
 - **各方观点摘要表**（每轮 model × kind × 一行核心观点）
 - **收敛理由**（哪个信号触发了停止：`no critical` / `max rounds` / `length-converged`）
+- ⚠️ **协议违规区段**（**v4.4.3 强制**）：在输出最终 markdown 前调用 `validateRetryProtocol(累积 RoundSummary[])` → `RetryProtocolReport`：
+  - `report.compliant === false` → 主线 **必须** 在最终输出加一段 `## ⚠️ Retry Protocol Violations`，逐条列 `report.violations[]`（含 `round` / `kind` / `message`）
+  - 4 类违规枚举：`parse-failed-no-degraded` / `insufficient-attempts` / `missing-reason` / `silent-success`
+  - 设计动机：原 prompt 软约束 "3 次重试 + degraded 标记" 实测会被主线 LLM 跳过（v4.4.2 dogfood 真实案例：主线 R1 一次 fallback 就接受未重试也未标 degraded）。schema 硬校验让违规可观测、可枚举，避免 silent fallback 在 debate 综合阶段被吞
+  - **不要**把 violations 摘要塞进对辩主体内容然后跑路——必须独立成段，让用户看见具体哪轮哪种违规
 
 主线输出 markdown 表格，**不写文件**——主线直接展示给用户。
 
@@ -140,8 +147,10 @@ shouldStop(rounds, maxRounds) → boolean
 
 helper 暴露：
 - `debateStateMachine(topic, options)` → `DebateRoundPlan[]`
-- `parseRoundSummary(text)` → `RoundSummary`
+- `parseRoundSummary(text)` → `RoundSummary`（v4.4.3: 含 `degraded?: { attempts, reason }` 字段）
 - `shouldStop(rounds, maxRounds)` → `boolean`
+- `validateRetryProtocol(rounds)` → `RetryProtocolReport`（**v4.4.3**: Step 2 综合阶段必须调；非 compliant 时主线必须在输出加协议违规区段）
+- `REQUIRED_RETRY_ATTEMPTS` = `3`（与 Step 1.3 的 "3 次全部失败" 文档同步）
 
 ## 不做
 

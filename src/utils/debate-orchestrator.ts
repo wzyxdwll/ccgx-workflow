@@ -84,6 +84,20 @@ export interface DebateRoundPlan {
   fallback: DebateFallbackReason
 }
 
+/**
+ * v4.4.3: degraded 协议硬约束 schema。
+ * 当 plugin spawn 失败（broker 故障 / CLI 不可用 / parse 失败）触发降级路径时，
+ * RoundSummary.degraded 必须非空，主线综合阶段 validateRetryProtocol 会校验：
+ *   - attempts 必须 ≥ 3（违规：单次失败即降级，跳过协议级 3 次重试）
+ *   - reason 必须非空字符串
+ */
+export interface DegradedMarker {
+  /** 已尝试 spawn 次数（含降级前的重试） */
+  attempts: number
+  /** 触发降级的根因（自然语言一行） */
+  reason: string
+}
+
 export interface RoundSummary {
   /** 主线提取自 subagent ≤200 token 摘要的 propose / challenge / respond 字段 */
   propose?: string
@@ -95,6 +109,17 @@ export interface RoundSummary {
   length: number
   /** 解析是否成功；缺字段不抛错，失败标 false 让主线兜底"未达成共识" */
   parsed: boolean
+  /**
+   * v4.4.3: 协议级硬约束字段。parseRoundSummary 自动从 NOTES 抽取
+   * "plugin spawn failed after N attempts, degraded" 模式 populate；
+   * 主线综合阶段调 validateRetryProtocol(rounds) 校验合规。
+   *
+   * 设计动机：原 templates/commands/debate.md 的 "3 次重试 + degraded 标记"
+   * 是 prompt instruction 软约束，主线 LLM 倾向偷懒（实测 R1 一次 fallback
+   * 就接受未重试也未标 degraded）。本字段把约束硬化为 schema，
+   * helper validateRetryProtocol 让违规可观测、可枚举、可在测试断言。
+   */
+  degraded?: DegradedMarker
 }
 
 // ---------------------------------------------------------------------------
@@ -259,9 +284,57 @@ export function parseRoundSummary(text: string): RoundSummary {
   if (respond !== undefined) result.respond = respond
   if (notes !== undefined) result.notes = notes
 
+  // v4.4.3: 抽 degraded 标记（NOTES 内文 / 全文均扫，宽松兼容）。
+  // 规约文本（templates/commands/debate.md Step 1.3）：
+  //   "plugin spawn failed after N attempts, degraded"
+  //   "degraded: <reason>"
+  // 也接受 N≥1 的写法（违规由 validateRetryProtocol 检测，parser 不做 N≥3 过滤）
+  const degraded = extractDegradedMarker(notes ?? text)
+  if (degraded) result.degraded = degraded
+
   // 至少抽到一个 propose / challenge / respond / notes 字段视为解析成功
   result.parsed = [propose, challenge, respond, notes].some(v => v !== undefined)
   return result
+}
+
+/**
+ * v4.4.3: 从 NOTES / 全文识别 degraded 标记。
+ * 抽取顺序（早匹配优先）：
+ *   1. "plugin spawn failed after (N) attempts, degraded[: reason]"
+ *   2. "degraded after (N) attempts[: reason]"
+ *   3. "degraded[: reason]"（attempts 视为 1，让 validateRetryProtocol 抓违规）
+ */
+function extractDegradedMarker(text: string): DegradedMarker | undefined {
+  if (typeof text !== 'string' || text.length === 0) return undefined
+  // 规约形式：plugin spawn failed after N attempts, degraded[: reason]
+  let m = text.match(
+    /plugin\s+spawn\s+failed\s+after\s+(\d+)\s+attempt[s]?,?\s*degraded\s*[:：-]?\s*([^\n.]*)/i,
+  )
+  if (m) {
+    return {
+      attempts: parseInt(m[1], 10),
+      reason: m[2].trim() || 'plugin spawn failed',
+    }
+  }
+  // 退化形式：degraded after N attempts[: reason]
+  m = text.match(
+    /degraded\s+after\s+(\d+)\s+attempt[s]?\s*[:：-]?\s*([^\n.]*)/i,
+  )
+  if (m) {
+    return {
+      attempts: parseInt(m[1], 10),
+      reason: m[2].trim() || 'degraded',
+    }
+  }
+  // 极简形式：degraded: reason 或单独 degraded（attempts 缺失记 1，validator 抓违规）
+  m = text.match(/\bdegraded\b\s*[:：-]?\s*([^\n.]*)/i)
+  if (m) {
+    return {
+      attempts: 1,
+      reason: m[1].trim() || 'degraded (no reason given)',
+    }
+  }
+  return undefined
 }
 
 function extractField(text: string, names: string[]): string | undefined {
@@ -325,4 +398,116 @@ function containsNoCritical(s: string | undefined): boolean {
   if (typeof s !== 'string' || s.length === 0) return false
   const lower = s.toLowerCase()
   return NO_CRITICAL_PATTERNS.some(p => lower.includes(p.toLowerCase()))
+}
+
+// ---------------------------------------------------------------------------
+// 6. v4.4.3 Retry Protocol Validator — degraded 协议硬约束
+// ---------------------------------------------------------------------------
+
+/** 协议违规枚举（一种就一条） */
+export type RetryProtocolViolationKind =
+  | 'parse-failed-no-degraded'      // parsed=false 但无 degraded 标记（spawn 静默成功？格式破损？）
+  | 'insufficient-attempts'         // degraded.attempts < 3，违反 3 次重试硬规约
+  | 'missing-reason'                // degraded.reason 为空 / 占位字符串
+  | 'silent-success'                // 全字段空 + 无 degraded（典型 silent fallback 残骸）
+
+export interface RetryProtocolViolation {
+  /** 1-indexed 轮序号（与 DebateRoundPlan.round 对齐） */
+  round: number
+  kind: RetryProtocolViolationKind
+  /** 给主线展示的违规一句话描述 */
+  message: string
+}
+
+export interface RetryProtocolReport {
+  /** 全部 round 都合规即 true */
+  compliant: boolean
+  violations: RetryProtocolViolation[]
+}
+
+/** 协议级 attempts 硬下限（与 templates/commands/debate.md 文档同步） */
+export const REQUIRED_RETRY_ATTEMPTS = 3
+
+const PLACEHOLDER_REASONS = new Set([
+  '',
+  'degraded',
+  'degraded (no reason given)',
+  'unknown',
+  'n/a',
+])
+
+/**
+ * v4.4.3: 校验 RoundSummary 数组是否合规 "3 次重试 + degraded 标记" 协议。
+ *
+ * 设计动机：原 prompt instruction "plugin spawn 失败必须重试 2 次（间隔 5s），
+ * 3 次全败才标 degraded" 是软约束，主线 LLM 倾向跳过（实测 R1 一次 fallback
+ * 就被接受）。本 validator 从 RoundSummary schema 层面抓违规，让 debate
+ * 综合阶段可枚举 / 可观测，并供单测断言。
+ *
+ * 调用约定（templates/commands/debate.md Step 2 综合输出步骤）：
+ *   const report = validateRetryProtocol(累积 RoundSummary[])
+ *   if (!report.compliant) {
+ *     // 主线必须在最终 markdown 输出"协议违规"区段，让用户看见
+ *     // 而不是把违规摘要写进 NOTES 后跑路
+ *   }
+ *
+ * 不做副作用：纯函数，不 throw，不写文件，不修改输入。
+ */
+export function validateRetryProtocol(
+  rounds: RoundSummary[],
+): RetryProtocolReport {
+  const violations: RetryProtocolViolation[] = []
+  if (!Array.isArray(rounds)) {
+    return { compliant: true, violations }
+  }
+
+  for (let i = 0; i < rounds.length; i++) {
+    const r = rounds[i]
+    const round = i + 1
+    const hasContent =
+      (typeof r.propose === 'string' && r.propose.length > 0) ||
+      (typeof r.challenge === 'string' && r.challenge.length > 0) ||
+      (typeof r.respond === 'string' && r.respond.length > 0)
+
+    // V1: parse 失败但无 degraded — spawn 实际怎么了？协议要求标 degraded
+    if (r.parsed === false && !r.degraded) {
+      violations.push({
+        round,
+        kind: 'parse-failed-no-degraded',
+        message: `Round ${round}: parseRoundSummary 返回 parsed=false 但缺 degraded 标记 — spawn 失败应在 NOTES 标 "plugin spawn failed after N attempts, degraded: <reason>"`,
+      })
+      continue
+    }
+
+    // V2: 字段全空 + 无 degraded — 典型 silent fallback 残骸
+    if (!hasContent && !r.degraded && r.parsed === false) {
+      violations.push({
+        round,
+        kind: 'silent-success',
+        message: `Round ${round}: 摘要字段全空且无 degraded 标记 — 疑似 silent fallback / wrapper 自答未抓住`,
+      })
+      continue
+    }
+
+    // 有 degraded 标记的合规性检查
+    if (r.degraded) {
+      if (r.degraded.attempts < REQUIRED_RETRY_ATTEMPTS) {
+        violations.push({
+          round,
+          kind: 'insufficient-attempts',
+          message: `Round ${round}: degraded.attempts=${r.degraded.attempts} 低于协议要求 ${REQUIRED_RETRY_ATTEMPTS} 次 — 违反 "plugin spawn 失败必须重试 2 次（共 3 次）" 硬规约`,
+        })
+      }
+      const reasonLower = (r.degraded.reason || '').trim().toLowerCase()
+      if (PLACEHOLDER_REASONS.has(reasonLower)) {
+        violations.push({
+          round,
+          kind: 'missing-reason',
+          message: `Round ${round}: degraded.reason 为空或占位文本（"${r.degraded.reason}"）— 必须给具体根因（broker timeout / API quota / parse-failed 等）`,
+        })
+      }
+    }
+  }
+
+  return { compliant: violations.length === 0, violations }
 }
