@@ -265,6 +265,32 @@ spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
 
 ---
 
+## P-8: gemini plugin v1.0.1 — `binaryAvailable` (where/which) 闪框
+
+**状态**: 未修
+**受影响**: `gemini@google-gemini` v1.0.1 on Windows
+**触发频率**: 中（每次 plugin 健康检查 binary 是否在 PATH）
+**关联**: 与 P-5 同型，但用 `where`/`which` 命令检查 PATH
+
+### 症状
+
+每次 plugin 启动 / 健康检查时调 `where gemini` (Windows) 或 `which gemini` (POSIX)，spawnSync 没 windowsHide 在 Windows 上闪 cmd 黑窗。
+
+### 根因
+
+`scripts/lib/process.mjs:84` `binaryAvailable(name)` helper：
+
+```javascript
+const result = spawnSync(command, [name], { encoding: "utf8", stdio: "pipe" });
+// 缺 , windowsHide: true
+```
+
+### 临时 patch
+
+改为 `{ encoding: "utf8", stdio: "pipe", windowsHide: true }`。
+
+---
+
 ## P-7: gemini plugin v1.0.1 — `spawnDetached` 公共 helper 闪框
 
 **状态**: 未修

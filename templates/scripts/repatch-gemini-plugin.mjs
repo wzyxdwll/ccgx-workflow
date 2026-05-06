@@ -2,20 +2,20 @@
 /**
  * repatch-gemini-plugin.mjs — Idempotent Windows-spawn patch for
  * gemini@google-gemini plugin (v1.0.1+). Adds `windowsHide: true` (and
- * `shell: process.platform === "win32"` where needed) to all 7 known
+ * `shell: process.platform === "win32"` where needed) to all 8 known
  * spawn points so plugin operations don't flash console windows on
  * Windows. Safe to run repeatedly.
  *
- * Reference: D:/workflow/ccg-workflow/.ccg-migration/PLUGIN-PATCHES.md
+ * Reference: <ccg-workflow>/.ccg-migration/PLUGIN-PATCHES.md
  *
- * Usage (after installing CCG v4.5.1+):
+ * Usage:
  *   node ~/.claude/.ccg/scripts/repatch-gemini-plugin.mjs
+ *   node /path/to/repatch-gemini-plugin.mjs   # standalone
  *
- * Standalone (without CCG install):
- *   curl -fsSL <raw-url-to-this-file> | node
+ * Re-run after every `claude plugin update gemini@google-gemini`.
  *
- * Re-run after every `claude plugin update gemini@google-gemini`
- * (plugin update overwrites cache, all patches must be reapplied).
+ * Patches use regex (not string includes) so they tolerate CRLF/LF line
+ * endings and minor whitespace variations between plugin versions.
  */
 
 import { readdirSync, readFileSync, writeFileSync, existsSync, statSync } from "node:fs";
@@ -58,110 +58,137 @@ console.log(`Patching gemini plugin ${VERSION} at:\n  ${SCRIPTS}\n`);
 
 /**
  * Each patch defines:
- *   file         — relative to scripts/
- *   description  — human-readable patch ID + spawn point
- *   probe        — substring that must EXIST after patch (idempotency check)
- *   find         — exact substring to replace
- *   replace      — replacement
+ *   id          — patch ID for reporting
+ *   file        — relative to scripts/
+ *   description — human-readable
+ *   guard       — regex; if matches → already patched (skip)
+ *   match       — regex; locates spawn call options block
+ *   replace     — replacer function/string for String.replace
  *
- * If `probe` is already present, patch is skipped (already applied).
+ * Regex patterns are CRLF/LF-tolerant via `\r?\n` and `[ \t]+`.
  */
 const PATCHES = [
   {
+    id: "P-1",
     file: "gemini-companion.mjs",
-    description: "P-1 spawnBackgroundWorker (Node task-worker)",
-    probe: 'detached: true,\n    windowsHide: true,\n    stdio: ["ignore", "ignore", "ignore"]',
-    find: 'detached: true,\n    stdio: ["ignore", "ignore", "ignore"]',
-    replace: 'detached: true,\n    windowsHide: true,\n    stdio: ["ignore", "ignore", "ignore"]',
+    description: "spawnBackgroundWorker (Node task-worker)",
+    guard: /spawn\("node"[\s\S]{0,300}windowsHide:\s*true/,
+    match: /(spawn\("node",\s*\[scriptPath,\s*"task-worker",\s*jobId\],\s*\{[\s\S]*?detached:\s*true,)/,
+    replace: '$1\n    windowsHide: true,',
   },
   {
+    id: "P-2a",
     file: "acp-broker.mjs",
-    description: "P-2a spawnAcpProcess (gemini --acp CLI)",
-    probe: 'shell: process.platform === "win32"',
-    find: 'stdio: ["pipe", "pipe", "pipe"],\n    env: process.env\n  });',
-    replace:
-      'stdio: ["pipe", "pipe", "pipe"],\n    env: process.env,\n    // Windows compat: gemini is .cmd script, requires shell:true\n    shell: process.platform === "win32",\n    // Suppress flash cmd window when shell:true on Windows\n    windowsHide: true\n  });',
+    description: "spawnAcpProcess (gemini --acp CLI)",
+    guard: /spawn\("gemini",\s*\["--acp"\][\s\S]{0,400}windowsHide:\s*true/,
+    match: /(spawn\("gemini",\s*\["--acp"\],\s*\{[\s\S]*?env:\s*process\.env)(\r?\n\s*\}\);)/,
+    replace: '$1,\n    shell: process.platform === "win32",\n    windowsHide: true$2',
   },
   {
+    id: "P-2b",
     file: "lib/acp-client.mjs",
-    description: "P-2b ACPClient.spawn (gemini --acp CLI)",
-    probe: 'shell: process.platform === "win32"',
-    find: 'stdio: ["pipe", "pipe", "pipe"]\n    });',
-    replace:
-      'stdio: ["pipe", "pipe", "pipe"],\n      shell: process.platform === "win32",\n      windowsHide: true\n    });',
+    description: "ACPClient.spawn (gemini --acp CLI)",
+    guard: /this\.proc\s*=\s*spawn\("gemini"[\s\S]{0,400}windowsHide:\s*true/,
+    match: /(this\.proc\s*=\s*spawn\("gemini",\s*\["--acp"\],\s*\{[\s\S]*?stdio:\s*\["pipe",\s*"pipe",\s*"pipe"\])(\r?\n\s*\}\);)/,
+    replace: '$1,\n      shell: process.platform === "win32",\n      windowsHide: true$2',
   },
   {
+    id: "P-4",
     file: "lib/broker-lifecycle.mjs",
-    description: "P-4 broker daemon spawn (node serve)",
-    probe: 'detached: true,\n    windowsHide: true,\n    stdio: ["ignore", "ignore", "ignore"]',
-    find: 'detached: true,\n    stdio: ["ignore", "ignore", "ignore"]',
-    replace: 'detached: true,\n    windowsHide: true,\n    stdio: ["ignore", "ignore", "ignore"]',
+    description: "broker daemon spawn (node serve)",
+    guard: /spawn\("node",\s*\[\s*BROKER_SCRIPT[\s\S]{0,500}windowsHide:\s*true/,
+    match: /(spawn\("node",\s*\[\s*BROKER_SCRIPT[\s\S]*?detached:\s*true,)/,
+    replace: '$1\n    windowsHide: true,',
   },
   {
+    id: "P-5",
     file: "lib/process.mjs",
-    description: "P-5 runCommand spawnSync (general helper)",
-    probe: 'stdio: ["pipe", "pipe", "pipe"],\n      windowsHide: true',
-    find: 'stdio: ["pipe", "pipe", "pipe"]\n    });',
-    replace: 'stdio: ["pipe", "pipe", "pipe"],\n      windowsHide: true\n    });',
+    description: "runCommand spawnSync (general helper)",
+    guard: /spawnSync\(command,\s*args,\s*\{[\s\S]*?windowsHide:\s*true/,
+    match: /(spawnSync\(command,\s*args,\s*\{[\s\S]*?stdio:\s*\["pipe",\s*"pipe",\s*"pipe"\])(\r?\n\s*\}\);)/,
+    replace: '$1,\n      windowsHide: true$2',
   },
   {
+    id: "P-6",
     file: "lib/process.mjs",
-    description: "P-6 taskkill spawnSync (terminate tree)",
-    probe: 'spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true })',
-    find: 'spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" })',
-    replace: 'spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true })',
+    description: "taskkill spawnSync (terminate tree)",
+    guard: /spawnSync\("taskkill"[\s\S]*?windowsHide:\s*true/,
+    match: /(spawnSync\("taskkill",\s*\["\/pid",\s*String\(pid\),\s*"\/T",\s*"\/F"\],\s*\{\s*stdio:\s*"ignore")(\s*\})/,
+    replace: '$1, windowsHide: true$2',
   },
   {
+    id: "P-7",
     file: "lib/process.mjs",
-    description: "P-7 spawnDetached helper",
-    probe: "detached: true,\n    windowsHide: true,\n    stdio\n  });",
-    find: "detached: true,\n    stdio\n  });",
-    replace: "detached: true,\n    windowsHide: true,\n    stdio\n  });",
+    description: "spawnDetached helper",
+    guard: /nodeSpawn\(command,\s*args[\s\S]*?windowsHide:\s*true/,
+    match: /(nodeSpawn\(command,\s*args,\s*\{[\s\S]*?detached:\s*true,)/,
+    replace: '$1\n    windowsHide: true,',
+  },
+  {
+    id: "P-8",
+    file: "lib/process.mjs",
+    description: "binaryAvailable (where/which)",
+    guard: /spawnSync\(command,\s*\[name\][\s\S]*?windowsHide:\s*true/,
+    match: /(spawnSync\(command,\s*\[name\],\s*\{\s*encoding:\s*"utf8",\s*stdio:\s*"pipe")(\s*\})/,
+    replace: '$1, windowsHide: true$2',
   },
 ];
 
 let applied = 0;
 let alreadyPatched = 0;
 let notMatched = 0;
+const seenFiles = new Map(); // file -> latest content (so multiple patches per file accumulate)
 
 for (const patch of PATCHES) {
   const path = join(SCRIPTS, patch.file);
   if (!existsSync(path)) {
-    console.log(`  [SKIP] ${patch.description}\n         ${patch.file}: file not found`);
+    console.log(`  [SKIP] ${patch.id} ${patch.description}: ${patch.file} not found`);
     continue;
   }
-  const content = readFileSync(path, "utf8");
 
-  if (content.includes(patch.probe)) {
-    console.log(`  [OK]   ${patch.description} (already patched)`);
+  const content = seenFiles.get(path) ?? readFileSync(path, "utf8");
+
+  if (patch.guard.test(content)) {
+    console.log(`  [OK]    ${patch.id} ${patch.description} (already patched)`);
     alreadyPatched++;
     continue;
   }
 
-  if (!content.includes(patch.find)) {
-    console.log(
-      `  [MISS] ${patch.description}\n         ${patch.file}: find-string not matched (plugin version mismatch?)`,
-    );
+  if (!patch.match.test(content)) {
+    console.log(`  [MISS]  ${patch.id} ${patch.description}: regex did not match (plugin version mismatch?)`);
     notMatched++;
     continue;
   }
 
-  const next = content.replace(patch.find, patch.replace);
-  writeFileSync(path, next, "utf8");
-  console.log(`  [APPLY] ${patch.description}`);
+  const next = content.replace(patch.match, patch.replace);
+  if (next === content) {
+    console.log(`  [MISS]  ${patch.id} ${patch.description}: replace produced no change`);
+    notMatched++;
+    continue;
+  }
+
+  seenFiles.set(path, next);
+  console.log(`  [APPLY] ${patch.id} ${patch.description}`);
   applied++;
+}
+
+// Flush all modified files at once (avoids partial writes on multi-patch files like process.mjs)
+for (const [path, content] of seenFiles) {
+  writeFileSync(path, content, "utf8");
 }
 
 console.log(`\nSummary: ${applied} applied, ${alreadyPatched} already-patched, ${notMatched} unmatched`);
 
-if (platform() === "win32" && (applied > 0 || alreadyPatched > 0)) {
-  console.log("\nIMPORTANT — restart any running broker daemon for new patches to take effect:");
-  console.log("  PowerShell: Get-Process node | Where-Object { $_.MainWindowTitle -like '*broker*' -or (Get-CimInstance Win32_Process -Filter (\"ProcessId=\" + $_.Id)).CommandLine -match 'broker.mjs' } | Stop-Process -Force");
-  console.log("  or simply: claude plugin disable gemini@google-gemini && claude plugin enable gemini@google-gemini");
+if (platform() === "win32" && applied > 0) {
+  console.log("\nIMPORTANT — restart broker daemon for new patches to take effect:");
+  console.log("  Option A: claude plugin disable gemini@google-gemini && claude plugin enable gemini@google-gemini");
+  console.log("  Option B (PowerShell): Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" |");
+  console.log("           Where-Object { $_.CommandLine -match 'acp-broker|broker-lifecycle' } |");
+  console.log("           ForEach-Object { Stop-Process -Id $_.ProcessId -Force }");
 }
 
 if (notMatched > 0) {
   console.log("\nWARNING — some patches did not match. Plugin version may have changed.");
-  console.log("Check spawn points manually and update PLUGIN-PATCHES.md.");
+  console.log("Inspect spawn points manually and update PLUGIN-PATCHES.md.");
   process.exit(1);
 }
