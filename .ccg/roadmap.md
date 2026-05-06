@@ -133,10 +133,14 @@ Wave 5: Phase 8                            (1d)   — release
 - **Mode**: runner
 - **Critical**: true
 
-## Phase 3: Memory stress gate (in_progress)
+## Phase 3: Memory stress gate (completed)
 
 - **Alias**: P1c
-- **Started**: 2026-05-06 13:30
+- **Started**: 2026-05-06 13:30 | **Completed**: 2026-05-06 13:50
+- **Commit**: `1086aca feat(v4.5-p3): nested-rss stress pilot + cap recommendation`
+- **Plan**: `.claude/team-plan/phase-v4.5-03-memory-stress-report.md`
+- **Outcome**: pilot 2/4 矩阵（trivial-single N=3 / plugin-single N=2；4-outer-concurrent deferred via cost guardrail）。RSS slope: trivial 78MB / plugin 117MB（含首 spawn 210MB warmup）；marginal post-warmup **5-15 MB/nested**。CAP_RECOMMENDED=3 写入 quality-router.ts。**关键反向证据**：codex C1 的 200-333MB linear 推导被实测推翻 — 实际是 warmup-dominant + tiny marginal 模式，4-outer concurrent worst case 估 ~1.1GB（远低 codex 4-6.7GB 估算）。
+- **Verify**: G2 GATE PASS ✅ → Phase 6 全功能启用。Critical=false 跳过 challenger。4-outer 实测留 Phase 8 dogfood 自然覆盖。
 - **Goal**: 解决 codex C1。在真 CLI 子进程内跑 5/10/20 次 nested Agent spawn，测 RSS 累积斜率，决定 nested 默认上限（Phase 6 用）
 - **Files**:
   - `tests/poc/nested-rss-stress.ts`（新建）
@@ -152,10 +156,14 @@ Wave 5: Phase 8                            (1d)   — release
 - **Mode**: runner
 - **Critical**: false
 
-## Phase 4: Broker tx_id isolation + 20-way stress (in_progress)
+## Phase 4: Broker tx_id isolation + 20-way stress (completed)
 
 - **Alias**: P1d
-- **Started**: 2026-05-06 13:30
+- **Started**: 2026-05-06 13:30 | **Completed**: 2026-05-06 13:55
+- **Commit**: `285b2ac feat(v4.5-p4): broker-log tx_id schema + 20-way stress test`
+- **Plan**: `.claude/team-plan/phase-v4.5-04-broker-stress-report.md`
+- **Outcome**: src/utils/broker-log.ts ships writer+reader+8 字段强 schema (tx_id via crypto.randomUUID)；launcher 加 CCG_BROKER_TX_ID env 注入。**100k spawn tx_id uniqueness 0 碰撞 / 227ms**；**2000 spawn 4-outer × 5-nested concurrent stress 0 cross-tx misattribution / 79s**。+21 单测。broker.log 现有消费方扫描：**无 legacy consumer 需替换**（v4.4.2 race hazard 是预防性识别）。
+- **Verify**: G3 GATE PASS ✅ → Phase 6 nested plugin spawn 安全启用。主线 inline challenger 5 角度审计（Critical=true）：0 真 critical；1 minor warning（跨平台测试单机器跑，留 Phase 8 dogfood 实证）。
 - **Goal**: 解决 codex C3。v4.4.2 已识别 broker.log 并发 race hazard，nested G-plan 把并发倍增到 20 路。tx_id 必须 128-bit 唯一 + 严格 correlation
 - **Files**:
   - `src/utils/broker-log.ts`（新建）：tx_id 生成（crypto.randomUUID），事件 schema 强约束
@@ -194,9 +202,11 @@ Wave 5: Phase 8                            (1d)   — release
 - **Mode**: runner
 - **Critical**: false
 
-## Phase 6: Nested G-plan opt-in 渐进开启 + launcher wiring (not_started)
+## Phase 6: Nested G-plan opt-in 渐进开启 + launcher wiring (in_progress)
 
 - **Alias**: P1f
+- **Started**: 2026-05-06 14:05
+- **Gate Status**: G2 PASS (P1c CAP=3) + G3 PASS (P1d 100k uniqueness + 2k stress) → 全功能启用
 - **Goal**: Phase 3+Phase 4 验证通过后，把 nested G-plan 变成用户可用 feature。默认关闭，opt-in 启用。**附加责任**（来自 Phase 2 verify）：把 Phase 2 落地的 ccg-phase-runner-launcher.mjs wire 到 autonomous.md spawn 路径，否则 launcher 是 dead code。
 - **Files**:
   - `templates/commands/agents/phase-runner.md`：删除"⚠️ 引擎层硬约束"段（CLI 模式下不再适用），新增"Nested rescue delegation"段
