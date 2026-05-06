@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.5.0] - 2026-05-06 — 🚀 phase-runner Bash subprocess + 三层 OS 进程隔离
+
+> v4.5 把 `Agent(subagent_type="phase-runner")` 主进程内 sidechain spawn 替换为 `Bash(claude -p --agent ccg/phase-runner)` OS-level 子进程。三层进程隔离（主线 → CLI 子进程 → 可选 plugin 进程），治本 v4.4.x main-process RSS leak（uni-iam 实测撞 23GB → v4.5 设计目标 < 8GB）。
+>
+> 8 phase / 5 wave 全 dogfood completed，wall ~3h（vs 估算 10-15d sequential）。两个决策门 G2 (memory) + G3 (broker tx_id) 全 PASS。Cost benchmark 实测验证 D3 budget 三档无需修订。
+
+### ✨ 新功能
+
+- **Phase 1 (P1a, commit `e1f0fab`)**: phase-runner spawn 改 Bash 直调路径。`buildPhaseRunnerBashCommand(phase, brief, jobId)` helper（`src/utils/quality-router.ts`，+224 行）；`autonomous.md` Step 4.2-4.3 模板改写；stream-json 流式输出落 `.context/jobs/<job-id>/progress.jsonl`，主线读 stdout 末行 `result.result` 字段 parse SUMMARY。
+- **Phase 2 (P1b, commit `20fb5fe`)**: process supervisor + recovery。`src/utils/process-tree.ts`（新建，Windows `taskkill /T /F` + POSIX `setsid` 进程组 + 启动 reconciler）；`templates/scripts/ccg-phase-runner-launcher.mjs`（新建，包装 `claude -p`，预 alloc job-id、原子写 state）；`src/utils/jobs.ts` 改原子写（temp + rename）；`templates/commands/cancel.md` 升级 cooperative + grace + kill-tree fallback；`templates/hooks/ccg-session-state.cjs` 加 stale running job reconciler。
+- **Phase 3 (P1c, commit `1086aca`) — G2 PASS**: nested RSS stress gate。pilot 2 矩阵（trivial-single N=3 / plugin-single N=2）。RSS slope: trivial 78MB / plugin 117MB（首 spawn 210MB warmup）；marginal post-warmup **5-15 MB/nested**。**关键发现**：codex C1 200-333MB linear 推导被实测推翻——实际 warmup-dominant + tiny marginal 模式，4-outer concurrent worst case ~1.1GB（远低于 codex 4-6.7GB 估算）。`MAX_NESTED_PER_PHASE = 3` 写入 quality-router。
+- **Phase 4 (P1d, commit `285b2ac`) — G3 PASS**: broker tx_id isolation + 20-way stress。`src/utils/broker-log.ts`（新建，writer + reader + 8 字段强 schema，tx_id via `crypto.randomUUID`）；launcher 注入 `CCG_BROKER_TX_ID` env。**100k spawn tx_id uniqueness 0 碰撞 / 227ms**；**2000 spawn 4-outer × 5-nested concurrent stress 0 cross-tx misattribution / 79s**。
+- **Phase 5 (P1e, commit `c722d08`)**: cost/cache 真实 workdir benchmark。`tests/poc/prompt-cache-bench.ts` + 2 repo（ccg-workflow heavy CLAUDE.md / minimal）× rapid TTL × 5 spawn = 10 真实 claude CLI 子进程数据点。worst p90 single-spawn $0.473 × 7.5 spawn/phase ≈ $3.55 < debate floor $5。**D3 budget 经实测无需修订**（fast=$1 / triple=$2 / debate=$5）。Autonomous 8-phase milestone 真实成本：triple warm $10-15 / cold $15-27。**warm cache critical finding**：minimal cell idx 0-2 each $0.175 → idx 3-4 dropped to $0.024（**86% reduction**）验证 PoC T3 cold→warm 27× 投影。
+- **Phase 6 (P1f, commit `097cda7`)**: nested G-plan opt-in + launcher wiring。`templates/commands/agents/phase-runner.md` 删除 v4.0.1 "⚠️ 引擎层硬约束"段（CLI 子进程模式下 T9 实测失效）+ 新增 "Nested rescue delegation" 段；`quality-router.ts` 加 `nestedRescue?: boolean` field + `parseNestedFlag` / `resolveNestedRescue` / `buildPhaseRunnerLauncherCommand` helpers；`autonomous.md` Step 4.0c "Nested rescue 解析"段 + Step 4.2-4.3 spawn 改用 launcher 包装而非 bare `claude -p`；`status.md` Cancel mode E step 5 调 `process-tree.ts` `killProcessTree`。**默认 `--nested=off` + `useLauncherWiring=false` 100% 等价 v4.5 v1**（commit `285b2ac` baseline，单测 §7 验证）。
+- **Phase 7 (P2, commit `614d742`)**: `/ccg:status` v2 dashboard + tail + 卡点检测。`templates/commands/status.md` 双模式（dashboard + `--tail`）；`src/utils/stream-renderer.ts`（新建，event filter + 单行覆写）；`src/utils/stuck-detector.ts`（新建，3 类警告：相同 tool_call ×3 / single tool >30s / stream stalled >5min）；ASCII-7 progress bar regex enforced（Windows cp936 安全）。
+
+### 🔄 变更
+
+- **PoC D3 fast budget 升级 0.5 → 1.0**（commit `359ea8f`）：T1 实测大 CLAUDE.md 场景 0.5 会 truncate，1.0 留 2.4-7.4× buffer。spec 升级胜过实施回退。
+- **`templates/commands/agents/phase-runner.md` 删除 v4.0.1 "⚠️ 引擎层硬约束"段**（Phase 6）：CLI 子进程模式下 phase-runner 启动后 Agent 工具实测可用（T9 PoC），原约束（subagent 嵌套 spawn 引擎层禁止）只在主进程内 sidechain spawn 模式下成立。
+- **`/ccg:status` 命令面板**：新增 `--tail <job-id>` 模式 + `--cancel <phase-id>` 单 phase cancel。
+- **autonomous CLI flag**：新增 `--nested=on|off`（opt-in 启用 nested G-plan，默认 off）。
+
+### 📊 实测数据
+
+- **测试**: 1100 → **1309**（+204）
+- **tx_id stress**: 100k spawn 0 碰撞 / 2k concurrent 0 misattribution
+- **RSS slope**: marginal 5-15 MB/nested（warmup-dominant）
+- **autonomous milestone real-cost**: triple warm $10-15 / cold $15-27
+- **Wave dogfood**: 5 wave / 8 phase 全 completed，wall ~3h（Wave 2/3 三 phase 并行真实命中）
+
+### ✅ 验证
+
+- `pnpm typecheck` ✓
+- `pnpm test` ✓ **1309/1309**
+- 双 gate G2 (memory) + G3 (broker tx_id) PASS
+- BC 单测：默认 `--nested=off` + `useLauncherWiring=false` 100% 等价 v4.5 v1 baseline
+
+### 🐛 已知未验证项
+
+- **uni-iam 真实环境 RSS < 8GB 验证**：留给用户在 install + 新会话执行（chicken-and-egg：本次 dogfood 的 phase-runner spawn 仍走旧 v4.4.3 Agent 路径；新机制只在 install + 新会话生效）。Release entry criteria 待办：uni-iam 5+ phase autonomous，全程 RSS < 8GB（v4.4.x 同 workload 撞 23GB）。
+- **跨平台 broker.log 验证**：Phase 4 单机器跑 stress，跨 Windows + Linux 一致性留 Phase 8 dogfood 自然覆盖（已留 minor warning）。
+- **debate / impl 路径 silent fallback**：v4.4.3 schema 校验只能事后抓，完全消除需 openclaw 路线（debate 也全 Bash 直调，token 预算硬伤）→ v4.6+ 候选。
+
+### 🔁 升级指引
+
+详见 [`.ccg-migration/v4.4-to-v4.5.md`](./.ccg-migration/v4.4-to-v4.5.md)。
+
+---
+
 ## [4.4.3] - 2026-05-05 — 🔒 silent fallback 治理收尾：verify path 补齐 + debate retry protocol 硬约束
 
 > v4.4.2 在 `verify-orchestrator.planVerifyWave` 加了 `useDirectBashInvocation` 选项让 verify wave 跳过 sonnet wrapper，但 `quality-router.verifyWavePlanToWavePlan` adapter 只挑 4 个字段（agent/role/rationale/ccgPromptFile），**把 `invocationMode` / `bashCommand` drop 了**；`buildVerifyWave` 调 `planVerifyWave` 也未显式传 `useDirectBashInvocation: true`。结果：autonomous Step 4.1 / `triple` / `debate` 档跑 verify wave 时仍走普通 Agent spawn (sonnet wrapper)，silent fallback 风险残留。

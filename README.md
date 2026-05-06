@@ -9,7 +9,7 @@
 [![npm version](https://img.shields.io/npm/v/ccg-workflow.svg)](https://www.npmjs.com/package/ccg-workflow)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Compatible-green.svg)](https://claude.ai/code)
-[![Tests](https://img.shields.io/badge/Tests-1100%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-1309%20passed-brightgreen.svg)]()
 [![Follow on X](https://img.shields.io/badge/X-@CCG__Workflow-black?logo=x&logoColor=white)](https://x.com/CCG_Workflow)
 ![star](https://atomgit.com/fengshao1227/ccg-workflow/star/badge.svg)
 
@@ -132,7 +132,9 @@ Supports: npm, homebrew, curl, powershell, cmd.
 
 | Command | Description |
 |---------|-------------|
-| `/ccg:status [job-id]` | List or query a job (`--wait --timeout-ms` blocks) |
+| `/ccg:status [job-id]` | List or query a job (`--wait --timeout-ms` blocks; v4.5: dashboard mode aggregating multi-phase progress) |
+| `/ccg:status --tail <job-id>` | **v4.5**: stream-json tail mode — single-line overwrite + stuck warnings (3-class detector) |
+| `/ccg:status --cancel <phase-id>` | **v4.5**: single-phase cancel (cooperative + grace + kill-tree fallback) |
 | `/ccg:result <job-id>` | Fetch final verdict / summary / artifacts |
 | `/ccg:cancel <job-id>` | Abort an active job |
 
@@ -172,6 +174,52 @@ Supports: npm, homebrew, curl, powershell, cmd.
 | Command | Description |
 |---------|-------------|
 | `/ccg:init` | Initialize project CLAUDE.md |
+
+## What's New in v4.5 (2026-05-06)
+
+> Full release notes in [CHANGELOG.md](./CHANGELOG.md#450---2026-05-06) · Upgrade guide in [.ccg-migration/v4.4-to-v4.5.md](./.ccg-migration/v4.4-to-v4.5.md)
+
+8-phase / 5-wave dogfood. Headline: **`Agent(subagent_type="phase-runner")` main-process sidechain replaced by `Bash(claude -p --agent ccg/phase-runner)` OS-level subprocess**. Three-layer process isolation treats v4.4.x main-process RSS leak (uni-iam workload measured at 23GB → v4.5 design target < 8GB).
+
+```
+Main claude.exe (orchestrator)
+  └─ Bash(claude -p --agent phase-runner)         L1 OS boundary  ← treats leak
+       └─ CLI subprocess (phase working memory)
+            └─ Agent(codex:codex-rescue) [opt-in] L2 OS boundary  ← --nested=on
+                 └─ plugin process (code edit sandbox)
+```
+
+| Mechanism | Phase | Outcome |
+|-----------|-------|---------|
+| Bash subprocess MVP | P1a (`e1f0fab`) | `buildPhaseRunnerBashCommand` helper + autonomous Step 4.2-4.3 rewrite |
+| Process supervisor + atomic state + reconciler + kill-tree | P1b (`20fb5fe`) | `process-tree.ts` + `ccg-phase-runner-launcher.mjs` + `cancel.md` cooperative + grace + kill-tree |
+| Memory stress gate | P1c (`1086aca`) — **G2 PASS** | RSS slope marginal 5-15 MB/nested (warmup-dominant); CAP=3 enforced |
+| Broker tx_id isolation + 20-way stress | P1d (`285b2ac`) — **G3 PASS** | 100k spawn 0 collision; 2k concurrent 0 misattribution |
+| Cost benchmark | P1e (`c722d08`) | D3 budget tier (fast=$1/triple=$2/debate=$5) **unchanged**; warm cache 86% reduction validated |
+| Nested G-plan opt-in + launcher wiring | P1f (`097cda7`) | `--nested=on|off` flag (default off, 100% BC) |
+| `/ccg:status` v2 | P2 (`614d742`) | Dashboard + `--tail` + 3-class stuck detector (cp936 safe ASCII-7) |
+
+**New flags**:
+
+```bash
+/ccg:autonomous --nested=on     # opt-in nested G-plan (Phase 6 P1f)
+/ccg:status --tail <job-id>     # stream-json tail with stuck warnings
+/ccg:status --cancel <phase-id> # single-phase cooperative cancel + kill-tree
+```
+
+**Cost transparency** (Phase 5 benchmark, real claude CLI subprocess data, n=10 across 2 repos):
+
+| Tier | Per-spawn p90 (heavy CLAUDE.md) | 8-phase milestone (warm cache) | 8-phase (cold cache) |
+|------|---------------------------------|-------------------------------|----------------------|
+| `fast`   | $0.473 | $4-7  | $7-12  |
+| `triple` (default) | $0.473 | $10-15 | $15-27 |
+| `debate` | $0.473 | $15-22 | $22-40 |
+
+Warm cache after ~3 sequential spawns drops cost 86% (validates PoC T3 cold→warm 27× projection). See [`.ccg/poc-v45/cost-cache-bench.md`](./.ccg/poc-v45/cost-cache-bench.md) for full data.
+
+⚠️ **Default behaviour change (small)**: `--nested=off` is default — **100% equivalent to v4.5 v1 (commit 285b2ac baseline)**, single-test §7 verified. Pass `--nested=on` to opt into nested G-plan after gate criteria PASS.
+
+⚠️ **Release entry criteria pending**: uni-iam project 5+ phase autonomous run with claude.exe RSS < 8GB throughout (v4.4.x same workload hit 23GB). Chicken-and-egg: this dogfood's spawn paths still used v4.4.3 Agent path; new mechanism only takes effect on install + new session. See migration guide for the user validation steps.
 
 ## What's New in v4.3 (2026-05-04)
 
@@ -472,4 +520,4 @@ MIT
 
 ---
 
-v4.4.3 | [Issues](https://github.com/fengshao1227/ccg-workflow/issues) | [Contributing](./CONTRIBUTING.md)
+v4.5.0 | [Issues](https://github.com/fengshao1227/ccg-workflow/issues) | [Contributing](./CONTRIBUTING.md)
