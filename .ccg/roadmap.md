@@ -202,11 +202,15 @@ Wave 5: Phase 8                            (1d)   — release
 - **Mode**: runner
 - **Critical**: false
 
-## Phase 6: Nested G-plan opt-in 渐进开启 + launcher wiring (in_progress)
+## Phase 6: Nested G-plan opt-in 渐进开启 + launcher wiring (completed)
 
 - **Alias**: P1f
-- **Started**: 2026-05-06 14:05
+- **Started**: 2026-05-06 14:05 | **Completed**: 2026-05-06 14:20
+- **Commit**: `097cda7 feat(v4.5-p6): nested G-plan opt-in + launcher wiring + status kill-tree`
+- **Plan**: `.claude/team-plan/phase-v4.5-06-nested-gplan-wiring-report.md`
 - **Gate Status**: G2 PASS (P1c CAP=3) + G3 PASS (P1d 100k uniqueness + 2k stress) → 全功能启用
+- **Outcome**: phase-runner.md 删除 v4.0.1 "引擎层硬约束"段（CLI 模式下 T9 实测失效）+ 新增 "Nested rescue delegation" 段；quality-router.ts 加 nested_rescue field + --nested=on|off flag + buildPhaseRunnerBashCommand 输出 launcher 命令（useLauncherWiring=true opt-in）；autonomous.md Step 4.0/4.2-4.3 wire launcher；status.md cancel mode E step 5 调 process-tree.ts killProcessTree。+39 单测，1309 全过。**关键 BC**：默认 --nested=off + useLauncherWiring=false 100% 等价 v4.5 v1 (commit 285b2ac baseline)，单测 §7 验证。
+- **Verify**: 主线 inline challenger 5 角度审计（Critical=true）：0 critical / 0 真 warning。WIRING_VERIFIED grep 4 项全过 (launcher hits / 旧约束 0 hits / nested 段 hits / killProcessTree hits)。E2E dogfood 6 步 plan 留 Phase 8（chicken-and-egg：本次 spawn 仍走旧 Agent path，新机制 install + 新会话才生效）。
 - **Goal**: Phase 3+Phase 4 验证通过后，把 nested G-plan 变成用户可用 feature。默认关闭，opt-in 启用。**附加责任**（来自 Phase 2 verify）：把 Phase 2 落地的 ccg-phase-runner-launcher.mjs wire 到 autonomous.md spawn 路径，否则 launcher 是 dead code。
 - **Files**:
   - `templates/commands/agents/phase-runner.md`：删除"⚠️ 引擎层硬约束"段（CLI 模式下不再适用），新增"Nested rescue delegation"段
@@ -253,9 +257,10 @@ Wave 5: Phase 8                            (1d)   — release
 - **Mode**: runner
 - **Critical**: false
 
-## Phase 8: v4.5.0 release docs + dogfood validation (not_started)
+## Phase 8: v4.5.0 release docs + dogfood validation (in_progress)
 
 - **Alias**: P3
+- **Started**: 2026-05-06 14:25
 - **Goal**: 版本号 bump、CHANGELOG 撰写、迁移指南、最终 dogfood 验证
 - **Files**:
   - `package.json`: 4.4.3 → 4.5.0
