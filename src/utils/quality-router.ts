@@ -111,6 +111,12 @@ export interface PhaseMeta {
    */
   workdir?: string
   jobId?: string
+  /**
+   * v4.5 P1f: phase frontmatter `nested_rescue: true|false` override。
+   * 若设置，优先级高于全局 --nested CLI flag。phase-runner prompt 注入路径
+   * 参见 `resolveNestedRescue()`。
+   */
+  nestedRescue?: boolean
 }
 
 /** 解析 --quality=<tier> flag 的输入 */
@@ -185,6 +191,59 @@ export function resolveQualityTier(input: ResolveInput): {
     return { tier: flag, source: 'cli-flag' }
   }
   return { tier: 'triple', source: 'default' }
+}
+
+// ---------------------------------------------------------------------------
+// 3a. v4.5 P1f — `--nested=on|off` flag 解析 + nestedRescue 优先级
+// ---------------------------------------------------------------------------
+
+/**
+ * v4.5 P1f resolved nested-rescue mode source (mirror of QualityPlan.source 风格).
+ */
+export type NestedRescueSource = 'phase-override' | 'cli-flag' | 'default'
+
+/** `--nested=on|off` 解析输入 */
+export interface ResolveNestedInput {
+  /** Raw CLI args 字符串（可包含 `--nested=on/off`） */
+  cliArgs?: string
+  /** Phase frontmatter `nested_rescue: true|false` */
+  phaseNestedRescue?: boolean
+}
+
+/**
+ * 解析 `--nested=on|off` CLI flag。容错：未提供 / 非法值返回 null。
+ * 接受 `on / off / true / false`（大小写不敏感）。
+ */
+export function parseNestedFlag(args: string | undefined): boolean | null {
+  if (typeof args !== 'string' || args.length === 0) return null
+  const m = args.match(/--nested[=\s]+([a-z]+)/i)
+  if (!m) return null
+  const v = m[1].toLowerCase()
+  if (v === 'on' || v === 'true') return true
+  if (v === 'off' || v === 'false') return false
+  return null
+}
+
+/**
+ * 综合 phase override / cli flag / 默认值确定 nested rescue 启用状态。
+ *
+ * 优先级（高 → 低）：
+ *   1. phase frontmatter `nested_rescue:` 字段（roadmap.md 单 phase 覆盖）
+ *   2. `--nested=on|off` CLI flag
+ *   3. 默认 `false`（保守：与 v4.5 v1 保守路线 100% 等价）
+ */
+export function resolveNestedRescue(input: ResolveNestedInput): {
+  enabled: boolean
+  source: NestedRescueSource
+} {
+  if (typeof input.phaseNestedRescue === 'boolean') {
+    return { enabled: input.phaseNestedRescue, source: 'phase-override' }
+  }
+  const flag = parseNestedFlag(input.cliArgs)
+  if (flag !== null) {
+    return { enabled: flag, source: 'cli-flag' }
+  }
+  return { enabled: false, source: 'default' }
 }
 
 // ---------------------------------------------------------------------------
@@ -316,6 +375,94 @@ export function buildPhaseRunnerBashCommand(
     `--add-dir ${shellSingleQuote(resolvedWorkdir)}`,
     `> ${shellSingleQuote(progressFile)} 2>&1`,
   ]
+  return parts.join(' ')
+}
+
+/** Options for `buildPhaseRunnerLauncherCommand` (v4.5 P1f) */
+export interface BuildPhaseRunnerLauncherOptions {
+  /** Quality tier，决定 launcher --tier；缺省 `triple` */
+  tier?: QualityTier
+  /** override max-budget；优先级高于 tier */
+  maxBudgetUsd?: number
+  /** subprocess cwd；缺省走 phase.workdir，再缺省占位 `<WORKDIR>` */
+  workdir?: string
+  /** stream-json 落盘的 job-id；缺省走 phase.jobId，再缺省占位 `<JOB_ID>` */
+  jobId?: string
+  /** prompt 落盘文件路径；缺省 `.context/jobs/<jobId>/prompt.txt` */
+  promptFile?: string
+  /**
+   * Launcher 安装路径。生产默认 `~/.claude/scripts/ccg-phase-runner-launcher.mjs`
+   * （installer.ts ship 到此处）。tests/dev workflow 可 override。
+   */
+  launcherPath?: string
+  /** SIGTERM→SIGKILL grace ms；缺省 5000（与 launcher 默认一致） */
+  graceMs?: number
+}
+
+/** Default launcher install path (installer.ts ships file here) */
+export const DEFAULT_LAUNCHER_PATH = '~/.claude/scripts/ccg-phase-runner-launcher.mjs'
+
+/**
+ * v4.5 P1f: 构造 launcher 包装的 phase-runner spawn 命令。
+ *
+ * 与 {@link buildPhaseRunnerBashCommand}（裸 `claude -p` 命令）的区别：
+ * 此 helper 输出 `node <launcher> --job-id ... --workdir ... --prompt-file ... --tier ...`
+ * launcher 在 `templates/scripts/ccg-phase-runner-launcher.mjs` 中实现：
+ *   - 写 atomic state.json (含 parent_pid / cli_pid / process_group_id / cwd)
+ *   - POSIX setsid / Windows DETACHED_PROCESS（process tree 可 kill）
+ *   - 协作 cancel.flag + grace + kill-tree
+ *   - terminal state atomic write + reconciler 兼容
+ *   - broker tx_id 注入到子进程 env
+ *
+ * 用于 v4.5 P1f autonomous Step 4.2-4.3 wiring：默认 useDirectBashInvocation=true
+ * 时 impl wave spawn 走此 helper 而非裸 `claude -p`，解锁 Phase 2 supervisor 全部能力。
+ *
+ * @param phase phase 元数据
+ * @param options 其他覆盖项（默认 launcherPath、grace、tier 等）
+ * @returns Bash 命令字符串，含 `> stdout 2>&1` 重定向
+ *
+ * @example
+ *   buildPhaseRunnerLauncherCommand(
+ *     { phaseId: 'phase-6', phaseType: 'backend', workdir: '/d/repo', jobId: 'job-abc' },
+ *     { tier: 'triple' },
+ *   )
+ *   // → node '~/.claude/scripts/ccg-phase-runner-launcher.mjs' \
+ *   //     --job-id 'job-abc' --workdir '/d/repo' \
+ *   //     --prompt-file '.context/jobs/job-abc/prompt.txt' \
+ *   //     --tier 'triple' --grace-ms 5000 \
+ *   //     > '.context/jobs/job-abc/progress.jsonl' 2>&1
+ */
+export function buildPhaseRunnerLauncherCommand(
+  phase: PhaseMeta,
+  options: BuildPhaseRunnerLauncherOptions = {},
+): string {
+  const tier = options.tier ?? phase.quality ?? 'triple'
+  if (!isQualityTier(tier)) {
+    throw new Error(`buildPhaseRunnerLauncherCommand: invalid tier "${tier}"`)
+  }
+
+  const resolvedJobId = options.jobId ?? phase.jobId ?? '<JOB_ID>'
+  const resolvedWorkdir = options.workdir ?? phase.workdir ?? '<WORKDIR>'
+  const promptFile = options.promptFile ?? `.context/jobs/${resolvedJobId}/prompt.txt`
+  const progressFile = `.context/jobs/${resolvedJobId}/progress.jsonl`
+  const launcher = options.launcherPath ?? DEFAULT_LAUNCHER_PATH
+  const graceMs = options.graceMs ?? 5000
+
+  const parts = [
+    `node ${shellSingleQuote(launcher)}`,
+    `--job-id ${shellSingleQuote(resolvedJobId)}`,
+    `--workdir ${shellSingleQuote(resolvedWorkdir)}`,
+    `--prompt-file ${shellSingleQuote(promptFile)}`,
+    `--tier ${shellSingleQuote(tier)}`,
+  ]
+  if (typeof options.maxBudgetUsd === 'number'
+    && Number.isFinite(options.maxBudgetUsd)
+    && options.maxBudgetUsd > 0) {
+    parts.push(`--max-budget-usd ${String(Number(options.maxBudgetUsd.toFixed(4)))}`)
+  }
+  parts.push(`--grace-ms ${String(graceMs)}`)
+  parts.push(`> ${shellSingleQuote(progressFile)} 2>&1`)
+
   return parts.join(' ')
 }
 
@@ -451,13 +598,23 @@ function buildCriticWave(index: number, phase: PhaseMeta): WavePlan {
  * `Bash(claude -p --agent ccg/phase-runner ...)` OS-level 子进程，跳过
  * `Agent(subagent_type="phase-runner")` 主进程 sidechain（治 v4.4.x 主进程
  * RSS leak）。默认 false 保持向后兼容（v4.0~v4.4 Agent spawn 行为）。
+ *
+ * v4.5 P1f: `useLauncherWiring=true` 时 bashCommand 由
+ * {@link buildPhaseRunnerLauncherCommand} 生成，用 launcher 包装而非裸 `claude -p`。
+ * 解锁 Phase 2 supervisor 全部能力（atomic state / process-tree / kill-tree）。
+ * 仅在 useDirectBashInvocation=true 时生效。
  */
 function buildImplWave(
   index: number,
   phase: PhaseMeta,
-  options: { useDirectBashInvocation?: boolean; tier?: QualityTier } = {},
+  options: {
+    useDirectBashInvocation?: boolean
+    useLauncherWiring?: boolean
+    tier?: QualityTier
+  } = {},
 ): WavePlan {
   const useBashDirect = options.useDirectBashInvocation === true
+  const useLauncher = useBashDirect && options.useLauncherWiring === true
   const entry: SpawnEntry = {
     agent: 'phase-runner',
     role: 'implementer',
@@ -465,10 +622,17 @@ function buildImplWave(
   }
   if (useBashDirect) {
     entry.invocationMode = 'bash-direct'
-    // promptText 此处为占位；调用方实际注入 prompt 时按 promptFile 协议落盘
-    entry.bashCommand = buildPhaseRunnerBashCommand(phase, '', phase.jobId, {
-      tier: options.tier,
-    })
+    if (useLauncher) {
+      // P1f: launcher wiring — supervisor 包装路径（默认开启）
+      entry.bashCommand = buildPhaseRunnerLauncherCommand(phase, {
+        tier: options.tier,
+      })
+    } else {
+      // P1a 裸 claude -p 路径（test BC + 显式 opt-out launcher 时使用）
+      entry.bashCommand = buildPhaseRunnerBashCommand(phase, '', phase.jobId, {
+        tier: options.tier,
+      })
+    }
   }
   // 不显式设 invocationMode='agent' —— 保 v4.4 前 schema BC（既有 test 断言
   // non-verify wave spawn entry 的 invocationMode 字段为 undefined）
@@ -635,6 +799,15 @@ export interface PlanWavesOptions {
    *   - verify wave 走 plugin script 直调，跳过 sonnet wrapper
    */
   useDirectBashInvocation?: boolean
+  /**
+   * v4.5 P1f: 当 `useDirectBashInvocation=true` 时，用 ccg-phase-runner-launcher.mjs
+   * 包装 `claude -p` 调用而非直接裸 spawn。解锁 Phase 2 supervisor 全部能力：
+   * atomic state.json / process-tree kill-tree / cancel.flag 协作 / reconciler。
+   *
+   * autonomous Step 4.2-4.3 默认开启。Test / dev workflow 可关闭走 P1a 裸 spawn 路径。
+   * 默认 false 时保持 P1a 裸 `claude -p` BC（v4.5.0 → v4.5.1 升级路径）。
+   */
+  useLauncherWiring?: boolean
 }
 
 /**
@@ -688,6 +861,7 @@ export function planWavesForTier(
   let waveIdx = 1
   const implOpts = {
     useDirectBashInvocation: options.useDirectBashInvocation === true,
+    useLauncherWiring: options.useLauncherWiring === true,
     tier: effective,
   }
 

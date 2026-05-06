@@ -436,11 +436,14 @@ describe('autonomous.md Step 4.0 wave-parallel contract (Phase 14 acceptance a/b
     expect(content).toMatch(/cascade.*skip|cascade.*跳过|skip.*下游|下游.*skip/i)
   })
 
-  it('Step 4.2 phase-runner spawn protocol switched to Bash subprocess (v4.5 P1a)', () => {
-    // v4.5 P1a: Agent(subagent_type="phase-runner") replaced by
-    // Bash(claude -p --agent ccg/phase-runner ...) OS-level subprocess.
-    // Treats v4.4.x main-process RSS leak (23GB / 7.5h crash) at root.
+  it('Step 4.2 phase-runner spawn protocol switched to launcher-wrapped Bash subprocess (v4.5 P1a + P1f)', () => {
+    // v4.5 P1a: Agent(subagent_type="phase-runner") replaced by OS-level subprocess.
+    // v4.5 P1f: bare claude -p replaced by ccg-phase-runner-launcher.mjs wrapper
+    //   (atomic state.json / kill-tree / cancel.flag协作 / reconciler).
     expect(content).toMatch(/--agent\s+ccg\/phase-runner/)
-    expect(content).toMatch(/--output-format\s+stream-json/)
+    // launcher invocation OR raw claude -p (BC) — at least one of:
+    expect(content).toMatch(/ccg-phase-runner-launcher|--output-format\s+stream-json/)
+    // launcher wiring guidance must be present in v4.5 P1f
+    expect(content).toMatch(/ccg-phase-runner-launcher/)
   })
 })

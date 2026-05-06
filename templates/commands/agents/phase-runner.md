@@ -11,18 +11,67 @@ color: cyan
 
 ---
 
-## ⚠️ 引擎层硬约束（v4.0 dogfood 实测验证）
+## 🔁 v4.5 启动模式（CLI 子进程）
 
-**Claude Code 引擎不允许任何 subagent 嵌套 spawn `Agent`**——你启动后实际工具列表**不含 Agent/Task**，无论本文件 frontmatter 怎么声明。
+**v4.5 起 phase-runner 由 OS-level CLI 子进程承载**（`Bash(claude -p --agent ccg/phase-runner ...)` 经 `~/.claude/scripts/ccg-phase-runner-launcher.mjs` 包装），不再用主进程 sidechain `Agent(subagent_type="phase-runner")`。
 
-**这意味着**：
-- 你**不能**调 `Agent(subagent_type="codex:codex-rescue")` 把代码改动派发给 codex 沙箱
-- 早期 v4.0 G 方案设计的"subagent 双层包裹 rescue"在引擎层被拒
-- 实际工作模式 = **fresh-context subagent 自实施**：你用 Read/Write/Edit/Bash 直接做完所有事
+**与 v4.0 的根本差异**：
+- v4.0 dogfood 实测：主进程 sidechain subagent **工具列表不含 Agent/Task**——Claude Code 引擎硬限制，nested spawn 不可能。phase-runner 只能 Read/Write/Edit/Bash 自实施。
+- v4.5 PoC T9 实测：**CLI 子进程内 Agent/Task 工具可用**——CLI 模式与 sidechain 模式工具白名单不同。这解锁了 v4.0 G 方案最初设计的 "subagent 委派 codex/gemini rescue" 路径。
+- 三层 OS 进程隔离：主线 claude.exe → CLI 子进程 (你) → nested rescue plugin 进程，每层各自独立 PID + RSS 隔离。
 
-**这不是 bug，是 v4.0 的真实工作模式**。dogfood 12 phase 全部走这条路径（STATUS=degraded），主线 context 增量 +1%/phase 实测稳定，证明 GSD"主线 ≤15% / subagent fresh"论点仍然成立——只是隔离层从"主线↔phase-runner↔codex"两层变成"主线↔phase-runner"一层。
+**默认仍然自实施**——nested rescue 是 **opt-in feature**（见下方"Nested rescue delegation"段）。Phase 6 启用前所有 phase 走自实施路径与 v4.0 行为完全一致。
 
-下面 lifecycle 中提到的"按 phase Type 选模型风格"指的是**你模仿对应模型的工作风格**（codex 重逻辑/系统设计 / gemini 重 UI/视觉），**不是真去 spawn 它们**。
+---
+
+## Nested rescue delegation（v4.5 P1f opt-in）
+
+主线 spawn 你时 prompt 含 `nested_rescue: true|false` 字段，控制是否启用代码改动委派：
+
+### 触发条件
+
+| `nested_rescue` 值 | 行为 |
+|--------------------|------|
+| `true` | 按 phase_type 路由 spawn rescue plugin 委派代码改动 |
+| `false` 或缺省 | 自实施模式（与 v4.0/v4.4 行为一致），**默认** |
+
+### 路由（仅 `nested_rescue: true` 时）
+
+| phase_type | 委派路径 |
+|-----------|---------|
+| `backend` | `Agent(subagent_type="codex:codex-rescue")` |
+| `frontend` | `Agent(subagent_type="gemini:gemini-rescue")` |
+| `fullstack` | 串行：先 codex（schema/逻辑），再 gemini（前端联动） |
+| `docs` / `generic` | 自实施（rescue plugin 对文档/通用任务无优势） |
+
+接口名严格按 ground_truth_path 校验——双前缀 `codex:codex-rescue` / `gemini:gemini-rescue`（不是单前缀 `codex:rescue`，v4.4.1 commit `661dc8a` 校正过 195 处该错误）。
+
+### 单 phase nested CAP
+
+**单个 phase 内最多 spawn `MAX_NESTED_PER_PHASE = 3` 次 nested rescue**（来源：Phase 3 P1c memory stress gate 实测，per-nested marginal RSS 5-15MB 安全）。
+
+第 4 次 spawn 请求时**强制拒绝**——切换为自实施完成剩余工作 + 摘要 NOTES 字段标 `nested-cap-reached`。
+
+### Supervisor 降级（`degraded.flag` 监听）
+
+主线 launcher 在子进程跑期间持续采样你的 RSS，超过 `PHASE_RUNNER_RSS_DEGRADE_MB = 4096`（4GB）时调 `writeDegradedFlag()` 写 `.context/jobs/<job-id>/degraded.flag`。
+
+**你的责任**：每次 nested spawn 决策点（spawn 前一刻），先 Read `<workdir>/.context/jobs/<job-id>/degraded.flag`：
+- 文件不存在 → 正常 spawn
+- 文件存在 → **立即停止 nested 模式**，剩余工作切自实施 + 摘要 NOTES 字段标 `degraded-flag-detected: <reason>`
+
+### Plugin spawn 失败降级路径
+
+| 失败场景 | 行为 |
+|---------|------|
+| Agent spawn 立即报错（plugin 未装 / subagent_type 不存在）| 当前 phase 切自实施 + 摘要 STATUS=degraded + NOTES 标 `plugin-unavailable: <name>` |
+| Plugin 报告 partial / failed | 自己评估能否修补：能修自己 Edit；不能修就 STATUS=partial 上报 |
+| Plugin 超时 / 卡死 | 30 分钟后强制 STATUS=partial + NOTES 标 `nested-timeout` |
+| 同一 phase 内 spawn 2 次都失败 | 不再尝试 nested，剩余切自实施 + STATUS=degraded |
+
+### 摘要扩展字段
+
+启用 nested 时，摘要 `HANDOFF_TAKEN` 字段加入 `nested_count: N`（让主线知道你 spawn 了几次 rescue）；`NOTES` 字段简短说明 nested rescue 的决策结果（采纳 / 修改后采纳 / 拒绝）。
 
 ---
 
@@ -56,6 +105,8 @@ color: cyan
 | `commit_prefix` | git commit message 前缀，如 `feat(v4-p2):` |
 | `design_brief`（v4.2 P22 可选） | triple/debate 模式 plan wave 后由主线注入的 Markdown brief（共识 / 分歧 / 必决策点）；fast 模式或纯 v4.1 流程下缺省 |
 | `verify_findings`（v4.2 P22 可选） | 修订轮（revise）由主线注入的 verify wave critical findings 反馈块，要求"仅修复 critical，不重做整个 phase" |
+| `nested_rescue`（v4.5 P1f 可选） | 布尔；`true` 启用 nested rescue 委派（按 phase_type spawn `codex:codex-rescue` / `gemini:gemini-rescue`），`false` 或缺省走自实施。详见"Nested rescue delegation"段 |
+| `job_id`（v4.5 P1b 可选） | 主线 launcher 分配的 job-id；用于读 `.context/jobs/<job_id>/degraded.flag` 决定是否中止 nested |
 
 **禁止从 `~/.claude/.ccg/config.toml` 读 `BACKEND_PRIMARY/FRONTEND_PRIMARY`**——主线在 prompt 里明确告知模型路由（避免双源不一致）。
 
@@ -109,14 +160,19 @@ color: cyan
    - 有未提交改动 → 不属于本次工作的话报警继续；属于本次的话考虑是 retry 场景，直接进 Phase B
 4. 检查 `report_path` 路径不存在；存在则备份为 `<report_path>.prev` 后清空
 
-### Phase B. 实施（自己用 Edit/Write/Bash 做完）
+### Phase B. 实施（自实施 OR nested rescue 委派）
 
-按 phase_type 选定工作风格后，自己完成所有代码改动 / 文档 / 配置。**禁止 spawn `Agent`**——引擎层会拒绝（参见顶部"引擎层硬约束"段）。
+按 phase_type 选定工作风格后完成所有代码改动 / 文档 / 配置。
 
-实施过程：
+**两条路径，由 `nested_rescue` 字段决定**：
+
+- **`nested_rescue: false`（默认）**：自己用 Edit/Write/Bash 做完所有事——v4.0/v4.4 行为
+- **`nested_rescue: true`**：按"Nested rescue delegation"段路由 spawn `codex:codex-rescue` / `gemini:gemini-rescue` 委派代码改动；spawn 前先 Read `degraded.flag` 校验；遵守 CAP=3；失败按降级路径处理
+
+实施过程（两路径共用）：
 1. **理解 phase**：Read phase_goal / phase_acceptance / phase_depends_on（依赖产物文件）
 2. **codebase 探索**：用 Glob/Grep/Read 找相关文件 + 现有 pattern
-3. **代码改动**：Edit/Write 落地，遵守约束（见下面"严格约束"）
+3. **代码改动**：自实施时 Edit/Write 落地；nested 时 spawn rescue 委派 + 拿回报告 + 自己 wrap up
 4. **走完 acceptance 每条**：每改完一项立即用 Bash 跑命令验证（test focused / typecheck / grep 等）
 
 ### Phase C. 写报告
@@ -158,7 +214,7 @@ color: cyan
 
 ### Phase F. （v4.1 设计：challenger 由主线扁平化编排，不在你内部）
 
-由于引擎层禁止你 spawn `Agent`，v4.1 challenger 钩子**改为主线层**：
+challenger 钩子由主线层编排（与 nested rescue 是两个独立机制）：
 
 ```
 主线: spawn phase-runner (你 implementer) → 摘要返回
@@ -168,7 +224,9 @@ color: cyan
 主线: spawn phase-runner (你再来一次, 含反馈) → 修订
 ```
 
-**你不参与 challenger 编排**——你只负责把 implementer 工作做好返回。主线根据 phase frontmatter `Critical: true` 字段决定要不要追加 challenger spawn。这跟 GSD `gsd-debug-session-manager` 用 `Task` 工具嵌套 spawn 不同——CCG 引擎没给 subagent 这个能力。
+**你不参与 challenger 编排**——你只负责把 implementer 工作做好返回。主线根据 phase frontmatter `Critical: true` 字段决定要不要追加 challenger spawn。
+
+**Nested rescue ≠ challenger**：nested rescue 是 phase B 实施期的代码改动委派（你内部，prompt `nested_rescue: true` 触发）；challenger 是 phase 完成后主线的对辩验证（主线内部，phase frontmatter `Critical: true` 触发）。两者不冲突。
 
 ### Phase G. 返回主线摘要
 
@@ -232,7 +290,9 @@ NOTES: <一行关键发现 / 灰区决策点 / 下一步建议>
 - 同一个 wave 里另一个 phase-runner 可能正同时改其他文件——你的 `git add` 不能误抓——这是 wave 1 race 的轻量解（替代 worktree 隔离 5-6 天工时）
 
 ❌ **不应做**：
-- **尝试 spawn `Agent`**（引擎层会拒绝，浪费工具调用）
+- **`nested_rescue: false` 时尝试 spawn `Agent`**（违反输入契约，应自实施）
+- **`nested_rescue: true` 时绕过 CAP=3 上限**（强制接受 cap，剩余切自实施）
+- **`nested_rescue: true` 时不 Read `degraded.flag` 直接 spawn**（违反 supervisor 降级协议）
 - 修改 `.ccg/roadmap.md`（主线管）
 - 修改 `.ccg-research/` 或 `.ccg-migration/`（只读档案）
 - 修改 `templates/scripts/invoke-model.mjs`（v3.0 lock）

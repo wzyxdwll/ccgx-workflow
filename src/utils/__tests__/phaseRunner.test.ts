@@ -25,18 +25,21 @@ describe('phase-runner.md template (Phase 1.5 acceptance a)', () => {
     expect(content).toMatch(/^---[\s\S]*?name:\s*phase-runner[\s\S]*?---/m)
   })
 
-  it('does NOT declare Agent in tools list (engine forbids subagent nest-spawn, see v4.0 dogfood validation 2026-05-04)', () => {
-    // Original v4.0 design wrote `tools: ..., Agent` but Phase test phase-runner-nested-spawn
-    // verified the Claude Code engine does not honor this for sub-agent contexts. Removed to
-    // avoid misleading future maintainers into expecting nested-spawn capability.
+  it('does NOT declare Agent in tools list frontmatter (CLI subprocess mode auto-grants Agent at runtime)', () => {
+    // v4.0/v4.1 dogfood: subagent sidechain mode forbade nested Agent spawn.
+    // v4.5 PoC T9 实测: CLI subprocess mode unlocks Agent tool natively. The
+    // frontmatter `tools:` line stays minimal — runtime tool whitelist is
+    // determined by spawn mode, not frontmatter declaration.
     const toolsLine = content.match(/^tools:\s*(.+)$/m)?.[1] ?? ''
     expect(toolsLine).not.toMatch(/\bAgent\b/)
     expect(toolsLine).not.toMatch(/\bTask\b/)
   })
 
-  it('documents the engine-layer constraint (subagent cannot nest-spawn Agent)', () => {
-    // Top of file should now include a section explaining why Agent isn't in tools.
-    expect(content).toMatch(/引擎层硬约束|cannot nest-spawn|不能嵌套 spawn/i)
+  it('documents v4.5 CLI subprocess startup mode (P1a) + nested rescue delegation (P1f)', () => {
+    // v4.5 P1a: phase-runner now runs as OS-level CLI subprocess, not sidechain Agent.
+    // v4.5 P1f: nested rescue delegation opt-in via prompt field nested_rescue.
+    expect(content).toMatch(/CLI 子进程|CLI subprocess/i)
+    expect(content).toMatch(/Nested rescue delegation|nested_rescue/)
   })
 
   it('contains Type → work-style guidance (no rescue routing — engine layer forbids that)', () => {

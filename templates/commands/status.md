@@ -138,12 +138,25 @@ done
 2. 写 `.context/jobs/<job-id>/cancel.flag` —— 内容 `phase=<phase-id>\nrequested-at=<iso>`
 3. 翻 `state.cancel_requested=true`
 4. **5 秒 grace 等待** —— 给 phase-runner 子进程读 cancel.flag 优雅退出
-5. 5s 后子进程仍 running → 调用 process-tree kill-tree（**Phase 2 P1b 提供 `src/utils/process-tree.ts`**）
+5. 5s 后子进程仍 running → 调用 `killProcessTree({ pid: state.cli_pid, pgid: state.process_group_id, graceMs: 5000 })`（来自 `src/utils/process-tree.ts`，v4.5 P1b 已落地，P1f wired）
 6. 输出最终结果：`canceled gracefully` / `force-killed pid=N` / `not found`
 
-⚠️ **软依赖 Phase 2**：本 phase 与 Phase 2 (P1b) 并发实施。若 Phase 2 process-tree.ts 还没 ready：
-- step 1-4 即可工作（cancel.flag 协议 v4.0 已存在）
-- step 5 留 TODO 标记 `[v4.5-p2-pending]`，Phase 2 完成后串
+**实施样板**（主线 LLM 用 Bash + node -e 调用 helper）：
+
+```bash
+# Step 5: kill-tree on POSIX/Windows
+PID=$(node -e "console.log(JSON.parse(require('fs').readFileSync('.context/jobs/${JOBID}/state.json')).cli_pid || '')")
+if [ -n "$PID" ]; then
+  node -e "
+    const { killProcessTree } = require('~/.claude/.ccg/dist/index.mjs');
+    killProcessTree({ pid: ${PID}, graceMs: 5000 }).then(r => {
+      console.log(JSON.stringify(r));
+    });
+  "
+fi
+```
+
+Windows: `taskkill /T /F /PID <pid>` 内置；POSIX: SIGTERM 进程组 → 5s grace → SIGKILL（详见 `src/utils/process-tree.ts` `killProcessTree()`）。
 
 ## 严格约束
 
@@ -182,7 +195,7 @@ const { listJobs, getJob, requestCancel } = require('~/.claude/.ccg/dist/index.m
 - `src/utils/jobs.ts` — `listJobs / getJob / requestCancel`
 - `src/utils/stream-renderer.ts`（v4.5 P7） — `renderJsonl / renderEvent / progressBar / formatElapsed`
 - `src/utils/stuck-detector.ts`（v4.5 P7） — `detectStuck / hasStuckWarning`
-- `src/utils/process-tree.ts`（v4.5 P2，软依赖） — `killTree`
+- `src/utils/process-tree.ts`（v4.5 P1b 落地 + P1f wired） — `killProcessTree / sampleProcessRssMb / writeDegradedFlag / readDegradedFlag / reconcileStaleJobs`
 
 v4.x 暂未把 `dist/` 暴露给命令模板，主线 LLM 走 Bash + Read 等价行为：
 
