@@ -19,10 +19,13 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   statSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
+import { randomBytes } from 'node:crypto'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -121,6 +124,45 @@ function validateJobState(state: unknown): asserts state is JobState {
 }
 
 // ---------------------------------------------------------------------------
+// Atomic write helper (v4.5 P1b — codex C2 row "any process crash leaves no
+// half-written JSON"). Writes to `<target>.tmp.<rand>` then `rename` into place.
+// `rename` is atomic on POSIX and behaves atomically on Windows when both
+// paths are on the same volume (see codeagent-wrapper precedent + Node docs).
+//
+// Failure modes covered:
+//   - power loss / SIGKILL between open and write → tmp file orphaned, target
+//     untouched (next reader sees previous valid state)
+//   - SIGKILL during rename → either tmp or target survives intact
+//   - parallel writers → last-rename-wins; never a partial JSON observed
+// ---------------------------------------------------------------------------
+
+/**
+ * Atomically write `content` to `target`. Internally writes to a sibling temp
+ * file and renames into place. Throws on I/O error; never leaves a half-written
+ * `target` file even if interrupted between the two syscalls.
+ *
+ * Caller is responsible for ensuring the parent directory exists.
+ *
+ * Idempotent w.r.t. orphaned temp files: a stale `<target>.tmp.<rand>` from a
+ * prior crash does not block fresh writes (tmp uses fresh random suffix).
+ */
+export function atomicWriteFileSync(target: string, content: string): void {
+  // 12 hex chars (48 bits) — collision-free for any realistic concurrency.
+  const rand = randomBytes(6).toString('hex')
+  const tmp = `${target}.tmp.${rand}`
+  try {
+    writeFileSync(tmp, content, 'utf-8')
+    renameSync(tmp, target)
+  }
+  catch (err) {
+    // Best-effort cleanup of the orphan; ignore if already gone.
+    try { unlinkSync(tmp) }
+    catch { /* nothing to clean up */ }
+    throw err
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Read / write
 // ---------------------------------------------------------------------------
 
@@ -135,7 +177,11 @@ export function writeJobState(workdir: string, state: JobState): void {
     mkdirSync(dir, { recursive: true })
   }
   const updated: JobState = { ...state, last_update: new Date().toISOString() }
-  writeFileSync(jobStatePath(workdir, state.task_id), JSON.stringify(updated, null, 2), 'utf-8')
+  // v4.5 P1b: atomic write — codex C2 "state.json never half-written under crash"
+  atomicWriteFileSync(
+    jobStatePath(workdir, state.task_id),
+    JSON.stringify(updated, null, 2),
+  )
 }
 
 /**
@@ -212,7 +258,8 @@ export function writeJobResult(workdir: string, jobId: string, body: string): vo
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true })
   }
-  writeFileSync(jobResultPath(workdir, jobId), body, 'utf-8')
+  // v4.5 P1b: atomic write — never observe a half-written final result blob.
+  atomicWriteFileSync(jobResultPath(workdir, jobId), body)
 }
 
 // ---------------------------------------------------------------------------
@@ -238,7 +285,12 @@ export function requestCancel(workdir: string, jobId: string): JobState {
   if (existing.status === 'done' || existing.status === 'failed' || existing.status === 'canceled') {
     throw new Error(`Cannot cancel job ${jobId}: already ${existing.status}`)
   }
-  writeFileSync(jobCancelFlagPath(workdir, jobId), `cancel-requested-at: ${new Date().toISOString()}\n`, 'utf-8')
+  // v4.5 P1b: atomic write — cancel.flag presence is the cooperative-cancel
+  // contract; a half-written flag would confuse pollers.
+  atomicWriteFileSync(
+    jobCancelFlagPath(workdir, jobId),
+    `cancel-requested-at: ${new Date().toISOString()}\n`,
+  )
   const updated: JobState = { ...existing, cancel_requested: true }
   writeJobState(workdir, updated)
   return updated

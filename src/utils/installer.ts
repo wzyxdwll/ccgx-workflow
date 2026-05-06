@@ -576,6 +576,20 @@ async function installShim(ctx: InstallContext): Promise<void> {
       await fs.chmod(destMjs, 0o755)
     }
 
+    // 1b. v4.5 P1b: ship phase-runner launcher alongside invoke-model. The
+    //     autonomous template + cancel.md spawn it via
+    //     `node ~/.claude/.ccg/scripts/ccg-phase-runner-launcher.mjs ...`.
+    //     Optional file — absence is non-fatal (older deployments stay on
+    //     direct `Bash(claude -p ...)` from buildPhaseRunnerBashCommand).
+    const srcLauncher = join(ctx.templateDir, 'scripts', 'ccg-phase-runner-launcher.mjs')
+    if (await fs.pathExists(srcLauncher)) {
+      const destLauncher = join(scriptDir, 'ccg-phase-runner-launcher.mjs')
+      await fs.copy(srcLauncher, destLauncher, { overwrite: true })
+      if (process.platform !== 'win32') {
+        await fs.chmod(destLauncher, 0o755)
+      }
+    }
+
     // 2. Clean up any stale Go binary from v1.x/v2.x
     for (const stale of ['codeagent-wrapper.exe', 'codeagent-wrapper']) {
       const stalePath = join(binDir, stale)

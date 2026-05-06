@@ -25,6 +25,7 @@
 
 const fs = require('fs')
 const path = require('path')
+const crypto = require('crypto')
 
 // ---------------------------------------------------------------------------
 // Pure helpers (exported for unit tests via ccgSessionStateHookExports)
@@ -187,6 +188,188 @@ function composeMessage(head, active, summary, counts) {
   return msg
 }
 
+// ---------------------------------------------------------------------------
+// v4.5 P1b — startup reconciler (inlined CJS twin of src/utils/process-tree.ts).
+//
+// The hook MUST stay self-contained (see top-of-file comment). We duplicate
+// the minimal logic rather than `require('../../src/utils/process-tree')` —
+// the hook is shipped to ~/.claude/hooks/ where TS source is unavailable.
+//
+// Behaviour matrix (mirrors process-tree.ts reconcileStaleJobs):
+//   - .context/jobs/* missing                         → no-op (return empty)
+//   - state.status terminal (done/failed/canceled)    → no-op
+//   - cli_pid alive                                   → no-op
+//   - cli_pid dead AND result.md present              → adopt-result
+//   - cli_pid dead AND no result.md                   → mark-failed-stale
+//   - status=running but no cli_pid (legacy)          → mark-failed-no-result
+// ---------------------------------------------------------------------------
+
+function isAlivePid(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  }
+  catch (err) {
+    if (err && err.code === 'EPERM') return true
+    return false
+  }
+}
+
+function atomicWriteFileSync(target, content) {
+  const rand = crypto.randomBytes(6).toString('hex')
+  const tmp = `${target}.tmp.${rand}`
+  try {
+    fs.writeFileSync(tmp, content, 'utf-8')
+    fs.renameSync(tmp, target)
+  }
+  catch (err) {
+    try { fs.unlinkSync(tmp) }
+    catch { /* nothing to clean up */ }
+    throw err
+  }
+}
+
+function reconcileStaleJobs(cwd, options) {
+  const opts = options || {}
+  const isAlive = opts.isAliveFn || isAlivePid
+  const now = typeof opts.nowMs === 'number' ? opts.nowMs : Date.now()
+  const reuseAgeMs = typeof opts.pidReuseAgeMs === 'number'
+    ? opts.pidReuseAgeMs
+    : 24 * 60 * 60 * 1000
+
+  const root = path.join(cwd, '.context', 'jobs')
+  const report = { scanned: 0, entries: [] }
+  if (!fs.existsSync(root)) return report
+
+  let dirs
+  try { dirs = fs.readdirSync(root) }
+  catch { return report }
+
+  for (const id of dirs) {
+    const sub = path.join(root, id)
+    let isDir = false
+    try { isDir = fs.statSync(sub).isDirectory() }
+    catch { continue }
+    if (!isDir) continue
+
+    const statePath = path.join(sub, 'state.json')
+    if (!fs.existsSync(statePath)) continue
+
+    let state
+    try {
+      state = JSON.parse(fs.readFileSync(statePath, 'utf-8'))
+    }
+    catch {
+      // Corrupt — skip silently; getJob() in src will surface to the user.
+      continue
+    }
+    report.scanned += 1
+
+    if (
+      state.status === 'done'
+      || state.status === 'failed'
+      || state.status === 'canceled'
+    ) {
+      report.entries.push({ jobId: id, action: 'no-op', reason: 'terminal status' })
+      continue
+    }
+
+    if (typeof state.cli_pid !== 'number') {
+      const updated = Object.assign({}, state, {
+        status: 'failed',
+        summary: 'reconciler: legacy job without cli_pid; cannot verify liveness',
+        last_update: new Date().toISOString(),
+      })
+      try { atomicWriteFileSync(statePath, JSON.stringify(updated, null, 2)) }
+      catch { /* swallow — never block session start */ }
+      report.entries.push({
+        jobId: id,
+        action: 'mark-failed-no-result',
+        reason: 'no cli_pid recorded',
+      })
+      continue
+    }
+
+    const alive = isAlive(state.cli_pid)
+    let pidProbablyReused = false
+    if (alive && state.started_at) {
+      const startedMs = Date.parse(state.started_at)
+      if (Number.isFinite(startedMs) && (now - startedMs) > reuseAgeMs) {
+        pidProbablyReused = true
+      }
+    }
+
+    if (alive && !pidProbablyReused) {
+      report.entries.push({ jobId: id, action: 'no-op', reason: 'cli_pid alive' })
+      continue
+    }
+
+    const resultPath = path.join(sub, 'result.md')
+    if (fs.existsSync(resultPath)) {
+      const updated = Object.assign({}, state, {
+        status: 'done',
+        summary: 'reconciler: cli_pid not alive; adopted result.md after orphan recovery',
+        last_update: new Date().toISOString(),
+      })
+      try { atomicWriteFileSync(statePath, JSON.stringify(updated, null, 2)) }
+      catch { /* swallow */ }
+      report.entries.push({
+        jobId: id,
+        action: 'adopt-result',
+        reason: pidProbablyReused
+          ? 'pid reuse suspected; result.md present'
+          : 'cli_pid dead; result.md present',
+      })
+      continue
+    }
+
+    const updated = Object.assign({}, state, {
+      status: 'failed',
+      summary: pidProbablyReused
+        ? 'reconciler: cli_pid suspected reused; no result.md found'
+        : 'reconciler: cli_pid dead; no result.md found',
+      last_update: new Date().toISOString(),
+    })
+    try { atomicWriteFileSync(statePath, JSON.stringify(updated, null, 2)) }
+    catch { /* swallow */ }
+    report.entries.push({
+      jobId: id,
+      action: 'mark-failed-stale',
+      reason: pidProbablyReused
+        ? 'pid reuse + no result'
+        : 'cli_pid dead + no result',
+    })
+  }
+
+  return report
+}
+
+/**
+ * Compose a one-line reconciler summary for injection into additionalContext.
+ * Returns null when nothing of interest happened (so the hook stays quiet for
+ * fresh / clean sessions).
+ */
+function summarizeReconciliation(report) {
+  if (!report || report.scanned === 0) return null
+  const counts = { 'mark-failed-stale': 0, 'mark-failed-no-result': 0, 'adopt-result': 0 }
+  for (const e of report.entries) {
+    if (counts[e.action] !== undefined) counts[e.action] += 1
+  }
+  const interesting = counts['mark-failed-stale']
+    + counts['mark-failed-no-result']
+    + counts['adopt-result']
+  if (interesting === 0) return null
+  const parts = []
+  if (counts['mark-failed-stale'])
+    parts.push(`${counts['mark-failed-stale']} stale-failed`)
+  if (counts['mark-failed-no-result'])
+    parts.push(`${counts['mark-failed-no-result']} no-pid-failed`)
+  if (counts['adopt-result'])
+    parts.push(`${counts['adopt-result']} adopted-result`)
+  return `Reconciled ${interesting}/${report.scanned} jobs: ${parts.join(', ')}.`
+}
+
 /**
  * Build the additionalContext string for a given workdir. Returns null if the
  * cwd is not a CCG project (no .ccg/roadmap.md). Never throws.
@@ -226,7 +409,24 @@ function buildAdditionalContext(cwd) {
     }
   }
 
-  return composeMessage(head, active, summary, counts)
+  let baseMsg = composeMessage(head, active, summary, counts)
+
+  // v4.5 P1b: run startup reconciler over .context/jobs/* and append a one-line
+  // summary if anything was reconciled. Reconciler never throws — it swallows
+  // I/O errors so a flaky filesystem can't block session start.
+  let reconcileLine = null
+  try {
+    const report = reconcileStaleJobs(cwd)
+    reconcileLine = summarizeReconciliation(report)
+  }
+  catch {
+    reconcileLine = null
+  }
+  if (reconcileLine) {
+    baseMsg = `${baseMsg}\n${reconcileLine}`
+    if (baseMsg.length > 800) baseMsg = `${baseMsg.slice(0, 797)}...`
+  }
+  return baseMsg
 }
 
 // ---------------------------------------------------------------------------
@@ -302,4 +502,9 @@ module.exports = {
   parseSummaryFrontmatter,
   composeMessage,
   buildAdditionalContext,
+  // v4.5 P1b additions:
+  isAlivePid,
+  atomicWriteFileSync,
+  reconcileStaleJobs,
+  summarizeReconciliation,
 }
