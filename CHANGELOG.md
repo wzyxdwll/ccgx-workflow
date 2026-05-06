@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.5.1] - 2026-05-06 — 🐛 Hotfix: launcher path namespace + plugin known-issue 文档化
+
+### 🐛 修复
+
+- **launcher path .ccg/ namespace 修正**（commit `79cf8b4`）：v4.5.0 release 后 install 验证发现 8 处文件引用 `~/.claude/scripts/ccg-phase-runner-launcher.mjs` 但 installer 实际装到 `~/.claude/.ccg/scripts/`（v1.7.75 起 CCG namespace 隔离）。新机制启用后会 file not found，拖累 release entry 验证。修正 6 文件：`templates/commands/agents/phase-runner.md` / `templates/commands/autonomous.md` / `templates/scripts/ccg-phase-runner-launcher.mjs` / `src/utils/quality-router.ts` (含 `DEFAULT_LAUNCHER_PATH` const) / `src/utils/__tests__/launcherSupervisor.test.ts`。**抓在 install 阶段**，没等 uni-iam dogfood 才暴露。
+
+### 📝 文档
+
+- **新建 [`.ccg-migration/PLUGIN-PATCHES.md`](./.ccg-migration/PLUGIN-PATCHES.md)** — 上游 plugin known issue + 本地 patch 步骤持续维护文档。CCG 自身代码无法控制 plugin 行为，但用户机器上的 plugin 偶尔有可被本地修补的 bug。每条 issue 含 (1) 症状 / (2) 根因 / (3) 受影响版本 / (4) 临时 patch / (5) 永久路径。
+- **首条记录 P-1**: `gemini@google-gemini` v1.0.1 在 Windows 调 `spawnBackgroundWorker` 时 spawn 漏写 `windowsHide: true`（codex plugin 同款代码有，作为对照参考），导致 spawn 子进程时短暂创建 cmd console 抢焦点。本地 patch 1 行立即缓解；永久解决待上游 PR。
+- **`.ccg-migration/v4.4-to-v4.5.md`** 加 "Plugin known issues + workarounds" 节链接到 PLUGIN-PATCHES。
+
+### ✅ 验证
+
+- `pnpm typecheck` ✓
+- `pnpm test` ✓ **1309/1309**
+- 路径修正后 install 验证：`~/.claude/commands/ccg/autonomous.md` 含 `.ccg/scripts/...launcher`，`~/.claude/.ccg/scripts/ccg-phase-runner-launcher.mjs` 文件存在，0 处旧路径残留。
+
+---
+
 ## [4.5.0] - 2026-05-06 — 🚀 phase-runner Bash subprocess + 三层 OS 进程隔离
 
 > v4.5 把 `Agent(subagent_type="phase-runner")` 主进程内 sidechain spawn 替换为 `Bash(claude -p --agent ccg/phase-runner)` OS-level 子进程。三层进程隔离（主线 → CLI 子进程 → 可选 plugin 进程），治本 v4.4.x main-process RSS leak（uni-iam 实测撞 23GB → v4.5 设计目标 < 8GB）。
