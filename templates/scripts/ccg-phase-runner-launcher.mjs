@@ -52,7 +52,7 @@
 // =============================================================================
 
 import { spawn } from 'node:child_process'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import {
   createWriteStream,
   existsSync,
@@ -247,6 +247,15 @@ async function main(argv) {
     return 70 // EX_SOFTWARE
   }
 
+  // Mint a broker tx_id (v4.5 P1d, codex C3). One V4 UUID per launcher
+  // invocation; the CLI subprocess + any nested plugin Agents spawned inside
+  // it inherit the same tx_id via env, so broker.log readers can correlate
+  // every event back to this one logical phase-runner transaction.
+  // crypto.randomUUID is the only acceptable source — Math.random / Date.now /
+  // PID all leak entropy and are reused across processes.
+  const txId = randomUUID()
+  const brokerLogPath = join(workdir, '.context', 'broker.log')
+
   // Initial state — written *before* spawn so a crash between here and spawn
   // leaves a recoverable artifact for the reconciler.
   const initial = writeState(workdir, jobId, {
@@ -258,6 +267,7 @@ async function main(argv) {
     parent_pid: process.pid,
     cwd: workdir,
     cmd: `claude ${claudeArgs.slice(0, 6).join(' ')} ... [redacted prompt]`,
+    broker_tx_id: txId,
   })
 
   // Spawn the child. `detached: true` on POSIX calls setsid() so the child
@@ -265,6 +275,10 @@ async function main(argv) {
   // On Windows, `detached: true` calls CreateProcess with DETACHED_PROCESS;
   // we still rely on `taskkill /T /F` for tree termination (codeagent-wrapper
   // precedent — see executor.go:1421).
+  //
+  // env inheritance: we extend process.env (parent of the launcher) with the
+  // broker-correlation triplet so phase-runner subagent code + nested plugin
+  // spawns can emit broker events under the same tx_id.
   const child = spawn('claude', claudeArgs, {
     cwd: workdir,
     detached: !isWindows(),
@@ -272,6 +286,14 @@ async function main(argv) {
     // Pipe stdout to progress file; let stderr surface to the launcher's
     // stderr so users see auth / quota errors without grep-ing files.
     stdio: ['ignore', 'pipe', 'inherit'],
+    env: {
+      ...process.env,
+      CCG_BROKER_TX_ID: txId,
+      CCG_BROKER_LOG_PATH: brokerLogPath,
+      CCG_OUTER_CLI_PID: String(process.pid),
+      CCG_JOB_ID: jobId,
+      CCG_PHASE_RUNNER_TIER: opts.tier,
+    },
   })
 
   // Persist cli_pid + process_group_id ASAP — race window before spawn returns
