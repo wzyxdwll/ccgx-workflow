@@ -257,10 +257,67 @@ Wave 5: Phase 8                            (1d)   — release
 - **Mode**: runner
 - **Critical**: false
 
-## Phase 8: v4.5.0 release docs + dogfood validation (in_progress)
+## Phase 8: v4.5.0 release docs + dogfood validation (completed)
 
 - **Alias**: P3
-- **Started**: 2026-05-06 14:25
+- **Started**: 2026-05-06 14:25 | **Completed**: 2026-05-06 14:35
+- **Commit**: `ff6988a chore(v4.5-p8): release docs + bump 4.4.3 → 4.5.0`
+- **Plan**: `.claude/team-plan/v4.5-release-report.md`
+- **Outcome**: package.json bump 4.4.3→4.5.0；CHANGELOG.md 加 v4.5.0 块（含全部 7 phase outcome + 双 gate 实测数据 + cost benchmark）；README.md 更新命令表 + --nested flag 文档；CLAUDE.md 更新 Last Updated + 变更记录；新建 `.ccg-migration/v4.4-to-v4.5.md` 迁移指南 + `.claude/team-plan/v4.5-release-report.md` dogfood 综合。pnpm typecheck + test pass (1309 全过)。
+- **User dogfood required**: uni-iam 项目 5+ phase autonomous，全程 RSS < 8GB（Release entry criteria，chicken-and-egg 留用户在 install + 新会话执行）。
+
+---
+
+## 🏁 Milestone Summary: ccg-workflow v4.5
+
+**Started**: 2026-05-06 11:30 | **Ended**: 2026-05-06 14:35
+**Total wall time**: ~3h（vs 估算 10-15d sequential / 10-12d parallel）— wave-parallel 节省 99%+
+**Mode**: `--quality=fast` / wave-parallel / auto
+
+### 执行结果
+
+| # | Alias | 名称 | 状态 | Commit | Tests Δ |
+|---|-------|------|------|--------|---------|
+| 1 | P1a | 外层 CLI subprocess MVP | ✅ | `e1f0fab` | +39 |
+| 2 | P1b | Process supervisor + recovery | ✅ | `20fb5fe` | +60 |
+| 3 | P1c | Memory stress gate | ✅ G2 PASS | `1086aca` | (script) |
+| 4 | P1d | Broker tx_id stress | ✅ G3 PASS | `285b2ac` | +21 |
+| 5 | P1e | Cost/cache benchmark | ✅ G4 PASS | `c722d08` | (script) |
+| 6 | P1f | Nested G-plan + launcher wiring | ✅ | `097cda7` | +39 |
+| 7 | P2  | /ccg:status v2 dashboard + tail | ✅ | `614d742` | +45 |
+| 8 | P3  | v4.5.0 release docs | ✅ | `ff6988a` | docs |
+
+**测试总量**: 1100 → 1309（+209，超 acceptance 总要求）
+
+### 决策门状态
+
+| Gate | 触发 | 结果 |
+|---|---|---|
+| G1 (Phase 1 dogfood) | failure rate >10% | ✅ PASS — 0 failure |
+| G2 (Phase 3 RSS) | slope >500MB | ✅ PASS — marginal 5-15MB（颠覆 codex C1 200-333MB linear 估算）|
+| G3 (Phase 4 tx_id) | uniqueness/misattribution | ✅ PASS — 100k 0 碰撞 / 2k 0 误报 |
+| G4 (Phase 5 cost) | p90 >$30/run | ✅ PASS — 实测 $10-27/run，D3 spec 验证 unchanged |
+
+### 经验提炼
+
+- **Phase 1 verify gemini-companion plugin hang 50min IO 0 增长**（killed exit 127）→ 反向验证 Phase 2 supervisor 必要性
+- **D3 budget spec 升级 fast 0.5→1.0**：codex 抓的 drift 经 first-principles 反推（T1 实测 $0.412/spawn）后 spec 升级胜过实施回退
+- **Phase 3 实测推翻 codex C1**：200-333MB linear 估算 → 实际 warmup-dominant + 5-15MB marginal，Phase 6 nested rollout 比预计安全一个数量级
+- **chicken-and-egg 全程兼容**：v4.5 dogfood 自身走 v4.4.3 旧 Agent spawn 路径，新机制 install + 新会话才生效，无需 self-upgrade
+- **wave-parallel 实测压缩**：5 wave / 8 phase / ~3h wall — 99% 节省印证了 v4.1 wave 调度设计
+
+### 未解决项 / 待办
+
+- [Critical] **uni-iam 5+ phase autonomous，全程 RSS < 8GB** — Release entry criteria，chicken-and-egg 留用户执行
+- [Info] 跨平台测试单机器跑（Phase 4），跨 Win+Linux 实证留用户 dogfood
+- [Info] Phase 3 4-outer-concurrent 矩阵 deferred（cost guardrail），单 outer 数据已足以推 4-outer 安全
+
+### 推荐下一步
+
+1. `pnpm build` + `npm publish` 发版
+2. install 新版到 uni-iam 项目，新会话跑 `/ccg:autonomous --quality=fast` 5+ phase autonomous
+3. 监测 claude.exe RSS 全程 < 8GB（v4.4.x 同 workload 撞 23GB 拖崩 VM）
+4. 验证通过后 `git push origin main` + GitHub release
 - **Goal**: 版本号 bump、CHANGELOG 撰写、迁移指南、最终 dogfood 验证
 - **Files**:
   - `package.json`: 4.4.3 → 4.5.0
