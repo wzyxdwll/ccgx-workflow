@@ -1,0 +1,10 @@
+CRITICAL TEST: verify whether you (running as a subprocess via `claude -p --agent phase-runner`) have access to the `Agent` tool / `Task` tool.
+
+Do exactly these steps:
+
+1. List the tools you have available right now. Output them as: TOOLS_AVAILABLE: [tool1, tool2, ...]
+2. Specifically check if "Agent" or "Task" is in your toolset. Output: AGENT_TOOL_PRESENT: yes|no
+3. If Agent IS present, attempt a trivial Agent call: spawn a `general-purpose` agent with prompt "say hi back" and report the result. Output: AGENT_SPAWN_RESULT: <result or error>
+4. Output the final summary: SUMMARY:{"agent_tool_present":<true|false>,"nested_spawn_works":<true|false|"not_attempted">}
+
+Be honest. If Agent tool is not in your toolset, just say so.

@@ -1,0 +1,1 @@
+Output exactly the JSON object {"ok":true,"agent":"phase-runner-test1"} and nothing else. Do not call any tools. Do not write any files.

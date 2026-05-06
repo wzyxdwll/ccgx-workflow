@@ -1,0 +1,6 @@
+Do exactly three steps in order:
+1. Output the message "STEP1: starting"
+2. Use the Bash tool to run `echo step2-bash-output`
+3. Output the final assistant message containing exactly: SUMMARY:{"ok":true,"steps_done":3}
+
+Do not write any files. Do not use any other tools beyond Bash.

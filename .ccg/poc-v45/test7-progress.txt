@@ -1,0 +1,9 @@
+Do these steps in order, taking your time so progress is visible:
+
+1. Output: PROGRESS_STEP=1 starting
+2. Run Bash: `echo "step-2-marker" && sleep 2`
+3. Output: PROGRESS_STEP=2 mid
+4. Run Bash: `echo "step-4-marker" && sleep 2`
+5. Output the final assistant message containing exactly: SUMMARY:{"verdict":"pass","steps":4,"phase_id":"poc-test7"}
+
+Do not write files. Only Bash for shell calls.
