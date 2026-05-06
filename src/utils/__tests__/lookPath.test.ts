@@ -22,7 +22,9 @@ const winEnv = (overrides: Record<string, string> = {}) => ({
   ...overrides,
 })
 
-describe('lookPath (Windows PATHEXT resolution)', () => {
+// Windows-only: tests rely on real PATHEXT semantics in the lookPath impl,
+// which only applies when process.platform === 'win32'. Skip on POSIX CI.
+describe.skipIf(process.platform !== 'win32')('lookPath (Windows PATHEXT resolution)', () => {
   it('resolves bare command name to .CMD via PATHEXT', () => {
     const existing = new Set(['C:\\nvm4w\\nodejs\\codex.CMD'])
     const out = lookPath('codex', {
