@@ -103,6 +103,14 @@ export interface PhaseMeta {
    * 若设置，优先级高于全局 --quality flag。
    */
   quality?: QualityTier
+  /**
+   * v4.5 P1a: phase-runner CLI subprocess 调用所需的额外字段。
+   * - `workdir`: subprocess 的 cwd（必含 D5 决策；默认空时 helper 会 fallback 到 `<WORKDIR>` 占位符）
+   * - `jobId`: 用于 stream-json 落盘 `.context/jobs/<jobId>/progress.jsonl`
+   * 仅在 `useDirectBashInvocation=true` 路径生效；不影响 verify wave / Agent spawn。
+   */
+  workdir?: string
+  jobId?: string
 }
 
 /** 解析 --quality=<tier> flag 的输入 */
@@ -177,6 +185,148 @@ export function resolveQualityTier(input: ResolveInput): {
     return { tier: flag, source: 'cli-flag' }
   }
   return { tier: 'triple', source: 'default' }
+}
+
+// ---------------------------------------------------------------------------
+// 3b. v4.5 P1a — phase-runner Bash subprocess 命令构造
+// ---------------------------------------------------------------------------
+
+/** v4.5 P1a: max-budget 三档（与 PoC D3 决策一致） */
+const PHASE_RUNNER_BUDGET_USD: Record<QualityTier, number> = {
+  fast: 1.0,
+  triple: 2.0,
+  debate: 5.0,
+}
+
+/** Options for `buildPhaseRunnerBashCommand` */
+export interface BuildPhaseRunnerBashOptions {
+  /** Quality tier，决定 `--max-budget-usd`；缺省 `triple` */
+  tier?: QualityTier
+  /** override max-budget；优先级高于 tier */
+  maxBudgetUsd?: number
+  /** subprocess cwd；缺省走 phase.workdir，再缺省占位 `<WORKDIR>` */
+  workdir?: string
+  /** stream-json 落盘的 job-id；缺省走 phase.jobId，再缺省占位 `<JOB_ID>` */
+  jobId?: string
+  /** prompt 落盘文件的相对/绝对路径；缺省 `.context/jobs/<jobId>/prompt.txt` */
+  promptFile?: string
+}
+
+/**
+ * 单引号 POSIX shell-escape：把字符串包成 `'...'`，内部 `'` 转为 `'\''`。
+ * 用于 `--add-dir` 等带路径或空格的参数；纯字符串拼接，主线 LLM 不需 spawn。
+ *
+ * Windows path 兼容：保留原始字符（含 `\`）；调用者负责传 git-bash / WSL 风格
+ * 的路径或 Windows 字面值；shell 直接展开为字面字符串，不解释反斜杠。
+ */
+export function shellSingleQuote(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`
+}
+
+/**
+ * v4.5 P1a: 构造 `claude -p --agent ccg/phase-runner` Bash 命令字符串。
+ *
+ * 输出符合 PoC D1-D8 全部决策：
+ *   - `--output-format stream-json` AND `--verbose`（D1，T4 隐藏依赖）
+ *   - `--include-partial-messages`（D2，token 级流式）
+ *   - `--max-budget-usd <N>`（D3，三档 fast=1.0/triple=2.0/debate=5.0）
+ *   - `--dangerously-skip-permissions`（D4，子进程全自治）
+ *   - `--add-dir <workdir>`（D5，subprocess cwd = phase workdir）
+ *   - stdout 重定向到 `.context/jobs/<job-id>/progress.jsonl`（D6）
+ *   - prompt 通过 `$(cat <prompt-file>)` 注入避免命令行特殊字符 escape 难题
+ *
+ * 设计：纯字符串 helper，不 spawn child_process；主线 LLM 调 Bash tool 实际跑。
+ *
+ * @param phase phase 元数据（用 phaseId / phaseType / workdir / jobId）
+ * @param promptText  prompt 内容（暂未使用，由调用方写到 promptFile，留作未来 inline 模式）
+ * @param jobId  job-id（重定向 stream-json 落盘）；optional，缺省读 phase.jobId 或占位
+ * @param options 其他 override
+ * @returns Bash 命令字符串，可直接 `Bash(cmd)` 跑（含 `> ... 2>&1`）
+ *
+ * @example
+ *   buildPhaseRunnerBashCommand(
+ *     { phaseId: 'phase-1', phaseType: 'backend', workdir: '/d/repo' },
+ *     'phase prompt body',
+ *     'job-abc123',
+ *   )
+ *   // → claude -p "$(cat .context/jobs/job-abc123/prompt.txt)" \
+ *   //     --agent ccg/phase-runner --output-format stream-json --verbose \
+ *   //     --include-partial-messages --max-budget-usd 2.0 \
+ *   //     --dangerously-skip-permissions --add-dir '/d/repo' \
+ *   //     > .context/jobs/job-abc123/progress.jsonl 2>&1
+ */
+export function buildPhaseRunnerBashCommand(
+  phase: PhaseMeta,
+  _promptText: string,
+  jobId?: string,
+  options: BuildPhaseRunnerBashOptions = {},
+): string {
+  const tier = options.tier ?? phase.quality ?? 'triple'
+  if (!isQualityTier(tier)) {
+    throw new Error(`buildPhaseRunnerBashCommand: invalid tier "${tier}"`)
+  }
+
+  const budget = options.maxBudgetUsd ?? PHASE_RUNNER_BUDGET_USD[tier]
+  if (typeof budget !== 'number' || budget <= 0 || !Number.isFinite(budget)) {
+    throw new Error(`buildPhaseRunnerBashCommand: invalid maxBudgetUsd ${budget}`)
+  }
+
+  const resolvedJobId = jobId ?? phase.jobId ?? '<JOB_ID>'
+  const resolvedWorkdir = options.workdir ?? phase.workdir ?? '<WORKDIR>'
+  const promptFile = options.promptFile ?? `.context/jobs/${resolvedJobId}/prompt.txt`
+  const progressFile = `.context/jobs/${resolvedJobId}/progress.jsonl`
+
+  // budget formatted with up to 4 decimals trimmed
+  const budgetStr = String(Number(budget.toFixed(4)))
+
+  const parts = [
+    `claude -p "$(cat ${shellSingleQuote(promptFile)})"`,
+    `--agent ccg/phase-runner`,
+    `--output-format stream-json`,
+    `--verbose`,
+    `--include-partial-messages`,
+    `--max-budget-usd ${budgetStr}`,
+    `--dangerously-skip-permissions`,
+    `--add-dir ${shellSingleQuote(resolvedWorkdir)}`,
+    `> ${shellSingleQuote(progressFile)} 2>&1`,
+  ]
+  return parts.join(' ')
+}
+
+/**
+ * v4.5 P1a: 从 stream-json 落盘文件末行抽取 phase-runner 最终摘要。
+ *
+ * Claude CLI 在 `--output-format stream-json` 下最后一行是 `{type: 'result', ...}`
+ * 事件，含 `result.result` 字符串字段（即 phase-runner 的 ≤200 token SUMMARY）。
+ *
+ * @param progressJsonl  整个 progress.jsonl 文件内容（多行 ndjson）
+ * @returns SUMMARY 字符串；若末行非 result 事件 / 缺字段返回 null（caller fallback）
+ *
+ * @example
+ *   parsePhaseRunnerStreamSummary([
+ *     '{"type":"system","subtype":"init"}',
+ *     '{"type":"assistant","message":...}',
+ *     '{"type":"result","subtype":"success","result":"STATUS: completed\\nCOMMIT: abc1234..."}',
+ *   ].join('\n'))
+ *   // → "STATUS: completed\nCOMMIT: abc1234..."
+ */
+export function parsePhaseRunnerStreamSummary(progressJsonl: string): string | null {
+  if (typeof progressJsonl !== 'string' || progressJsonl.length === 0) return null
+  // 末非空行
+  const lines = progressJsonl.split(/\r?\n/).filter(l => l.trim().length > 0)
+  if (lines.length === 0) return null
+  const last = lines[lines.length - 1]
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(last)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object') return null
+  const obj = parsed as Record<string, unknown>
+  if (obj.type !== 'result') return null
+  const result = obj.result
+  return typeof result === 'string' ? result : null
 }
 
 // ---------------------------------------------------------------------------
@@ -267,18 +417,39 @@ function buildCriticWave(index: number, phase: PhaseMeta): WavePlan {
   return { kind: 'critic', index, spawns, degraded: false }
 }
 
-/** Impl wave: 单 strong model（phase-runner，一致性 > 多样性） */
-function buildImplWave(index: number, phase: PhaseMeta): WavePlan {
+/**
+ * Impl wave: 单 strong model（phase-runner，一致性 > 多样性）。
+ *
+ * v4.5 P1a: `useDirectBashInvocation=true` 时 spawn entry 标
+ * `invocationMode: 'bash-direct'` + 附 `bashCommand`，主线模板渲染为
+ * `Bash(claude -p --agent ccg/phase-runner ...)` OS-level 子进程，跳过
+ * `Agent(subagent_type="phase-runner")` 主进程 sidechain（治 v4.4.x 主进程
+ * RSS leak）。默认 false 保持向后兼容（v4.0~v4.4 Agent spawn 行为）。
+ */
+function buildImplWave(
+  index: number,
+  phase: PhaseMeta,
+  options: { useDirectBashInvocation?: boolean; tier?: QualityTier } = {},
+): WavePlan {
+  const useBashDirect = options.useDirectBashInvocation === true
+  const entry: SpawnEntry = {
+    agent: 'phase-runner',
+    role: 'implementer',
+    rationale: `single strong implementer (${phase.phaseType}); consistency > diversity`,
+  }
+  if (useBashDirect) {
+    entry.invocationMode = 'bash-direct'
+    // promptText 此处为占位；调用方实际注入 prompt 时按 promptFile 协议落盘
+    entry.bashCommand = buildPhaseRunnerBashCommand(phase, '', phase.jobId, {
+      tier: options.tier,
+    })
+  }
+  // 不显式设 invocationMode='agent' —— 保 v4.4 前 schema BC（既有 test 断言
+  // non-verify wave spawn entry 的 invocationMode 字段为 undefined）
   return {
     kind: 'impl',
     index,
-    spawns: [
-      {
-        agent: 'phase-runner',
-        role: 'implementer',
-        rationale: `single strong implementer (${phase.phaseType}); consistency > diversity`,
-      },
-    ],
+    spawns: [entry],
     degraded: false,
   }
 }
@@ -422,6 +593,24 @@ function buildDebateRound(
 // 5. planWavesForTier — tier 分发与降级
 // ---------------------------------------------------------------------------
 
+/** v4.5 P1a: planWavesForTier / buildQualityPlan 选项 */
+export interface PlanWavesOptions {
+  /**
+   * v4.5 P1a: 把 impl wave 的 phase-runner spawn 从 Agent sidechain 改为 Bash
+   * 直调 `claude -p --agent ccg/phase-runner ...` OS-level 子进程。同时也会
+   * 把 verify wave 的 plugin spawn 切到 bash-direct（v4.4.2 verify 治理）。
+   *
+   * 默认 false 时：
+   *   - impl wave 走 `Agent(subagent_type="phase-runner")`（v4.0~v4.4 行为）
+   *   - verify wave 走 Agent spawn（v4.4.1 及以前的 sonnet wrapper 路径）
+   *
+   * 默认 true（autonomous Step 4.0+ 启用）时：
+   *   - impl wave 走 Bash 直调，subprocess RSS 与主进程隔离
+   *   - verify wave 走 plugin script 直调，跳过 sonnet wrapper
+   */
+  useDirectBashInvocation?: boolean
+}
+
 /**
  * 给定 tier + phase + plugin 可用性，返回 wave 计划。
  *
@@ -436,6 +625,7 @@ export function planWavesForTier(
   tier: QualityTier,
   phase: PhaseMeta,
   plugins: PluginAvailability,
+  options: PlanWavesOptions = {},
 ): {
   effectiveTier: QualityTier
   waves: WavePlan[]
@@ -470,11 +660,15 @@ export function planWavesForTier(
 
   const waves: WavePlan[] = []
   let waveIdx = 1
+  const implOpts = {
+    useDirectBashInvocation: options.useDirectBashInvocation === true,
+    tier: effective,
+  }
 
   switch (effective) {
     case 'fast':
       // [impl, verify] 2 waves
-      waves.push(buildImplWave(waveIdx++, phase))
+      waves.push(buildImplWave(waveIdx++, phase, implOpts))
       waves.push(buildVerifyWave(waveIdx++, phase, plugins, 'fast'))
       break
 
@@ -482,7 +676,7 @@ export function planWavesForTier(
       // [plan, critic, impl, verify] 4 waves
       waves.push(buildPlanWave(waveIdx++, phase, plugins))
       waves.push(buildCriticWave(waveIdx++, phase))
-      waves.push(buildImplWave(waveIdx++, phase))
+      waves.push(buildImplWave(waveIdx++, phase, implOpts))
       waves.push(buildVerifyWave(waveIdx++, phase, plugins, 'triple'))
       break
 
@@ -493,7 +687,7 @@ export function planWavesForTier(
         waves.push(buildDebateRound(waveIdx++, r, phase, plugins))
       }
       waves.push(buildCriticWave(waveIdx++, phase))
-      waves.push(buildImplWave(waveIdx++, phase))
+      waves.push(buildImplWave(waveIdx++, phase, implOpts))
       waves.push(buildVerifyWave(waveIdx++, phase, plugins, 'debate'))
       break
     }
@@ -516,17 +710,21 @@ export function planWavesForTier(
  * One-shot 入口：解析 flag → 算 tier → 构 wave。
  *
  * 主线 autonomous Step 4.0 直接调这个，得到完整执行计划。
+ *
+ * v4.5 P1a: `options.useDirectBashInvocation=true` 时 impl wave + verify wave
+ * 都切到 Bash 直调（subprocess RSS 隔离 + verify wave silent fallback 治理）。
  */
 export function buildQualityPlan(
   resolveInput: ResolveInput,
   phase: PhaseMeta,
   plugins: PluginAvailability,
+  options: PlanWavesOptions = {},
 ): QualityPlan {
   const { tier, source } = resolveQualityTier({
     cliArgs: resolveInput.cliArgs,
     phaseQuality: phase.quality ?? resolveInput.phaseQuality,
   })
-  const planResult = planWavesForTier(tier, phase, plugins)
+  const planResult = planWavesForTier(tier, phase, plugins, options)
   return {
     tier,
     source,

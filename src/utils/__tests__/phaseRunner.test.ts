@@ -201,8 +201,11 @@ describe('decideNextAction (Phase 1.5 acceptance, main thread routing)', () => {
 describe('autonomous.md Step 4.2 (Phase 1.5 acceptance b)', () => {
   const content = existsSync(AUTONOMOUS_TEMPLATE) ? readFileSync(AUTONOMOUS_TEMPLATE, 'utf8') : ''
 
-  it('Step 4.2 references phase-runner subagent (G plan)', () => {
-    expect(content).toMatch(/subagent_type:\s*"phase-runner"/)
+  it('Step 4.2 references phase-runner via Bash subprocess (v4.5 P1a)', () => {
+    // v4.5 P1a: Agent(subagent_type="phase-runner") replaced by
+    // Bash(claude -p --agent ccg/phase-runner ...) OS-level subprocess
+    expect(content).toMatch(/--agent\s+ccg\/phase-runner/)
+    expect(content).toMatch(/claude\s+-p/)
   })
 
   it('Step 4.2 explains type-aware routing delegation', () => {
