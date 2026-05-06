@@ -177,6 +177,181 @@ grep -A 6 "spawn(\"gemini\", \[\"--acp\"\]" \
 
 ---
 
+## P-4: gemini plugin v1.0.1 — broker daemon 启动闪框
+
+**状态**: 未修，待本地 patch
+**受影响**: `gemini@google-gemini` v1.0.1 on Windows
+**触发频率**: 高（每次 plugin 首次启动 / broker daemon 重启）
+**关联**: 与 P-1 同款 `detached: true + 缺 windowsHide` bug，但在不同 spawn 点
+
+### 症状
+
+第一次调用 gemini plugin（任何 task）时闪一次 cmd 黑窗——broker daemon 长跑进程的启动 spawn。
+
+### 根因
+
+`scripts/lib/broker-lifecycle.mjs:137-152` `spawn("node", [BROKER_SCRIPT, "serve", ...])` 缺 `windowsHide: true`：
+
+```javascript
+const child = spawn("node", [BROKER_SCRIPT, "serve", ...], {
+  cwd,
+  detached: true,
+  // 缺 windowsHide: true ← 加这行
+  stdio: ["ignore", "ignore", "ignore"],
+  env: { ... }
+});
+```
+
+### 临时 patch
+
+加 `windowsHide: true,` 在 `detached: true,` 之后。
+
+---
+
+## P-5: gemini plugin v1.0.1 — `runCommand` spawnSync 闪框
+
+**状态**: 未修
+**受影响**: 同上
+**触发频率**: 中（每次 `gemini --version` 健康检查 + git 命令）
+**关联**: P-2 同型 — `gemini.cmd` 必须 shell 找到，但 `runCommand` 是通用 helper 不只用于 gemini
+
+### 症状
+
+调用 plugin 任何 git 操作（`git diff`、`git rev-parse` 等）或 `gemini --version` 健康检查时闪框。
+
+### 根因
+
+`scripts/lib/process.mjs:18-24` `spawnSync(command, args, ...)` 缺 `windowsHide: true`，被 `gemini.mjs:190` 调（`gemini --version`）+ `git.mjs:16` 调（git 命令路径）。
+
+```javascript
+const result = spawnSync(command, args, {
+  cwd: options.cwd,
+  maxBuffer: ...,
+  encoding: "utf8",
+  env: ...,
+  stdio: ["pipe", "pipe", "pipe"]
+  // 缺 , windowsHide: true ← 加这行
+});
+```
+
+### 临时 patch
+
+`stdio: [...]` 后加 `, windowsHide: true`。
+
+---
+
+## P-6: gemini plugin v1.0.1 — `taskkill` spawnSync 闪框
+
+**状态**: 未修
+**受影响**: 同上
+**触发频率**: 低（仅 cancel task 时）
+
+### 症状
+
+`/ccg:cancel` 或 ACPClient close 时调 `taskkill /T /F` 杀进程树闪框。
+
+### 根因
+
+`scripts/lib/process.mjs:103`：
+
+```javascript
+spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
+// 缺 windowsHide: true
+```
+
+### 临时 patch
+
+改为 `{ stdio: "ignore", windowsHide: true }`。
+
+---
+
+## P-7: gemini plugin v1.0.1 — `spawnDetached` 公共 helper 闪框
+
+**状态**: 未修
+**受影响**: 同上
+**触发频率**: 中（任何调用 spawnDetached 的地方都继承 bug）
+**关联**: 这是个 helper，**修一处管所有调用方**
+
+### 症状
+
+不可预知的间歇性闪框——取决于哪些 spawn 点用了这个 helper。
+
+### 根因
+
+`scripts/lib/process.mjs:134-148`：
+
+```javascript
+export function spawnDetached(command, args, options = {}) {
+  const stdio = options.logFile ? [...] : [...];
+  const child = nodeSpawn(command, args, {
+    cwd: options.cwd,
+    env: options.env ?? process.env,
+    detached: true,
+    // 缺 windowsHide: true ← 加这行
+    stdio
+  });
+  child.unref();
+  return child;
+}
+```
+
+### 临时 patch
+
+加 `windowsHide: true,` 在 `detached: true,` 之后。
+
+---
+
+## ⚡ 关键：patch 后必须重启 broker daemon
+
+`acp-broker` 是 long-running daemon（启动后一直跑直到用户退出 Claude Code）。**已 patch 的代码只对将来新启的 daemon 生效**。如果旧 daemon 仍在跑，它继续用未 patch 的代码 → 仍闪框。
+
+### 重启 broker daemon（Windows PowerShell）
+
+```powershell
+# 杀所有 acp-broker daemon
+Get-CimInstance Win32_Process -Filter "Name='node.exe'" |
+  Where-Object { $_.CommandLine -match 'acp-broker' } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+```
+
+### 或重启 plugin（更稳）
+
+```bash
+claude plugin disable gemini@google-gemini
+claude plugin enable gemini@google-gemini
+```
+
+下次 plugin 调用时会重新启动 broker daemon，用 patch 后的代码。
+
+---
+
+## 一键 repatch 脚本（推荐）
+
+CCG v4.5.1+ ships `~/.claude/.ccg/scripts/repatch-gemini-plugin.mjs` （幂等，可重复运行）：
+
+```bash
+node ~/.claude/.ccg/scripts/repatch-gemini-plugin.mjs
+```
+
+脚本会：
+1. 自动找 plugin 版本目录
+2. 检查每处 patch 状态（`probe` 字符串匹配）
+3. 已 patch 的 [SKIP]，未 patch 的 [APPLY]
+4. 完成后提示重启 broker daemon 命令
+
+**未装 CCG 的机器**：直接从 [`templates/scripts/repatch-gemini-plugin.mjs`](../templates/scripts/repatch-gemini-plugin.mjs) 复制脚本到目标机器跑：
+
+```bash
+# 在目标机器
+node /path/to/repatch-gemini-plugin.mjs
+
+# 或一行 scp
+scp templates/scripts/repatch-gemini-plugin.mjs <other-host>:/tmp/
+ssh <other-host> 'node /tmp/repatch-gemini-plugin.mjs'
+```
+
+---
+
 ## Resolved（上游已修复）
 
 （暂无）
