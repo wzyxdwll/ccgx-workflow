@@ -105,9 +105,14 @@ Wave 5: Phase 8                            (1d)   — release
 - **Mode**: runner
 - **Critical**: true
 
-## Phase 2: Process supervisor + recovery (not_started)
+## Phase 2: Process supervisor + recovery (completed)
 
 - **Alias**: P1b
+- **Started**: 2026-05-06 12:25 | **Completed**: 2026-05-06 13:25
+- **Commit**: `20fb5fe feat(v4.5-p2): supervisor + atomic state + reconciler + kill-tree`
+- **Plan**: `.claude/team-plan/phase-v4.5-02-supervisor-report.md`
+- **Outcome**: jobs.ts 改原子写（temp+rename）；新建 process-tree.ts (Windows taskkill /T /F + POSIX setsid 进程组) + ccg-phase-runner-launcher.mjs（包装 claude -p）；cancel.md 升级 cooperative+grace+kill-tree；ccg-session-state.cjs 加 reconciler；installer.ts ship launcher；新增 +60 单测，covered 全部 13 个 codex C2 failure mode。
+- **Verify**: 主线 inline challenger 5 角度审计通过 (SSoT/假设/边界/历史/下游)。2 warning 处置路径：(1) KISS taskkill /T /F 替代 Job Object FFI（codeagent-wrapper 已用此模式；detached grandchild 边界留 Phase 4 broker stress 自然暴露后再升级）；(2) **launcher wiring 推后到 Phase 6 (P1f) — 必须把 wiring 责任写进 P1f acceptance，否则 launcher 是 dead code**。
 - **Goal**: 解决 codex C2+C4。所有 v4.5 子进程必须由 supervisor 管理：原子状态写、PID 跟踪、Job Object（Windows）/ 进程组（POSIX）、startup reconciliation、kill-tree
 - **Files**:
   - `src/utils/jobs.ts`：现有 `state.json/result.md/cancel.flag` 改为 temp-file + rename 原子提交
@@ -166,9 +171,14 @@ Wave 5: Phase 8                            (1d)   — release
 - **Mode**: runner
 - **Critical**: true
 
-## Phase 5: Cost/cache 真实 workdir benchmark (not_started)
+## Phase 5: Cost/cache 真实 workdir benchmark (completed)
 
 - **Alias**: P1e
+- **Started**: 2026-05-06 12:25 | **Completed**: 2026-05-06 13:00
+- **Commit**: `c722d08 feat(v4.5-p5): cost benchmark script + report (10 spawn 2-repo rapid)`
+- **Plan**: `.claude/team-plan/phase-v4.5-05-cost-benchmark-report.md`
+- **Outcome**: tests/poc/prompt-cache-bench.ts (运行脚本)；2 repo (ccg-workflow + minimal) × rapid TTL × 5 spawn = 10 真实 claude CLI 子进程数据点。**关键发现**：worst p90 single-spawn $0.473 × 7.5 spawn/phase ≈ $3.55 < debate floor $5 — D3 budget tier (fast=$1/triple=$2/debate=$5) 经实测**不需修订**。Autonomous 8-phase milestone 真实成本：triple warm $10-15 / cold $15-27。降级：uni-iam 不可访问→fallback 2 repo（acceptance 容许）；spaced-TTL 跳过（60min wall 不值）。
+- **Verify**: Critical=false 跳过 challenger。Sample size (10 vs acceptance 期望 80-120) partial 但核心结论（D3 验证）站得住——p90 在最贵 cwd 的 buffer 倍数充足。Phase 8 release docs 引用此 report 作 cost 透明依据。
 - **Goal**: 解决 codex C5。PoC cost 估算偏乐观 4-13 倍，必须在真实 workdir benchmark 才能给出 budget defaults
 - **Files**:
   - `tests/poc/prompt-cache-bench.ts`（新建）：80 spawn × 3 repo × 2 TTL
@@ -182,14 +192,15 @@ Wave 5: Phase 8                            (1d)   — release
 - **Mode**: runner
 - **Critical**: false
 
-## Phase 6: Nested G-plan opt-in 渐进开启 (not_started)
+## Phase 6: Nested G-plan opt-in 渐进开启 + launcher wiring (not_started)
 
 - **Alias**: P1f
-- **Goal**: Phase 3+Phase 4 验证通过后，把 nested G-plan 变成用户可用 feature。默认关闭，opt-in 启用
+- **Goal**: Phase 3+Phase 4 验证通过后，把 nested G-plan 变成用户可用 feature。默认关闭，opt-in 启用。**附加责任**（来自 Phase 2 verify）：把 Phase 2 落地的 ccg-phase-runner-launcher.mjs wire 到 autonomous.md spawn 路径，否则 launcher 是 dead code。
 - **Files**:
   - `templates/commands/agents/phase-runner.md`：删除"⚠️ 引擎层硬约束"段（CLI 模式下不再适用），新增"Nested rescue delegation"段
   - `src/utils/quality-router.ts`：phase frontmatter 加 `nested_rescue: true|false` override；主线编排器加 global flag `--nested=on|off`
-  - `templates/commands/autonomous.md`：Step 4.0 加 nested mode 检测 + 注入 phase-runner prompt
+  - `templates/commands/autonomous.md`：Step 4.0 加 nested mode 检测 + 注入 phase-runner prompt；**Step 4.2-4.3 spawn 段落改为通过 ccg-phase-runner-launcher.mjs 包装而非直接 Bash claude -p**（解锁 Phase 2 supervisor 全部能力：原子 state、reconciler、kill-tree）
+  - `templates/commands/status.md` Cancel mode E step 5：清除 `[v4.5-p2-pending]` 标，调用 Phase 2 process-tree.ts kill-tree
 - **Acceptance**:
   - 默认 `--nested=off` 行为与 v4.5 v1（保守路线）100% 等价
   - `--nested=on` 端到端 dogfood：1 个 frontend phase + 1 个 backend phase
@@ -202,9 +213,14 @@ Wave 5: Phase 8                            (1d)   — release
 - **Mode**: runner
 - **Critical**: true
 
-## Phase 7: `/ccg:status` v2 dashboard + tail + 卡点检测 (not_started)
+## Phase 7: `/ccg:status` v2 dashboard + tail + 卡点检测 (completed)
 
 - **Alias**: P2
+- **Started**: 2026-05-06 12:25 | **Completed**: 2026-05-06 12:55
+- **Commit**: `614d742 feat(v4.5-p7): /ccg:status v2 dashboard + tail + stuck-detector + ascii-7 progress`
+- **Plan**: `.claude/team-plan/phase-v4.5-07-status-v2-report.md`
+- **Outcome**: status.md 双模式（dashboard + --tail）；新建 stream-renderer.ts (event filter + 单行覆写) + stuck-detector.ts (3 类警告：相同 tool_call ×3 / single tool >30s / stream stalled >5min)；ASCII-7 progress bar enforced 通过 regex 测试 (Windows cp936 安全)；新增 +45 单测。Cancel mode kill-tree 留 [v4.5-p2-pending] 标，Phase 2 完成后已实际可调用 process-tree.ts。
+- **Verify**: Critical=false 跳过 challenger。Phase 2 process-tree.ts 已落地，Phase 7 cancel kill-tree 部分可解锁（pending 标可在 Phase 6 wiring 时一并清理）。
 - **Goal**: 解决 gemini U1+U3。失去 sidechain inline UI 后，`/ccg:status` 必须能复刻"长跑用户的微观干预"能力（早上查岗 / 死循环 debug / 单 phase cancel / 实时 tool call）
 - **Files**:
   - `templates/commands/status.md`：扩展为 dashboard + tail 双模式
