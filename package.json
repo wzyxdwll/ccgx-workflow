@@ -1,22 +1,37 @@
 {
-  "name": "ccg-workflow",
-  "version": "4.5.2",
-  "description": "Claude + Codex + Gemini multi-model collaboration system - smart routing development workflow",
+  "name": "ccgx-workflow",
+  "version": "1.0.0",
+  "description": "Multi-model orchestration for Claude Code. Codex + Gemini parallel collaboration with fresh-context subagent protocols, OS-level process isolation, and Plan-Critic-Verify quality tiers. Successor to ccg-workflow.",
   "type": "module",
   "packageManager": "pnpm@10.17.1",
   "author": {
-    "name": "CCG Contributors"
+    "name": "wangzy",
+    "email": "wzyxdwll@163.com",
+    "url": "https://github.com/wzyxdwll"
   },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wzyxdwll/ccgx-workflow.git"
+  },
+  "homepage": "https://github.com/wzyxdwll/ccgx-workflow#readme",
+  "bugs": {
+    "url": "https://github.com/wzyxdwll/ccgx-workflow/issues"
+  },
   "keywords": [
     "claude",
+    "claude-code",
     "codex",
     "gemini",
     "multi-model",
     "ai",
     "collaboration",
+    "orchestration",
     "cli",
-    "workflow"
+    "workflow",
+    "ccg",
+    "ccgx",
+    "ccgx-workflow"
   ],
   "bin": {
     "ccg": "bin/ccg.mjs"

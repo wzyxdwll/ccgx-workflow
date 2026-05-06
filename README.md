@@ -1,45 +1,37 @@
-# CCG - Claude + Codex + Gemini Multi-Model Collaboration
+# ccgx-workflow — Claude × Codex × Gemini Multi-Model Collaboration
 
 <div align="center">
 
-<img src="assets/logo/ccg-logo-cropped.png" alt="CCG Workflow" width="400">
-
-[![GitHub stars](https://img.shields.io/github/stars/fengshao1227/ccg-workflow?style=social)](https://github.com/fengshao1227/ccg-workflow)
-[![NPM Downloads](https://img.shields.io/npm/dt/ccg-workflow?style=flat-square&color=blue)](https://www.npmjs.com/package/ccg-workflow)
-[![npm version](https://img.shields.io/npm/v/ccg-workflow.svg)](https://www.npmjs.com/package/ccg-workflow)
+[![npm version](https://img.shields.io/npm/v/ccgx-workflow.svg)](https://www.npmjs.com/package/ccgx-workflow)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-Compatible-green.svg)](https://claude.ai/code)
 [![Tests](https://img.shields.io/badge/Tests-1309%20passed-brightgreen.svg)]()
-[![Follow on X](https://img.shields.io/badge/X-@CCG__Workflow-black?logo=x&logoColor=white)](https://x.com/CCG_Workflow)
-![star](https://atomgit.com/fengshao1227/ccg-workflow/star/badge.svg)
 
 [简体中文](./README.zh-CN.md) | English
 
 </div>
 
-## ♥️ Sponsor
-
-[![302.AI](assets/sponsors/302.ai-en.jpg)](https://share.302.ai/oUDqQ6)
-
-[302.AI](https://share.302.ai/oUDqQ6) is a pay-as-you-go enterprise AI resource hub that offers the latest and most comprehensive AI models and APIs on the market, along with a variety of ready-to-use online AI applications.
+> **Project Lineage**
+>
+> `ccgx-workflow` is a deep rewrite of [`ccg-workflow`](https://www.npmjs.com/package/ccg-workflow) v3.x.
+> The original project went unmaintained after 2026-05 (the original author's
+> GitHub homepage went offline), leaving its multi-model collaboration users
+> exposed to drift. This project re-architected from v4.0 onward:
+> fresh-context subagent protocols, Plan-Critic-Verify quality tiers,
+> OS-level three-layer process isolation, broker tx_id anti-drift,
+> and 8 plugin patches with a one-shot repatch script.
+>
+> The `/ccg:*` slash command palette is **gesture-compatible** with the
+> original — but the underlying architecture has been completely replaced.
+> Original copyright is preserved under MIT, see [LICENSE](./LICENSE).
 
 ---
 
-[**n1n.ai**](https://api.n1n.ai/register?channel=c_ivgzug0w) — Global LLM API Gateway. One API Key to access 500+ top AI models (GPT-5, Claude 4.5, Gemini 3 Pro, and more).
+## What Is It
 
----
+A multi-model collaboration system where Claude Code orchestrates Codex (backend) and Gemini (frontend). Frontend tasks auto-route to Gemini, backend tasks to Codex, Claude handles orchestration and code review.
 
-A multi-model collaboration development system where Claude Code orchestrates Codex + Gemini. Frontend tasks route to Gemini, backend tasks route to Codex, and Claude handles orchestration and code review.
-
-## Why CCG?
-
-- **Zero-config model routing** — Frontend tasks automatically go to Gemini, backend tasks to Codex. No manual switching.
-- **Security by design** — External models have no write access. They return patches; Claude reviews before applying.
-- **~30 slash commands** — From planning to execution, git workflow to code review, all accessible via `/ccg:*`.
-- **Spec-driven development** — Integrates [OPSX](https://github.com/fission-ai/opsx) to turn vague requirements into verifiable constraints, eliminating AI improvisation.
-- **Context-drift treated** (v4.0) — `context_budget` frontmatter + fresh-context subagent protocols (`phase-runner` / `debug-session-manager` / `code-fixer`) keep the main thread lean. Dogfood data: +1%/phase main-thread context drift average across 12 self-hosted phases.
-
-## Architecture
+External models have **no write access** — they only return patches; Claude reviews before applying.
 
 ```
 Claude Code (Orchestrator)
@@ -54,9 +46,17 @@ Codex   Gemini
   Unified Patch
 ```
 
-External models have no write access — they only return patches, which Claude reviews before applying.
+## Core Features
 
-> **🎬 [See CCG in action →](https://x.com/CCG_Workflow/status/2038923720610463876)** — Real multi-model collaboration demo on X
+- **Zero-config model routing** — Frontend → Gemini / Backend → Codex, dispatched by phase frontmatter `Type:` field. No manual switching.
+- **~30 `/ccg:*` slash commands** — Planning, execution, git workflow, code review, autonomous long-runs, async job triplet.
+- **Three-tier quality gates** — `--quality=fast|triple|debate` toggles Plan-Critic-Verify collaboration depth.
+- **Fresh-context subagent protocol** — `phase-runner` / `code-fixer` / `debug-session-manager` keep main-thread context ≤15%; the orchestrator only consumes ≤200-token summaries.
+- **OS-level three-layer process isolation** — `Bash(claude -p --agent ccg/phase-runner)` replaces in-process sidechain; treats main-process RSS leak.
+- **OPSX spec-driven** — Integrates [OPSX](https://github.com/fission-ai/opsx) to convert vague requirements into verifiable constraints, eliminating AI improvisation.
+- **Plugin-first with wrapper fallback** — Uses official codex/gemini plugins when available; falls back to `codeagent-wrapper`.
+
+---
 
 ## Quick Start
 
@@ -64,19 +64,19 @@ External models have no write access — they only return patches, which Claude 
 
 | Dependency | Required | Notes |
 |------------|----------|-------|
-| **Node.js 20+** | Yes | `ora@9.x` requires Node >= 20. Node 18 causes `SyntaxError` |
+| **Node.js 20+** | Yes | `ora@9.x` requires Node ≥ 20 |
 | **Claude Code CLI** | Yes | [Install guide](#install-claude-code) |
 | **jq** | Yes | Used for auto-authorization hook ([install](#install-jq)) |
-| **Codex CLI** | No | Enables backend routing |
-| **Gemini CLI** | No | Enables frontend routing |
+| **codex@openai-codex plugin** | No | Enables backend Codex routing (strongly recommended) |
+| **gemini@google-gemini plugin** | No | Enables frontend Gemini routing (strongly recommended) |
 
 ### Installation
 
 ```bash
-npx ccg-workflow
+npx ccgx-workflow
 ```
 
-On first run, CCG prompts you to select a language (English / Chinese). This preference is saved for all future sessions.
+First run prompts for language (English / Chinese), API provider, MCP tooling — all interactive. CLI command name remains `ccg` (preserves muscle memory for legacy users).
 
 ### Install jq
 
@@ -97,74 +97,259 @@ choco install jq   # or: scoop install jq
 ### Install Claude Code
 
 ```bash
-npx ccg-workflow menu  # Select "Install Claude Code"
+npx ccgx-workflow menu  # Select "Install Claude Code"
 ```
 
-Supports: npm, homebrew, curl, powershell, cmd.
+Supports npm / homebrew / curl / powershell / cmd.
+
+---
+
+## Enabling Multi-Model Collaboration (codex / gemini plugins)
+
+ccgx-workflow calls codex and gemini through Claude Code's official plugin mechanism, **no longer relying on the legacy `codeagent-wrapper` binary**. Install plugins to unlock full dual-model parallel capability.
+
+### Install (run inside Claude Code)
+
+```
+/plugin install codex@openai-codex
+/plugin install gemini@google-gemini
+```
+
+The `@` suffix is the marketplace identifier. If a marketplace isn't configured, run `/help plugin` inside Claude Code to see local marketplace management commands, or refer to [Claude Code plugin docs](https://docs.claude.com/en/docs/claude-code/plugins).
+
+> Upstream plugin repos (for troubleshooting / issue reports):
+> - **codex**: `openai-codex` marketplace (Claude Code official)
+> - **gemini**: [sakibsadmanshajib/gemini-plugin-cc](https://github.com/sakibsadmanshajib/gemini-plugin-cc)
+
+### Verify
+
+```bash
+ls ~/.claude/plugins/cache/openai-codex/codex/
+ls ~/.claude/plugins/cache/google-gemini/gemini/
+# Should show version directories (e.g. 1.0.4 / 1.0.1)
+```
+
+### ⚠️ Gemini plugin Windows Known Issues (patch strongly recommended)
+
+`gemini@google-gemini` v1.0.1 has **8 spawn sites missing `windowsHide: true`** on Windows, causing:
+
+- Brief cmd black flashes that steal application focus on every plugin call (high-frequency)
+- ENOENT errors when ACP broker spawns `gemini.cmd` (serialized as `[object Object]` by plugin error handlers)
+- Flashes during broker daemon startup, `gemini --version` health checks, `taskkill`, `where gemini`, etc.
+
+**ccgx-workflow ships a one-shot repatch script** (idempotent, re-runnable):
+
+```bash
+node ~/.claude/.ccg/scripts/repatch-gemini-plugin.mjs
+```
+
+Behavior:
+1. Auto-locates plugin version directory
+2. Probes each patch site (string match)
+3. Already-patched sites: `[SKIP]`; unpatched sites: `[APPLY]`
+4. Prints broker-daemon-restart command on completion
+
+⚠️ **Important**: After every `claude plugin update gemini@google-gemini`, the plugin update overwrites cache — **rerun the patch script**.
+
+⚠️ **Restart broker daemon after patching** (old daemon still runs unpatched code):
+
+```powershell
+# Windows PowerShell
+Get-CimInstance Win32_Process -Filter "Name='node.exe'" |
+  Where-Object { $_.CommandLine -match 'acp-broker' } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+```
+
+Or simpler: `/plugin disable gemini@google-gemini` then `/plugin enable gemini@google-gemini`.
+
+Root causes, temporary patches, and upstream paths for all 8 issues are documented in [`.ccg-migration/PLUGIN-PATCHES.md`](./.ccg-migration/PLUGIN-PATCHES.md). Upstream PR is in progress; once merged, the patch becomes a no-op.
+
+---
+
+## Relationship to ccg-workflow
+
+ccgx-workflow is **not a fork**. The upstream `ccg-workflow` public release line stopped at v3.x and has been unmaintained since 2026-05. ccgx-workflow v1.0 was redesigned from scratch on top of v3.x (~3 days / 92 commits / 1141 new tests of dense iteration before stabilization).
+
+### What's New (vs v3.x)
+
+#### 🆕 New Commands
+
+| Command | Description |
+|---------|-------------|
+| `/ccg:debate` | **Multi-round debate primitive** — codex propose ↔ gemini challenge ↔ codex respond, cap N rounds, schema-enforced retry protocol |
+| `/ccg:status [job-id]` | **Async job triplet** — dashboard mode aggregates multi-phase progress / `--wait --timeout-ms` blocking / `--tail` streaming + 3-class stuck warnings |
+| `/ccg:status --cancel <phase-id>` | Single-phase cooperative cancel + grace + kill-tree (Windows `taskkill /T /F` + POSIX `setsid` process group) |
+| `/ccg:result <job-id>` | Final verdict / summary / artifacts; main thread receives ≤200-token summary |
+| `/ccg:cancel <job-id>` | Abort active job: write `cancel.flag` cooperative → 5s grace → kill-tree |
+| `/ccg:verify --gate=<name>` | **Unified verify entry** — consolidates v3.x's 4 separate `verify-{change,quality,security,module}` commands; `--gate=all` orchestrates all gates |
+| `/ccg:verify-work` | **Session-based UAT + cold-start smoke injection** — UAT.md persists across `/clear` via frontmatter; git diff scans server/db/migrations to auto-inject cold-start tests |
+
+#### 🚀 Enhanced Commands
+
+| Command | v3.x | ccgx-workflow |
+|---------|------|---------------|
+| `/ccg:autonomous` | Sequential phases | **Wave topological parallelism** + cascade skip + max-concurrent batching; `--quality=fast/triple/debate` three-tier gates + per-phase frontmatter override |
+| `/ccg:review` | Dual-model review | Adds `--fix --auto` worktree-isolated closed-loop fix (4-step transactional cleanup) |
+| `/ccg:debug` | Single-step diagnosis | Manager + debugger **two-tier fresh-context** — multi-round falsifiable hypotheses + persistent session in `.context/debug/<slug>.md` |
+| `/ccg:team` | 4 separate commands | 8-phase unified workflow + 7-role orchestration + Evaluator-Optimizer feedback loop (up to 2 auto-fix rounds for Critical) |
+
+#### 🤖 New Agents (vs v3.x's 7)
+
+**Fresh-context protocol group** (4 agents; main thread receives ≤200-token summary):
+
+| Agent | Role |
+|-------|------|
+| `phase-runner` | Autonomous long-run phase implementer — `Bash(claude -p --agent ccg/phase-runner)` spawns OS-level subprocess; stream-json output flows to `.context/jobs/<id>/progress.jsonl` |
+| `code-fixer` | review --fix closed-loop — git worktree isolation + 3-layer verification + atomic commit |
+| `debug-session-manager` | Debug multi-round orchestrator — runs hypothesis loop in isolated context |
+| `debugger` | Scientific-method hypothesis constructor — diagnostic specialist scheduled by manager |
+
+**Specialist matrix** (8 agents, role × layer 2D dispatch):
+
+| Agent | Role |
+|-------|------|
+| `assumptions-analyzer` | Assumption interrogator — enforces first-principles, lists evidence-free inferences and gaps |
+| `pattern-mapper` | Codebase pattern scanner — gives builders precise "copy from here" anchors before implementation |
+| `plan-checker` | Plan validator — 5-dimension GSD-derived strong checks + max-3-loop convergence; BLOCKERs return to planner |
+| `nyquist-auditor` | Deep auditor — focuses on boundary conditions, concurrency races, error propagation chains, resource leaks |
+| `verifier` | Delivery verifier — line-by-line requirement checklist, PASS/FAIL/PARTIAL matrix + Level 4 data-flow (FLOWING/STATIC/DISCONNECTED/HOLLOW_PROP) |
+| `integration-checker` | Cross-module interface contract — finds format drift, stale callers, orphan exports |
+| `framework-selector` | Tech stack selection review — current vs proposal contrast, must verify current can't solve before adopting proposal |
+| `eval-auditor` | Evaluation closed-loop audit — sampling / control / metric gaming / falsifiability checks |
+
+Plus the 7 core agents inherited from v3.x design (planner / ui-ux-designer / init-architect / get-current-datetime / team-architect / team-qa / team-reviewer), ccgx-workflow has **19 sub-agents total**.
+
+#### 🔧 New Mechanisms / Infrastructure
+
+| Mechanism | Description |
+|-----------|-------------|
+| **Three-tier quality gates** | `--quality=fast` (2 waves: impl + verify) / `triple` (4 waves: plan + critic + impl + verify, default) / `debate` (7 waves: + 3-round propose-challenge-respond, cap 3) |
+| **Wave topological scheduling** | Kahn topological partition + cascade skip + max-concurrent batching; 30-40% wall-clock reduction; `--sequential` opt-out |
+| **OS-level 3-layer process isolation** | Main `claude.exe` → `Bash(claude -p)` subprocess → optional plugin process group; treats v3.x main-process RSS leak (uni-iam workload measured at 23GB → ccgx target < 8GB) |
+| **Broker tx_id anti-drift** | Each spawn injects `CCG_BROKER_TX_ID` (`crypto.randomUUID`); 8-field strict schema in broker.log; 100k spawns 0 collisions / 2k concurrent 0 misattribution (measured) |
+| **`context_budget` frontmatter hard-cap** | 4 main orchestrators declare `context_budget: orchestrator-15`; forbidden to slurp builder stdout |
+| **`.context/<phase>/{CONTEXT,SUMMARY}.md`** | Phase-scoped state machine; main thread reads frontmatter only (< 200 tokens/phase) |
+| **`.context/codebase/` 7-file contract** | codebase-mapper agent 4-way parallel scan (STACK/INTEGRATIONS/ARCHITECTURE/STRUCTURE/CONVENTIONS/TESTING/CONCERNS) |
+| **Silent fallback governance** | verify wave Bash-direct invocation (architectural elimination) + debate retry protocol schema enforcement (4 violation classes: parse-failed / insufficient-attempts / missing-reason / silent-success) |
+| **Scope reduction detection** | plan-checker dim 7b — detects "v1 / simplified / static-first / wire-up-later" keywords + 80% overlap match against original requirements; BLOCKER on mismatch |
+| **commit-msg-review git hook** | Opt-in pre-commit-msg hook with 3 heuristics (filename ⊆ staged / phase tag ↔ staged paths / op type ↔ diff) |
+| **ground-truth-sampler** | autonomous startup samples plugin/skill/agent list to `.context/ground-truth/latest.json`; phase-runner prompt enforces Read |
+| **interface-auditor specialist** | autonomous verify wave (triple/debate tiers) adds 3rd spawn — 5 checks: SSoT-violation / leftover / magic-string-vs-ground-truth / unverified assumption / API drift |
+| **Gemini plugin Windows repatch** | `~/.claude/.ccg/scripts/repatch-gemini-plugin.mjs` — one-shot patch for 8 spawn bugs, idempotent and re-runnable |
+| **Auto-generated fixtures** | `scripts/regen-fixtures.ts` + `tests/fixtures/ground-truth/*.sample.json`; prevents inline mock drift from real interfaces |
+| **pipeline-check helper** | `pnpm pack` + tarball audit + missing-file detection; prevents "templates in git but missing from npm tarball" incidents |
+
+#### 📦 Skill Ecosystem
+
+ccgx-workflow inherits the **Skill Registry** mechanism (frontmatter-driven auto command generation) with:
+
+- **Quality gates** — 4: verify-{change, quality, security, module} (still callable as skills after merging into `/ccg:verify`)
+- **Tool skills** — 6: gen-docs / health / map-codebase / extract-learnings / forensics / override-refusal
+- **Domain knowledge bundles** — 10 categories, ~21 SKILL.md (security / architecture / devops / ai / development / frontend-design, etc.; all `user-invocable: false`, keyword-routed auto-Read)
+- **Impeccable UI/UX toolkit** — 20 (adapt / animate / arrange / audit / bolder / clarify / colorize / critique / delight / distill / extract / harden / normalize / onboard / optimize / overdrive / polish / quieter / typeset, etc.; optional install)
+- **scrapling**: web scraping with Cloudflare / WAF bypass
+- **orchestration/multi-agent**: coordination SKILL
+
+Total: **47 SKILL.md files** + 50+ supporting markdowns = 100+ skill files.
+
+### Comparison Table
+
+Core differences at a glance:
+
+| Dimension | `ccg-workflow` v3.x | `ccgx-workflow` v1.0 |
+|-----------|----------------------|----------------------|
+| Maintenance | Stalled after 2026-05; author offline | Actively maintained; PRs welcome |
+| Main-thread context | No explicit budget | `context_budget` frontmatter hard-cap + fresh-context subagent protocol |
+| Multi-model gates | Single orchestration | **Three-tier flag** `--quality=fast/triple/debate` (Plan-Critic-Verify) |
+| Autonomous long-runs | Sequential phases | **Wave topological parallel** + cascade skip + cap scheduling |
+| Process isolation | In-process sidechain | **OS-level 3 layers** (`Bash(claude -p)` subprocess + plugin process group) |
+| Broker anti-drift | — | **broker tx_id** crypto sign + 8-field strict schema |
+| Gemini Windows patch | Manual edit of 8 source sites | **Built-in one-shot repatch script**, idempotent |
+| Silent fallback | — | verify wave Bash-direct invocation + debate retry protocol schema enforcement |
+| Test count | 168 | **1309** |
+| Command palette | 35 (incl. deprecated) | ~30 (consolidated) |
+| Subagents | 7 | **19** (4 fresh-context + 8 specialist matrix + others) |
+| Binary dependency | Go binary 16.3 MB | **Node single-file ~200 KB** |
+| License | MIT | MIT (dual copyright: original author + maintainer) |
+| `/ccg:*` palette | — | **Fully compatible** — zero migration cost |
+
+### Migration
+
+See [MIGRATION-FROM-CCG-WORKFLOW.md](./MIGRATION-FROM-CCG-WORKFLOW.md). One-liner:
+
+```bash
+npm uninstall -g ccg-workflow            # if installed globally
+npx ccgx-workflow                        # reinitialize
+```
+
+`/ccg:*` commands, `.context/` state, `.ccg/roadmap.md` are all preserved — no code changes or project state rebuild required.
+
+---
 
 ## Commands
 
 ### Development Workflow
 
-| Command | Description | Model |
-|---------|-------------|-------|
-| `/ccg:workflow` | Full 6-phase development workflow (auto-routes frontend/backend) | Codex + Gemini |
-| `/ccg:plan` | Multi-model collaborative planning (Phase 1-2) | Codex + Gemini |
-| `/ccg:execute` | Multi-model collaborative execution (Phase 3-5) | Codex + Gemini + Claude |
+| Command | Description | Models |
+|---------|-------------|--------|
+| `/ccg:workflow` | Full 6-phase workflow (auto-routes frontend/backend) | Codex + Gemini |
+| `/ccg:plan` | Multi-model planning (Phase 1-2) | Codex + Gemini |
+| `/ccg:execute` | Multi-model execution (Phase 3-5) | Codex + Gemini + Claude |
 | `/ccg:codex-exec` | Codex full execution (plan → code → review) | Codex + multi-model review |
-| `/ccg:autonomous` | Cross-phase long-run (v4.2: `--quality=fast/triple/debate` tier flag) | phase-runner + Plan-Critic-Verify |
+| `/ccg:autonomous` | Cross-phase long-run (`--quality=fast/triple/debate`) | phase-runner + Plan-Critic-Verify |
 | `/ccg:context` | Project context management (.context/ init, log, compress, history) | Claude |
+| `/ccg:enhance` | Built-in prompt enhancement | Claude |
 
 ### Analysis & Quality
 
-| Command | Description | Model |
-|---------|-------------|-------|
+| Command | Description | Models |
+|---------|-------------|--------|
 | `/ccg:analyze` | Technical analysis | Codex + Gemini |
-| `/ccg:debug` | Problem diagnosis + fix (v4.0: manager + debugger fresh-context) | debug-session-manager |
+| `/ccg:debug` | Diagnosis + fix (manager + debugger fresh-context two-tier) | debug-session-manager |
 | `/ccg:optimize` | Performance optimization | Codex + Gemini |
 | `/ccg:test` | Test generation | Auto-routed |
-| `/ccg:review` | Code review (auto git diff, v4.0: `--fix --auto` worktree loop) | Codex + Gemini + code-fixer |
-| `/ccg:verify --gate=<change\|quality\|security\|module\|all>` | Unified verify gate (v4.0 merged) | Claude |
-| `/ccg:verify-work` | Verify orchestrator + session-based UAT + cold-start smoke | Orchestrator |
-| `/ccg:enhance` | Prompt enhancement | Built-in |
+| `/ccg:review` | Code review (auto git diff + `--fix --auto` worktree closed loop) | Codex + Gemini + code-fixer |
+| `/ccg:verify --gate=<change\|quality\|security\|module\|all>` | Unified verify gate | Claude |
+| `/ccg:verify-work` | Orchestrator + session-based UAT + cold-start smoke | Claude |
+| `/ccg:debate` | Multi-round propose/challenge/respond primitive (cap N rounds) | Codex + Gemini |
 
-### Async Job Triplet (v4.0+)
+### Async Job Triplet
 
 | Command | Description |
 |---------|-------------|
-| `/ccg:status [job-id]` | List or query a job (`--wait --timeout-ms` blocks; v4.5: dashboard mode aggregating multi-phase progress) |
-| `/ccg:status --tail <job-id>` | **v4.5**: stream-json tail mode — single-line overwrite + stuck warnings (3-class detector) |
-| `/ccg:status --cancel <phase-id>` | **v4.5**: single-phase cancel (cooperative + grace + kill-tree fallback) |
-| `/ccg:result <job-id>` | Fetch final verdict / summary / artifacts |
-| `/ccg:cancel <job-id>` | Abort an active job |
+| `/ccg:status [job-id]` | List or query job (`--wait --timeout-ms` blocking; dashboard mode) |
+| `/ccg:status --tail <job-id>` | stream-json + single-line overwrite + 3-class stuck warnings |
+| `/ccg:status --cancel <phase-id>` | Single-phase cooperative cancel + grace + kill-tree |
+| `/ccg:result <job-id>` | Final verdict / summary / artifacts |
+| `/ccg:cancel <job-id>` | Abort active job |
 
 ### OPSX Spec-Driven
 
 | Command | Description |
 |---------|-------------|
 | `/ccg:spec-init` | Initialize OPSX environment |
-| `/ccg:spec-research` | Requirements → Constraints |
-| `/ccg:spec-plan` | Constraints → Zero-decision plan |
+| `/ccg:spec-research` | Requirements → constraints |
+| `/ccg:spec-plan` | Constraints → zero-decision plan |
 | `/ccg:spec-impl` | Execute plan + archive |
 | `/ccg:spec-review` | Dual-model cross-review |
 
-### Agent Teams (v1.7.60+, sub-commands consolidated in v4.1)
+### Agent Teams
 
 | Command | Description |
 |---------|-------------|
-| `/ccg:team` | **Unified workflow (recommended)** — 8-phase end-to-end with 7 roles |
-| `/ccg:team research <args>` | Requirements → constraints (sub-command, replaces `/ccg:team-research`) |
-| `/ccg:team plan <args>` | Constraints → parallel implementation plan (sub-command) |
-| `/ccg:team review [git-range]` | Dual-model cross-review (sub-command) |
+| `/ccg:team` | **Unified workflow (recommended)** — 8-phase 7-role end-to-end |
+| `/ccg:team research <args>` | Requirements → constraints |
+| `/ccg:team plan <args>` | Constraints → parallel impl plan |
+| `/ccg:team review [git-range]` | Dual-model cross-review |
 | `/ccg:team-exec` | Spawn Builder teammates for parallel coding |
 
-> **Prerequisite**: Enable Agent Teams in `settings.json`: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
+> **Prerequisite**: Enable `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in `settings.json`.
 
 ### Git Tools
 
 | Command | Description |
 |---------|-------------|
-| `/ccg:commit` | Smart commit (conventional commit format) |
+| `/ccg:commit` | Smart conventional commit |
 | `/ccg:rollback` | Interactive rollback |
 | `/ccg:clean-branches` | Clean merged branches |
 | `/ccg:worktree` | Worktree management |
@@ -175,193 +360,22 @@ Supports: npm, homebrew, curl, powershell, cmd.
 |---------|-------------|
 | `/ccg:init` | Initialize project CLAUDE.md |
 
-## What's New in v4.5 (2026-05-06)
-
-> Full release notes in [CHANGELOG.md](./CHANGELOG.md#450---2026-05-06) · Upgrade guide in [.ccg-migration/v4.4-to-v4.5.md](./.ccg-migration/v4.4-to-v4.5.md)
-
-8-phase / 5-wave dogfood. Headline: **`Agent(subagent_type="phase-runner")` main-process sidechain replaced by `Bash(claude -p --agent ccg/phase-runner)` OS-level subprocess**. Three-layer process isolation treats v4.4.x main-process RSS leak (uni-iam workload measured at 23GB → v4.5 design target < 8GB).
-
-```
-Main claude.exe (orchestrator)
-  └─ Bash(claude -p --agent phase-runner)         L1 OS boundary  ← treats leak
-       └─ CLI subprocess (phase working memory)
-            └─ Agent(codex:codex-rescue) [opt-in] L2 OS boundary  ← --nested=on
-                 └─ plugin process (code edit sandbox)
-```
-
-| Mechanism | Phase | Outcome |
-|-----------|-------|---------|
-| Bash subprocess MVP | P1a (`e1f0fab`) | `buildPhaseRunnerBashCommand` helper + autonomous Step 4.2-4.3 rewrite |
-| Process supervisor + atomic state + reconciler + kill-tree | P1b (`20fb5fe`) | `process-tree.ts` + `ccg-phase-runner-launcher.mjs` + `cancel.md` cooperative + grace + kill-tree |
-| Memory stress gate | P1c (`1086aca`) — **G2 PASS** | RSS slope marginal 5-15 MB/nested (warmup-dominant); CAP=3 enforced |
-| Broker tx_id isolation + 20-way stress | P1d (`285b2ac`) — **G3 PASS** | 100k spawn 0 collision; 2k concurrent 0 misattribution |
-| Cost benchmark | P1e (`c722d08`) | D3 budget tier (fast=$1/triple=$2/debate=$5) **unchanged**; warm cache 86% reduction validated |
-| Nested G-plan opt-in + launcher wiring | P1f (`097cda7`) | `--nested=on|off` flag (default off, 100% BC) |
-| `/ccg:status` v2 | P2 (`614d742`) | Dashboard + `--tail` + 3-class stuck detector (cp936 safe ASCII-7) |
-
-**New flags**:
-
-```bash
-/ccg:autonomous --nested=on     # opt-in nested G-plan (Phase 6 P1f)
-/ccg:status --tail <job-id>     # stream-json tail with stuck warnings
-/ccg:status --cancel <phase-id> # single-phase cooperative cancel + kill-tree
-```
-
-**Cost transparency** (Phase 5 benchmark, real claude CLI subprocess data, n=10 across 2 repos):
-
-| Tier | Per-spawn p90 (heavy CLAUDE.md) | 8-phase milestone (warm cache) | 8-phase (cold cache) |
-|------|---------------------------------|-------------------------------|----------------------|
-| `fast`   | $0.473 | $4-7  | $7-12  |
-| `triple` (default) | $0.473 | $10-15 | $15-27 |
-| `debate` | $0.473 | $15-22 | $22-40 |
-
-Warm cache after ~3 sequential spawns drops cost 86% (validates PoC T3 cold→warm 27× projection). See [`.ccg/poc-v45/cost-cache-bench.md`](./.ccg/poc-v45/cost-cache-bench.md) for full data.
-
-⚠️ **Default behaviour change (small)**: `--nested=off` is default — **100% equivalent to v4.5 v1 (commit 285b2ac baseline)**, single-test §7 verified. Pass `--nested=on` to opt into nested G-plan after gate criteria PASS.
-
-⚠️ **Release entry criteria pending**: uni-iam project 5+ phase autonomous run with claude.exe RSS < 8GB throughout (v4.4.x same workload hit 23GB). Chicken-and-egg: this dogfood's spawn paths still used v4.4.3 Agent path; new mechanism only takes effect on install + new session. See migration guide for the user validation steps.
-
-## What's New in v4.3 (2026-05-04)
-
-> Full release notes in [CHANGELOG.md](./CHANGELOG.md#430---2026-05-04) · Upgrade guide in [.ccg-migration/v4.2-to-v4.3.md](./.ccg-migration/v4.2-to-v4.3.md)
-
-5-phase dogfood (P25-P29 + P30 wrap). Headline: **dynamic defense mechanisms** — every v4.2.x release-blocker root cause now has automated interception.
-
-| Mechanism | Phase | Defends against (real v4.2.x incident) |
-|-----------|-------|----------------------------------------|
-| `pipeline-check` helper | P25 | v4.2.2 `templates/commands/debate.md` missing from `package.json` `files` whitelist (3 broken releases) |
-| `ground-truth-sampler` | P26 | v4.2.0-2.2 assumed `codex:codex-rescue` plugin subagent_type (real: `codex:rescue`) breaking quality tiers |
-| `interface-auditor` specialist | P27 | Cross-phase interface debt (e.g. v4.2 P22 `buildVerifyWave` 95% duplicating P21 `planVerifyWave`) |
-| Fixtures auto-gen | P28 | Inline mocks drifting from real interfaces silently |
-| `commit-msg-review` git hook | P29 | Commit message ↔ diff inconsistency (opt-in, not auto-registered) |
-
-**Default behaviour change (small)**: `/ccg:autonomous` Step 4.0 runs the ground-truth sampler at startup (+~50ms); `triple`/`debate` verify waves include a 3rd `interface-auditor` spawn (`fast` unchanged).
-
-⚠️ **Recommended cold-start validation**: 5-step checklist in [.ccg-migration/v4.2-to-v4.3.md](./.ccg-migration/v4.2-to-v4.3.md) exercises the sampler, pipeline-check, interface-auditor, commit-msg-review hook end-to-end.
-
-⚠️ **Known race for v4.4**: parallel `phase-runner` instances can absorb each other's `git add`-staged files into wrong commits (content correct, attribution wrong). Use worktree isolation in v4.4 (GSD `code-fixer` P10 pattern).
-
-## What's New in v4.2 (2026-05-04)
-
-> Full release notes in [CHANGELOG.md](./CHANGELOG.md#420---2026-05-04) · Upgrade guide in [.ccg-migration/v4.1-to-v4.2.md](./.ccg-migration/v4.1-to-v4.2.md)
-
-3-phase dogfood. Headline: **multi-model collaboration depth scales with `--quality` flag**.
-
-```bash
-/ccg:autonomous --quality=fast      # v4.1 behaviour (single-wave, 2 spawns)
-/ccg:autonomous                     # v4.2 default: triple (Plan→Critic→Impl→Verify, 4 waves, 8 spawns)
-/ccg:autonomous --quality=debate    # 7 waves, up to 14 spawns, 3-round propose/challenge/respond
-```
-
-| Tier | Waves | Spawns (backend) | Wall-clock | Use case |
-|------|-------|------------------|------------|----------|
-| `fast`   | 2 | 2  | +30%      | Hotfix / simple |
-| `triple` (default) | 4 | 8  | +60-90%   | Regular development |
-| `debate` | 7 | 11 | +100-150% | Critical decisions |
-
-**Per-phase override**: roadmap.md frontmatter `Quality: debate` wins over CLI flag.
-
-**Auto-degradation**: when codex/gemini plugins missing, `debate→triple→fast` degrades gracefully with banner notification.
-
-⚠️ **Default behaviour change**: v4.2 defaults to `triple` (4 waves per phase). Pass `--quality=fast` to reproduce v4.1 single-wave behaviour. See migration guide for details.
-
-⚠️ **Real plugin cold-start validation pending**: engine-layer constraints prevented real codex/gemini plugin spawn from CI dogfood subagent context. 33 integration tests cover orchestration logic; user cold-start is the first end-to-end exercise of plugin paths. See migration guide §"Known unverified items" + 5-step validation checklist.
-
-## What's New in v4.1 (2026-05-04)
-
-> Full release notes in [CHANGELOG.md](./CHANGELOG.md#410---2026-05-04) · Upgrade guide in [.ccg-migration/v4-to-v4.1.md](./.ccg-migration/v4-to-v4.1.md)
-
-8-phase incremental usability polish. No breaking changes:
-
-1. **`/ccg:autonomous` defaults to wave-parallel** — 30-40% wall-clock reduction; `--sequential` opt-out
-2. **SessionStart hook** — new sessions auto-inject roadmap head + active phase SUMMARY (≤200 tokens)
-3. **`/ccg:debate`** — multi-round propose/challenge/respond primitive with N-round cap
-4. **`ccg init --sync`** — interactively prune locally-installed CCG files no longer in templates
-5. **Skill `paths:` consumer** — skills with glob filters only activate when project files match
-6. **Command palette shrunk** — 33 → 28 (team-research/plan/review folded into `/ccg:team` sub-commands; health/map-codebase/extract-learnings/forensics moved to skills)
-7. **Plugin Agent spawn path** — 6 core commands prefer Anthropic-official codex/gemini plugins where available; `codeagent-wrapper` deprecated for v5.0 removal
-8. **Specialist matrix routing** — `role × layer` 2D dispatch for fine-grained subagent selection
-
-## What's New in v4.0
-
-> Full release notes in [CHANGELOG.md](./CHANGELOG.md#400---2026-05-03) · Upgrade guide in [.ccg-migration/v3-to-v4.md](./.ccg-migration/v3-to-v4.md)
-
-11 dogfooded improvements landed in v4.0, each verified end-to-end by running CCG on itself:
-
-1. **`context_budget` frontmatter** — 4 main orchestrators hard-cap at orchestrator-15, forbidden to slurp builder stdout
-2. **`phase-runner` subagent protocol** — autonomous spawns a fresh-context wrapper that handles git/test/typecheck outside sandbox limits, returns ≤200 token summary
-3. **`.context/<phase>/{CONTEXT,SUMMARY}.md`** — phase-scoped state files, main thread reads frontmatter only (< 200 tokens/phase)
-4. **`codebase-mapper` agent** — 4-way parallel scan produces 7-file `.context/codebase/` contract on init
-5. **Scope Reduction Detection** — plan-checker dim 7b blocks "v1 / static-first / wire-up-later" patterns when they don't match staged requirements
-6. **`plan-checker` 5 dimensions + max-3-loop** — Dim 1 Requirement Coverage / Dim 2 Task Completeness / Dim 5 Scope Sanity / Dim 7b Scope Reduction / Dim 10 CLAUDE.md Compliance
-7. **Async job triplet** — `/ccg:status` `/ccg:result` `/ccg:cancel` with job-id'd state in `.context/jobs/<id>/`
-8. **`verifier` Level 4 data-flow** — distinguishes FLOWING / STATIC / DISCONNECTED / HOLLOW_PROP, plus `overrides:` 80% match and deferred filtering
-9. **Session-based UAT + cold-start smoke** — `verify-work.md` walks gaps interactively, persists across `/clear`, auto-injects cold-start tests when git diff hits server/db/migrations
-10. **`/ccg:review --fix --auto` + worktree isolation** — `code-fixer` agent loops fixes in a temp worktree with 4-step transactional cleanup
-11. **`debug-session-manager` two-tier fresh-context** — manager + debugger run multi-round falsifiable hypotheses in isolation, return ROOT CAUSE FOUND / DEBUG COMPLETE / CHECKPOINT REACHED
-
-**Dogfood data**: All 12 v4.0 phases ran via CCG `/ccg:autonomous` on the project itself. Main-thread context drift averaged **+1%/phase** (T0=31% → T11=49%, +18% net) — empirical validation of the "subagent isolation keeps the orchestrator lean" thesis.
-
-## Workflow Guides
-
-### Planning & Execution Separation
-
-```bash
-# 1. Generate implementation plan
-/ccg:plan implement user authentication
-
-# 2. Review the plan (editable)
-# Plan saved to .claude/plan/user-auth.md
-
-# 3a. Execute (Claude refactors) — fine-grained control
-/ccg:execute .claude/plan/user-auth.md
-
-# 3b. Execute (Codex does everything) — efficient, low Claude token usage
-/ccg:codex-exec .claude/plan/user-auth.md
-```
-
-### OPSX Spec-Driven Workflow
-
-Integrates [OPSX architecture](https://github.com/fission-ai/opsx) to turn requirements into constraints, eliminating AI improvisation:
-
-```bash
-/ccg:spec-init                          # Initialize OPSX environment
-/ccg:spec-research implement user auth  # Research → constraints
-/ccg:spec-plan                          # Parallel analysis → zero-decision plan
-/ccg:spec-impl                          # Execute the plan
-/ccg:spec-review                        # Independent review (anytime)
-```
-
-> **Tip**: `/ccg:spec-*` commands internally call `/opsx:*`. You can `/clear` between phases — state is persisted in the `openspec/` directory.
-
-### Agent Teams Parallel Workflow
-
-Leverage Claude Code Agent Teams to spawn multiple Builder teammates for parallel coding:
-
-```bash
-/ccg:team research implement kanban API  # 1. Requirements → constraints (v4.1+ sub-command)
-# /clear
-/ccg:team plan kanban-api                # 2. Plan → parallel tasks
-# /clear
-/ccg:team-exec                           # 3. Builders code in parallel
-# /clear
-/ccg:team review                         # 4. Dual-model cross-review
-```
-
-> **vs Traditional Workflow**: Team series uses `/clear` between steps to isolate context, passing state through files. Ideal for tasks decomposable into 3+ independent modules.
+---
 
 ## Configuration
 
-### Directory Structure
+### Directory Layout
 
 ```
 ~/.claude/
 ├── commands/ccg/       # ~30 slash commands
-├── agents/ccg/         # 19 sub-agents (incl. v4.0 phase-runner / code-fixer / debug-session-manager / debugger)
-├── skills/ccg/         # Quality gates + 10 domain knowledge bundles + multi-agent orchestration
-├── bin/codeagent-wrapper
+├── agents/ccg/         # 19 sub-agents
+├── skills/ccg/         # Quality gates + 10 domain bundles + impeccable + orchestration
+├── bin/codeagent-wrapper  # Fallback path (when plugins absent)
 └── .ccg/
-    ├── config.toml     # CCG configuration
+    ├── config.toml
+    ├── scripts/
+    │   └── repatch-gemini-plugin.mjs   # ⭐ one-shot patch
     └── prompts/
         ├── codex/      # 6 Codex expert prompts
         └── gemini/     # 7 Gemini expert prompts
@@ -369,155 +383,87 @@ Leverage Claude Code Agent Teams to spawn multiple Builder teammates for paralle
 
 ### Environment Variables
 
-Configure in `~/.claude/settings.json` under `"env"`:
+In `~/.claude/settings.json` under `"env"`:
 
 | Variable | Description | Default | When to change |
 |----------|-------------|---------|----------------|
-| `CODEAGENT_POST_MESSAGE_DELAY` | Wait after Codex completion (sec) | `5` | Set to `1` if Codex process hangs |
-| `CODEX_TIMEOUT` | Wrapper execution timeout (sec) | `7200` | Increase for very long tasks |
+| `CODEAGENT_POST_MESSAGE_DELAY` | Wait after Codex completion (sec) | `5` | Set to `1` if Codex hangs |
+| `CODEX_TIMEOUT` | wrapper execution timeout (sec) | `7200` | Increase for very long tasks |
 | `BASH_DEFAULT_TIMEOUT_MS` | Claude Code Bash timeout (ms) | `120000` | Increase if commands time out |
 | `BASH_MAX_TIMEOUT_MS` | Claude Code Bash max timeout (ms) | `600000` | Increase for long builds |
 
-<details>
-<summary>Example settings.json</summary>
-
-```json
-{
-  "env": {
-    "CODEAGENT_POST_MESSAGE_DELAY": "1",
-    "CODEX_TIMEOUT": "7200",
-    "BASH_DEFAULT_TIMEOUT_MS": "600000",
-    "BASH_MAX_TIMEOUT_MS": "3600000"
-  }
-}
-```
-
-</details>
-
-### MCP Configuration
+### MCP
 
 ```bash
-npx ccg-workflow menu  # Select "Configure MCP"
+npx ccgx-workflow menu  # Select "Configure MCP"
 ```
 
-**Code retrieval** (choose one):
-- **ace-tool** (recommended) — Code search via `search_context`. [Official](https://augmentcode.com/) | [Third-party proxy](https://acemcp.heroman.wtf/)
-- **fast-context** (recommended) — Windsurf Fast Context, AI-powered search without full-repo indexing. Requires Windsurf account
-- **ContextWeaver** (alternative) — Local hybrid search, requires SiliconFlow API Key (free)
+**Code retrieval** (pick one):
+- **fast-context** (recommended) — Windsurf Fast Context, AI-powered, no full-repo indexing
+- **ace-tool** — `search_context` ([official](https://augmentcode.com/) / [community proxy](https://acemcp.heroman.wtf/))
+- **ContextWeaver** — Local hybrid search, requires SiliconFlow API Key (free)
 
-**Optional tools**:
-- **Context7** — Latest library documentation (auto-installed)
-- **Playwright** — Browser automation / testing
-- **DeepWiki** — Knowledge base queries
-- **Exa** — Search engine (requires API Key)
+**Optional**: Context7 (auto-installed, library docs) / Playwright / DeepWiki / Exa.
 
-### Auto-Authorization Hook
-
-CCG automatically installs a Hook to auto-authorize `codeagent-wrapper` commands (requires [jq](#install-jq)).
-
-<details>
-<summary>Manual setup (for versions before v1.7.71)</summary>
-
-Add to `~/.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "jq -r '.tool_input.command' 2>/dev/null | grep -q 'codeagent-wrapper' && echo '{\"hookSpecificOutput\": {\"hookEventName\": \"PreToolUse\", \"permissionDecision\": \"allow\", \"permissionDecisionReason\": \"codeagent-wrapper auto-approved\"}}' || true",
-            "timeout": 1
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-</details>
-
-## Utilities
-
-```bash
-npx ccg-workflow menu  # Select "Tools"
-```
-
-- **ccusage** — Claude Code usage analytics
-- **CCometixLine** — Status bar tool (Git + usage tracking)
+---
 
 ## Update / Uninstall
 
 ```bash
 # Update
-npx ccg-workflow@latest            # npx users
-npm install -g ccg-workflow@latest  # npm global users
+npx ccgx-workflow@latest             # npx users
+npm install -g ccgx-workflow@latest  # global npm users
 
 # Uninstall
-npx ccg-workflow  # Select "Uninstall"
-npm uninstall -g ccg-workflow  # npm global users need this extra step
+npx ccgx-workflow                    # select "Uninstall"
+npm uninstall -g ccgx-workflow       # global npm users need this extra step
 ```
+
+---
 
 ## FAQ
 
 ### Codex CLI 0.80.0 process does not exit
 
-In `--json` mode, Codex does not automatically exit after output completion.
+In `--json` mode, Codex doesn't auto-exit after output completion.
 
-**Fix**: Set `CODEAGENT_POST_MESSAGE_DELAY=1` in your environment variables.
+**Fix**: Set `CODEAGENT_POST_MESSAGE_DELAY=1`.
 
-## Contributing
+### I'm coming from ccg-workflow — does ccgx-workflow drop in?
 
-We welcome contributions! See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
+Yes. `/ccg:*` palette is fully compatible. `.context/` state and `.ccg/roadmap.md` are preserved. See [MIGRATION-FROM-CCG-WORKFLOW.md](./MIGRATION-FROM-CCG-WORKFLOW.md).
 
-Looking for a place to start? Check out issues labeled [`good first issue`](https://github.com/fengshao1227/ccg-workflow/labels/good%20first%20issue).
+### Why is the CLI command `ccg` and not `ccgx`?
 
-## Contributors
+Preserving `ccg` keeps legacy aliases, scripts, and docs working with zero changes — `/ccg:*` palette and the `ccg` CLI are both muscle memory. The package name `ccgx-workflow` exists to disambiguate the npm namespace; the CLI binary remains `ccg`.
 
-<!-- readme: contributors -start -->
-<table>
-<tr>
-    <td align="center"><a href="https://github.com/fengshao1227"><img src="https://avatars.githubusercontent.com/fengshao1227?v=4&s=100" width="100;" alt="fengshao1227"/><br /><sub><b>fengshao1227</b></sub></a></td>
-    <td align="center"><a href="https://github.com/SXP-Simon"><img src="https://avatars.githubusercontent.com/SXP-Simon?v=4&s=100" width="100;" alt="SXP-Simon"/><br /><sub><b>SXP-Simon</b></sub></a></td>
-    <td align="center"><a href="https://github.com/RebornQ"><img src="https://avatars.githubusercontent.com/RebornQ?v=4&s=100" width="100;" alt="RebornQ"/><br /><sub><b>RebornQ</b></sub></a></td>
-    <td align="center"><a href="https://github.com/Sakuranda"><img src="https://avatars.githubusercontent.com/Sakuranda?v=4&s=100" width="100;" alt="Sakuranda"/><br /><sub><b>Sakuranda</b></sub></a></td>
-    <td align="center"><a href="https://github.com/Mriris"><img src="https://avatars.githubusercontent.com/Mriris?v=4&s=100" width="100;" alt="Mriris"/><br /><sub><b>Mriris</b></sub></a></td>
-    <td align="center"><a href="https://github.com/23q3"><img src="https://avatars.githubusercontent.com/23q3?v=4&s=100" width="100;" alt="23q3"/><br /><sub><b>23q3</b></sub></a></td>
-    <td align="center"><a href="https://github.com/MrNine-666"><img src="https://avatars.githubusercontent.com/MrNine-666?v=4&s=100" width="100;" alt="MrNine-666"/><br /><sub><b>MrNine-666</b></sub></a></td>
-</tr>
-<tr>
-    <td align="center"><a href="https://github.com/GGzili"><img src="https://avatars.githubusercontent.com/GGzili?v=4&s=100" width="100;" alt="GGzili"/><br /><sub><b>GGzili</b></sub></a></td>
-</tr>
-</table>
-<!-- readme: contributors -end -->
+### What happens to the Gemini patch when upstream fixes it?
 
-## Credits
-
-- [cexll/myclaude](https://github.com/cexll/myclaude) — codeagent-wrapper
-- [UfoMiao/zcf](https://github.com/UfoMiao/zcf) — Git tools
-- [GudaStudio/skills](https://github.com/GuDaStudio/skills) — Routing design
-- [ace-tool](https://linux.do/t/topic/1344562) — MCP tool
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=fengshao1227/ccg-workflow&type=timeline&legend=top-left)](https://www.star-history.com/#fengshao1227/ccg-workflow&type=timeline&legend=top-left)
-
-## Contact
-
-- **X (Twitter)**: [@CCG_Workflow](https://x.com/CCG_Workflow) — Updates, demos, and tips
-- **Email**: [fengshao1227@gmail.com](mailto:fengshao1227@gmail.com) — Sponsorship, collaboration, or development ideas
-- **Issues**: [GitHub Issues](https://github.com/fengshao1227/ccg-workflow/issues) — Bug reports and feature requests
-- **Discussions**: [GitHub Discussions](https://github.com/fengshao1227/ccg-workflow/discussions) — Questions and community chat
-- **Community**: [Linux.do](https://linux.do) — Open-source tech community
-
-## License
-
-MIT
+ccgx-workflow tracks upstream plugin versions. Once fixes land upstream, the repatch script auto-skips already-fixed sites via probe detection (`[SKIP]`) — no side effects. A ccgx-workflow release will mark "upstream fixed, patch is now a no-op" at that point.
 
 ---
 
-v4.5.0 | [Issues](https://github.com/fengshao1227/ccg-workflow/issues) | [Contributing](./CONTRIBUTING.md)
+## Contributing
+
+PRs and issues welcome. This project is MIT-licensed; submitting code constitutes consent to release under MIT.
+
+- **Issues**: [GitHub Issues](https://github.com/wzyxdwll/ccgx-workflow/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/wzyxdwll/ccgx-workflow/discussions)
+
+## Credits
+
+ccgx-workflow stands on the shoulders of ccg-workflow. Thanks to fengshao1227 and the original contributors.
+
+- [ccg-workflow](https://github.com/fengshao1227/ccg-workflow) v1.x – v3.x — original project (fengshao1227)
+- [gsd-build/get-shit-done](https://github.com/gsd-build/get-shit-done/) — fresh-context subagent protocol, context monitor, code-fixer worktree closed loop, debug session manager — multiple architectural inspirations
+- [cexll/myclaude](https://github.com/cexll/myclaude) — codeagent-wrapper inspiration
+- [UfoMiao/zcf](https://github.com/UfoMiao/zcf) — git tooling inspiration
+- [GuDaStudio/skills](https://github.com/GuDaStudio/skills) — routing design
+
+## License
+
+MIT — see [LICENSE](./LICENSE) (dual copyright: original author fengshao1227 + maintainer wangzy).
+
+---
+
+v1.0.0 | [Issues](https://github.com/wzyxdwll/ccgx-workflow/issues) | [Migration from ccg-workflow](./MIGRATION-FROM-CCG-WORKFLOW.md)

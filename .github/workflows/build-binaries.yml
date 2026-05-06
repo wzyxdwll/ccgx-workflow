@@ -57,7 +57,7 @@ jobs:
           name: "Pre-built Binaries (codeagent-wrapper)"
           body: |
             Pre-compiled `codeagent-wrapper` binaries for all supported platforms.
-            Automatically downloaded during `npx ccg-workflow` installation.
+            Automatically downloaded during `npx ccgx-workflow` installation.
 
             | File | Platform | Architecture |
             |------|----------|-------------|
