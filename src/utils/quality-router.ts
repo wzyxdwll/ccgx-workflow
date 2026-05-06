@@ -198,6 +198,32 @@ const PHASE_RUNNER_BUDGET_USD: Record<QualityTier, number> = {
   debate: 5.0,
 }
 
+/**
+ * v4.5 P1c (Phase 3): max nested Agent spawns inside a single CLI phase-runner
+ * subprocess. Conservative default = 3 (200-500MB/nested zone per codex C1
+ * estimate, awaiting full-matrix RSS bench data).
+ *
+ * Decision Gate G2 (.ccg/poc-v45/nested-rss-bench.md):
+ *   - measured slope ≤ 200 MB/nested → can raise to 5
+ *   - measured slope 200-500 MB/nested → keep at 3
+ *   - measured slope > 500 MB/nested → G2 NO-GO, drop to 0 + Phase 6 推迟 v4.6
+ *
+ * Consumed by: P1f (Phase 6) gate — phase-runner subprocess refuses nested
+ * spawn beyond this cap, falls back to self-implementation for the overflow.
+ */
+export const MAX_NESTED_PER_PHASE = 3
+
+/**
+ * v4.5 P1c (Phase 3): RSS hard ceiling for a single CLI phase-runner subprocess.
+ * Beyond this the supervisor (`writeDegradedFlag`) marks the job degraded so
+ * phase-runner falls back to self-implementation; nested spawns are vetoed
+ * for the rest of the phase.
+ *
+ * 4 GB chosen as half the typical 8 GB workstation budget — leaves headroom
+ * for 4 concurrent outers (worst case 16 GB before degrade triggers anywhere).
+ */
+export const PHASE_RUNNER_RSS_DEGRADE_MB = 4096
+
 /** Options for `buildPhaseRunnerBashCommand` */
 export interface BuildPhaseRunnerBashOptions {
   /** Quality tier，决定 `--max-budget-usd`；缺省 `triple` */

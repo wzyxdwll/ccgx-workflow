@@ -46,9 +46,9 @@
  *   row 13: roadmap advances without durable evidence → reconciler asserts result+state matched
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync, mkdirSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import {
   atomicWriteFileSync,
   jobResultPath,
@@ -258,6 +258,124 @@ export async function killProcessTree(opts: KillTreeOptions): Promise<KillTreeRe
 
   result.terminated = !isProcessAlive(opts.pid)
   return result
+}
+
+// ---------------------------------------------------------------------------
+// v4.5 P1c (Phase 3) — RSS sampling + degraded.flag supervisor primitive
+// ---------------------------------------------------------------------------
+
+/**
+ * Cross-platform best-effort sampler for a single PID's resident memory.
+ * Returns Working Set (Windows) or RSS (POSIX) in MB, or `null` on failure
+ * (process gone, sampler unavailable, parse error). Synchronous + cheap;
+ * suitable for periodic supervision (≤ 1 Hz) from the launcher process.
+ *
+ * Implementation:
+ *   - Windows: PowerShell `(Get-Process -Id <pid>).WorkingSet64` — bytes
+ *   - POSIX:   `ps -o rss= -p <pid>` — KB
+ *
+ * Failure mode: if sampling itself fails (PS not on PATH / pid gone /
+ * permission denied), returns `null`. Callers MUST treat `null` as "unknown,
+ * do nothing" — never as 0 (which would falsely satisfy "below threshold"
+ * checks).
+ */
+export function sampleProcessRssMb(pid: number): number | null {
+  if (!Number.isInteger(pid) || pid <= 0) return null
+  if (isWindowsPlatform()) {
+    const r = spawnSync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-Command',
+        `try { (Get-Process -Id ${pid} -ErrorAction Stop).WorkingSet64 } catch { -1 }`,
+      ],
+      { encoding: 'utf-8', windowsHide: true, timeout: 5000 },
+    )
+    if (r.error || r.status !== 0) return null
+    const bytes = parseInt((r.stdout ?? '').trim(), 10)
+    if (!Number.isFinite(bytes) || bytes < 0) return null
+    return Math.round(bytes / (1024 * 1024))
+  }
+  // POSIX
+  const r = spawnSync('ps', ['-o', 'rss=', '-p', String(pid)], {
+    encoding: 'utf-8',
+    timeout: 5000,
+  })
+  if (r.error || r.status !== 0) return null
+  const kb = parseInt((r.stdout ?? '').trim(), 10)
+  if (!Number.isFinite(kb) || kb <= 0) return null
+  return Math.round(kb / 1024)
+}
+
+export interface DegradedFlagOptions {
+  /** Project workdir (parent of `.context/`). */
+  workdir: string
+  /** Job id whose subprocess is being supervised. */
+  jobId: string
+  /** Reason snippet written to flag (≤ 200 chars). */
+  reason: string
+  /** Sampled RSS at the moment of trigger (MB). */
+  rssMb?: number | null
+  /** Override Date.now for tests. */
+  nowMs?: number
+}
+
+/**
+ * Write `.context/jobs/<jobId>/degraded.flag` (idempotent) signalling the
+ * phase-runner CLI subprocess to abort nested-spawn delegation and fall back
+ * to self-implementation for the rest of the phase.
+ *
+ * The phase-runner subagent reads this flag at every nested-spawn decision
+ * point (Phase 6 enforcement). The launcher / supervisor writes it when:
+ *   - sampled subprocess RSS exceeds `PHASE_RUNNER_RSS_DEGRADE_MB`
+ *   - nested-spawn count exceeds `MAX_NESTED_PER_PHASE`
+ *   - nested-spawn returns "out of memory" / loud crash
+ *
+ * Returns absolute flag path on success, `null` on filesystem error.
+ *
+ * @example
+ *   writeDegradedFlag({
+ *     workdir: 'D:/repo',
+ *     jobId: 'job-abc',
+ *     reason: 'rss=5120MB exceeds 4096MB ceiling',
+ *     rssMb: 5120,
+ *   })
+ */
+export function writeDegradedFlag(opts: DegradedFlagOptions): string | null {
+  if (!opts.workdir || !opts.jobId) return null
+  const path = join(opts.workdir, '.context', 'jobs', opts.jobId, 'degraded.flag')
+  try {
+    mkdirSync(dirname(path), { recursive: true })
+    const payload = {
+      written_at: new Date(opts.nowMs ?? Date.now()).toISOString(),
+      reason: String(opts.reason).slice(0, 200),
+      rss_mb: opts.rssMb ?? null,
+    }
+    writeFileSync(path, JSON.stringify(payload, null, 2), 'utf-8')
+    return path
+  }
+  catch {
+    return null
+  }
+}
+
+/**
+ * Read existing degraded.flag for a job (or `null` if absent / unparseable).
+ * phase-runner consumes this at every nested-spawn decision point.
+ */
+export function readDegradedFlag(workdir: string, jobId: string): {
+  written_at: string
+  reason: string
+  rss_mb: number | null
+} | null {
+  const path = join(workdir, '.context', 'jobs', jobId, 'degraded.flag')
+  if (!existsSync(path)) return null
+  try {
+    return JSON.parse(readFileSync(path, 'utf-8'))
+  }
+  catch {
+    return null
+  }
 }
 
 // ---------------------------------------------------------------------------
