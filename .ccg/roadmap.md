@@ -133,9 +133,10 @@ Wave 5: Phase 8                            (1d)   — release
 - **Mode**: runner
 - **Critical**: true
 
-## Phase 3: Memory stress gate (not_started)
+## Phase 3: Memory stress gate (in_progress)
 
 - **Alias**: P1c
+- **Started**: 2026-05-06 13:30
 - **Goal**: 解决 codex C1。在真 CLI 子进程内跑 5/10/20 次 nested Agent spawn，测 RSS 累积斜率，决定 nested 默认上限（Phase 6 用）
 - **Files**:
   - `tests/poc/nested-rss-stress.ts`（新建）
@@ -151,9 +152,10 @@ Wave 5: Phase 8                            (1d)   — release
 - **Mode**: runner
 - **Critical**: false
 
-## Phase 4: Broker tx_id isolation + 20-way stress (not_started)
+## Phase 4: Broker tx_id isolation + 20-way stress (in_progress)
 
 - **Alias**: P1d
+- **Started**: 2026-05-06 13:30
 - **Goal**: 解决 codex C3。v4.4.2 已识别 broker.log 并发 race hazard，nested G-plan 把并发倍增到 20 路。tx_id 必须 128-bit 唯一 + 严格 correlation
 - **Files**:
   - `src/utils/broker-log.ts`（新建）：tx_id 生成（crypto.randomUUID），事件 schema 强约束
