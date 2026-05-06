@@ -96,6 +96,87 @@ node ~/.claude/plugins/cache/google-gemini/gemini/1.0.1/scripts/gemini-companion
 
 ---
 
+## P-2: gemini plugin v1.0.1 — Windows 调底层 `gemini --acp` CLI 时 ENOENT + 闪 cmd 黑窗
+
+**状态**: 本地已 patch（`.bak` 备份存在），上游待 PR
+**首次发现**: v4.5 之前（早期发现，未正式归档）— 现 v4.5.1 补档
+**受影响**: `gemini@google-gemini` v1.0.1 on Windows
+**触发频率**: 每次 ACP broker 启动 + 每个 ACPClient 实例化（高频）
+**与 P-1 区别**: P-1 spawn 的是 Node task-worker（不需 shell），P-2 spawn 的是底层 `gemini` CLI（npm 装的 .cmd 脚本，必须 shell:true）
+
+### 症状
+
+Windows 上 plugin 调用底层 gemini CLI 时：
+
+1. **ENOENT 报错**：`spawn gemini ENOENT`，错误对象被 plugin 错误处理路径序列化为 `[object Object]`，用户看到无意义的错误信息
+2. **闪 cmd 黑窗**：用 `shell: true` 修复 ENOENT 后，每次 spawn 短暂闪现 cmd 控制台窗口，抢焦点
+
+根因是 npm 全局装的 `gemini` CLI 在 Windows 上是 `.cmd` 脚本（不是 `.exe`）。Node `child_process.spawn("gemini", ...)` 不会自动尝试 `.cmd` 后缀，必须经过 cmd shell 解析才能找到。但 `shell: true` 默认会创建可见 console，需配套 `windowsHide: true` 抑制。
+
+### 根因
+
+两个独立 spawn 点都缺 `shell: process.platform === "win32"` + `windowsHide: true`：
+
+1. **`scripts/acp-broker.mjs:85-95`** `spawnAcpProcess(cwd)` — ACP broker daemon 启动主进程
+2. **`scripts/lib/acp-client.mjs:243-250`** ACPClient 内部 spawn — 多 client 路径
+
+### 临时 patch（本地手改 2 处，每处 +3 行）
+
+#### Patch 1: `~/.claude/plugins/cache/google-gemini/gemini/1.0.1/scripts/acp-broker.mjs:85`
+
+```javascript
+function spawnAcpProcess(cwd) {
+  const child = spawn("gemini", ["--acp"], {
+    cwd,
+    stdio: ["pipe", "pipe", "pipe"],
+    env: process.env,
+    // Windows 兼容性：gemini 是 .cmd 脚本，Node.js spawn 必须 shell:true 才能找到
+    // 否则抛 ENOENT 被序列化为 [object Object]
+    shell: process.platform === "win32",
+    // 抑制 shell:true 在 Windows 上闪 cmd 黑窗（Linux/macOS 忽略此选项）
+    windowsHide: true
+  });
+  // ...
+}
+```
+
+#### Patch 2: `~/.claude/plugins/cache/google-gemini/gemini/1.0.1/scripts/lib/acp-client.mjs:243`
+
+```javascript
+this.proc = spawn("gemini", ["--acp"], {
+  cwd: this.cwd,
+  stdio: ["pipe", "pipe", "pipe"],
+  // Windows 兼容性：gemini 是 .cmd 脚本，Node.js spawn 必须 shell:true 才能找到
+  shell: process.platform === "win32",
+  // 抑制 shell:true 在 Windows 上闪 cmd 黑窗
+  windowsHide: true
+});
+```
+
+### 验证 patch 已生效
+
+```bash
+# 检查两个 spawn 点都有 shell + windowsHide:
+grep -A 6 "spawn(\"gemini\", \[\"--acp\"\]" \
+  ~/.claude/plugins/cache/google-gemini/gemini/1.0.1/scripts/acp-broker.mjs \
+  ~/.claude/plugins/cache/google-gemini/gemini/1.0.1/scripts/lib/acp-client.mjs
+
+# 都应包含 shell: process.platform === "win32" + windowsHide: true
+```
+
+### 永久路径
+
+- 上游 plugin 仓库: <https://github.com/sakibsadmanshajib/gemini-plugin-cc>
+- 修复方向: 两处 spawn 都加 `shell: process.platform === "win32"` + `windowsHide: true`
+- 状态: 本地已 patch（用户机器 cache 中 `.bak` 备份保留原版），上游 PR 待提
+- 与 P-1 同 PR 一并提
+
+### plugin update 后重补
+
+`claude plugin update gemini@google-gemini` 会用 `.bak` 同款（无 patch）原版覆盖 cache。**update 后必须重新 patch 两处**。可以写个本地脚本一键重补（建议 `~/.claude/.ccg/scripts/repatch-gemini-plugin.sh`）。
+
+---
+
 ## Resolved（上游已修复）
 
 （暂无）

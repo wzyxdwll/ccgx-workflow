@@ -13,7 +13,10 @@
 ### 2026-05-06 (v4.5.1) — 🐛 Hotfix: launcher path namespace + plugin known-issue 文档化
 
 - 🐛 **launcher path .ccg/ namespace 修正**（commit `79cf8b4`）：v4.5.0 install 验证抓出 8 处文件引用 `~/.claude/scripts/ccg-phase-runner-launcher.mjs` 但 installer 装到 `~/.claude/.ccg/scripts/`（v1.7.75 namespace 隔离）。新机制启用后会 file not found。修正 6 文件含 `DEFAULT_LAUNCHER_PATH` const。抓在 install 阶段，没等 uni-iam dogfood 暴露。
-- 📝 **新建 `.ccg-migration/PLUGIN-PATCHES.md`** — 上游 plugin known issue + 本地 patch 持续维护文档。首条 P-1 记录 `gemini@google-gemini` v1.0.1 Windows `spawnBackgroundWorker` 漏写 `windowsHide: true` 导致 spawn 抢焦点（codex plugin 同款代码有，对照参考）；本地 patch 1 行即缓解，永久路径待上游 PR。
+- 📝 **新建 `.ccg-migration/PLUGIN-PATCHES.md`** — 上游 plugin known issue + 本地 patch 持续维护文档。首批 P-1 + P-2 都涉及 `gemini@google-gemini` v1.0.1 Windows spawn 行为：
+  - **P-1**: `spawnBackgroundWorker` (line 701) 漏 `windowsHide: true` → spawn 抢焦点（codex plugin 同款代码有，对照参考）
+  - **P-2**: 底层 `spawn("gemini", ["--acp"])` (acp-broker.mjs:85 + lib/acp-client.mjs:243) 缺 `shell: process.platform === "win32"` + `windowsHide: true` — gemini 在 Windows 是 `.cmd` 脚本必须 shell:true 才能找到，否则 ENOENT 序列化为 `[object Object]`；本地已 patch（`.bak` 留底），早期发现 v4.5.1 补档
+  - 本地 patch 立即缓解，永久路径待上游 PR
 - 📊 测试 1309/1309 不变（仅文档 + 字符串路径修正）。
 
 ### 2026-05-06 (v4.5.0) — 🚀 phase-runner Bash subprocess + 三层 OS 进程隔离（8 phase / 5 wave dogfood）

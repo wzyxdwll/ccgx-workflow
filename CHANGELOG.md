@@ -16,7 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 📝 文档
 
 - **新建 [`.ccg-migration/PLUGIN-PATCHES.md`](./.ccg-migration/PLUGIN-PATCHES.md)** — 上游 plugin known issue + 本地 patch 步骤持续维护文档。CCG 自身代码无法控制 plugin 行为，但用户机器上的 plugin 偶尔有可被本地修补的 bug。每条 issue 含 (1) 症状 / (2) 根因 / (3) 受影响版本 / (4) 临时 patch / (5) 永久路径。
-- **首条记录 P-1**: `gemini@google-gemini` v1.0.1 在 Windows 调 `spawnBackgroundWorker` 时 spawn 漏写 `windowsHide: true`（codex plugin 同款代码有，作为对照参考），导致 spawn 子进程时短暂创建 cmd console 抢焦点。本地 patch 1 行立即缓解；永久解决待上游 PR。
+- **P-1**: `gemini@google-gemini` v1.0.1 在 Windows 调 `spawnBackgroundWorker` (line 701) 时 spawn 漏写 `windowsHide: true`（codex plugin 同款代码有，作为对照参考），导致 spawn 子进程时短暂创建 cmd console 抢焦点。本地 patch 1 行立即缓解；永久解决待上游 PR。
+- **P-2**: `gemini@google-gemini` v1.0.1 底层 `spawn("gemini", ["--acp"])` 调用（`acp-broker.mjs:85` + `lib/acp-client.mjs:243`）在 Windows 缺 `shell: process.platform === "win32"` + `windowsHide: true`。npm 全局装的 `gemini` 在 Windows 是 `.cmd` 脚本，Node spawn 不带 shell 找不到 → ENOENT 错误（被错误处理路径序列化为 `[object Object]`）；加 `shell:true` 修 ENOENT 后又会闪 cmd 黑窗，需配套 `windowsHide:true`。本地已 patch（`.bak` 备份留底，证明非原版行为），属早期发现 v4.5.1 补档。
 - **`.ccg-migration/v4.4-to-v4.5.md`** 加 "Plugin known issues + workarounds" 节链接到 PLUGIN-PATCHES。
 
 ### ✅ 验证
