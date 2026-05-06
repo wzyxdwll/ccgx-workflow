@@ -1,0 +1,43 @@
+Verify CCG v4.5 Phase 1 (P1a) implementation from UX/CLI ergonomics angle. cwd=D:/workflow/ccg-workflow.
+
+Context:
+- Baseline: 1e1ae95 (v4.5 kickoff)
+- Phase 1 commit: e1f0fab "feat(v4.5-p1): phase-runner via Bash subprocess (P1a MVP)"
+- Diff: 6 files, +762/-33
+- Phase 1 report: D:/workflow/ccg-workflow/.claude/team-plan/phase-v4.5-01-cli-subprocess-mvp-report.md
+- Phase 1 acceptance: D:/workflow/ccg-workflow/.ccg/roadmap.md "Phase 1: 外层 CLI subprocess MVP"
+- Design: D:/workflow/ccg-workflow/.ccg/v4.5-roadmap.md "P1a"
+- PoC decisions: D:/workflow/ccg-workflow/.ccg/poc-v45/poc-results.md
+- Your previous review: D:/workflow/ccg-workflow/.ccg/poc-v45/gemini-review.md (4 UX critical findings U1-U4)
+
+Read the report first, then the acceptance, then the actual changes.
+
+Your role: gemini UX/CLI specialist cross-vendor verify. Focus angles:
+
+1. autonomous.md Step 4.2-4.3 改写后，用户读模板是否清晰？有无误导 / 半成品语句残留？
+2. buildPhaseRunnerBashCommand 生成的 bash 命令字符串：
+   - Windows / Linux 兼容（路径转义、引号转义、stream redirect）
+   - 错误时用户看到什么（exit code / stderr 信息可读性）
+   - 长命令 / 长 prompt 在 Windows cmd 8192 字符上限处的退化路径
+3. progress.jsonl 路径（D6）是否符合用户从 .context/jobs/<job-id>/ 模型预期？
+4. 失去 sidechain inline UI 后，autonomous 主线编排器与 phase-runner 子进程之间的"可观测性"
+   是否被 P1a 实现阻断？(关注：用户在主对话能看到子进程的什么信号？SessionStart hook 怎么集成？)
+5. 你 gemini-review.md 提的 U1-U4 (观测降级 / cost 漏算 / status command UX / v1->v2 升级)
+   有没有任何一个被 P1a 实现意外冲击或反向阻塞？
+
+Output strict YAML, ≤200 tokens:
+
+```yaml
+verdict: advance | revise | escalate
+critical_findings:
+  - <one-liner>
+warnings:
+  - <one-liner>
+ux_check: <pass|partial|fail>
+ux_observability_status: <preserved|degraded|blocked>
+notes: <≤80 字>
+```
+
+advance = no UX-level critical, proceed
+revise = UX critical findings, request phase-runner fix
+escalate = blocking UX issue requires user decision

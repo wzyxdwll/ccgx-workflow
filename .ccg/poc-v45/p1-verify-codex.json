@@ -1,0 +1,7 @@
+{
+  "status": 0,
+  "threadId": "019dfb53-2187-7393-addb-b4e9ef96e912",
+  "rawOutput": "verdict: revise\ncritical_findings:\n  - \"src/utils/quality-router.ts + buildPhaseRunnerBashCommand.test.ts: D3 drift - fast tier uses 1.0, but the PoC contract says 0.5, so the validated budget is not what ships.\"\nwarnings:\n  - \"templates/commands/autonomous.md Step 4.2-4.3 still mentions `Agent(subagent_type=\\\"phase-runner\\\")` in negative commentary, so the zero-text grep is not literally true.\"\n  - \"quality-router.ts falls back to `<JOB_ID>`/`<WORKDIR>` placeholders instead of failing on missing meta, which can emit a broken spawn command.\"\nacceptance_check: partial - Bash path wiring is in place, but the D3 budget contract still diverges from PoC.\nssot_check: pass - v4.4.2 verify direct-bash flow is reused; no duplicate verifier SSoT.\nnotes: \"先修正 fast 预算值。\"",
+  "touchedFiles": [],
+  "reasoningSummary": []
+}

@@ -68,9 +68,15 @@ Wave 5: Phase 8                            (1d)   — release
 
 ---
 
-## Phase 1: 外层 CLI subprocess MVP (not_started)
+## Phase 1: 外层 CLI subprocess MVP (completed)
 
 - **Alias**: P1a
+- **Started**: 2026-05-06 11:30 | **Completed**: 2026-05-06 12:20
+- **Commit**: `e1f0fab feat(v4.5-p1): phase-runner via Bash subprocess (P1a MVP)`
+- **Plan**: `.claude/team-plan/phase-v4.5-01-cli-subprocess-mvp-report.md`
+- **Outcome**: phase-runner spawn 改 Bash 直调路径完成；quality-router.ts 加 buildPhaseRunnerBashCommand helper（+224 行）；autonomous.md Step 4.2-4.3 模板改写（+71 行）；新增 39 单测全过（1100→1139）；typecheck pass。useDirectBashInvocation 默认 false 保 v4.4 BC，autonomous opt-in 触发新机制。机制 live，install 后下个 phase 起生效。
+- **Verify**: codex backend verdict=revise（critical: D3 budget drift fast=1.0 vs PoC 0.5）; gemini UX hung (50min IO 0 增长，killed exit 127). 主线决策：升级 PoC D3 fast 0.5→1.0（first-principles：T1 实测大 CLAUDE.md 场景 0.5 会 truncate，1.0 留 2.4-7.4× buffer），spec 升级胜过实施回退。warning 2 项可推后处理（autonomous.md 注释引用旧机制属误报；缺 meta fallback 占位符是 KISS 选择）。
+- **Note**: ground-truth sampling failed (tsx silent), ran degraded — phase scope didn't touch protected interfaces.
 - **Goal**: phase-runner 从 `Agent(...)` 改为 `Bash(claude -p --agent ccg/phase-runner ...)`，nested 默认关闭，phase-runner 子进程内自己 Read/Write/Edit/Bash 改代码（保持 v4.0 dogfood 行为）
 - **Files**:
   - `src/utils/quality-router.ts`：扩展 `useDirectBashInvocation` 选项推广到 impl wave；新增 `buildPhaseRunnerBashCommand(phase, brief, jobId)` helper

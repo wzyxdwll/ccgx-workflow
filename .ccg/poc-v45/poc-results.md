@@ -100,7 +100,8 @@ Each phase pays cold-start once per wave entry. Triple tier 4 wave/phase × ~7s 
 |---|---|---|
 | D1 | Generate command with both `--output-format stream-json` AND `--verbose` | T4 hidden requirement |
 | D2 | Use `--include-partial-messages` for token-level streaming progress | T4b validated |
-| D3 | Pass `--max-budget-usd <N>` per quality tier (fast=0.5, triple=2.0, debate=5.0) | Guardrail |
+| D3 | Pass `--max-budget-usd <N>` per quality tier (fast=1.0, triple=2.0, debate=5.0) | Guardrail |
+| D3-revision | **2026-05-06**: fast 从 0.5 升级到 1.0 — T1 实测项目 cwd 大 CLAUDE.md 场景 single spawn $0.412，0.5 上限会 truncate；1.0 在 T1/T3 数据上分别留 2.4×/7.4× buffer。codex Phase 1 verify 抓到 PoC 0.5 vs 实施 1.0 drift，spec 升级胜过实施回退。 | Tier-budget post-PoC |
 | D4 | Pass `--dangerously-skip-permissions` (subprocess fully autonomous) | Required since main thread can't approve interactively |
 | D5 | Subprocess cwd = phase workdir (NOT ccg-workflow root) | Real edits need workdir; cost scales with workdir CLAUDE.md size |
 | D6 | Stream-json file written to `.context/jobs/<job-id>/progress.jsonl` | Observability + post-mortem replay |

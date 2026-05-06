@@ -1,0 +1,41 @@
+Verify CCG v4.5 Phase 1 (P1a) implementation. cwd=D:/workflow/ccg-workflow.
+
+Context:
+- Baseline: 1e1ae95 (v4.5 kickoff commit)
+- Phase 1 commit: e1f0fab "feat(v4.5-p1): phase-runner via Bash subprocess (P1a MVP)"
+- Diff: 6 files, +762/-33 (quality-router.ts +224, autonomous.md +71, 2 new test files +485, 2 test edits +15)
+- Phase 1 report: D:/workflow/ccg-workflow/.claude/team-plan/phase-v4.5-01-cli-subprocess-mvp-report.md
+- Phase 1 acceptance: D:/workflow/ccg-workflow/.ccg/roadmap.md "Phase 1: 外层 CLI subprocess MVP" section
+- Design rationale: D:/workflow/ccg-workflow/.ccg/v4.5-roadmap.md "P1a" section
+- PoC decisions: D:/workflow/ccg-workflow/.ccg/poc-v45/poc-results.md (D1-D10)
+- Codex review (your previous backend audit): D:/workflow/ccg-workflow/.ccg/poc-v45/codex-review.md
+
+Read the report first, then the acceptance section, then check actual changes (`git diff 1e1ae95..e1f0fab` + the modified files).
+
+Your role: codex BACKEND specialist cross-vendor verify. Focus angles:
+
+1. Acceptance items 1-9 真实满足？(not just claimed in report). Especially:
+   - item 1: phase-runner spawn 100% Bash 路径 — grep autonomous.md Step 4.2-4.3 confirm zero `Agent(subagent_type="phase-runner")` text in impl wave
+   - item 2: buildPhaseRunnerBashCommand helper 暴露的 API 是否完整（必须含所有 D1-D10 flags）
+   - item 6: 39 new tests 是否真覆盖 acceptance 第 6 条 6 个具体场景（generation / escape / Windows / stream parse / max-budget tier / jobId fallback）
+2. Race / commit drift / 半成品 risks in quality-router.ts diff
+3. v4.4.2 已有 useDirectBashInvocation 机制是否被合理融合 vs 重新实现（重复机制是 SSoT 违反）
+4. wave-scheduler.ts 改动（如有）是否引入新的并发问题
+5. v4.0 G plan 历史约束（subagent 不含 Agent tool）是否被新机制无意中违反
+
+Output strict YAML, ≤200 tokens:
+
+```yaml
+verdict: advance | revise | escalate
+critical_findings:
+  - <one-liner; only critical/blocker level>
+warnings:
+  - <one-liner>
+acceptance_check: <pass|partial|fail — one-liner why>
+ssot_check: <pass|fail — v4.4.2 mechanism reused or duplicated>
+notes: <≤80 字>
+```
+
+advance = no critical findings, autonomous proceeds to challenger wave
+revise = critical findings exist, request phase-runner fix one round
+escalate = blocking issue requires user decision
