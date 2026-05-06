@@ -2,13 +2,19 @@
 
 > [根目录](../CLAUDE.md) > **skills-v2**
 
-**Last Updated**: 2026-05-06 (v4.5.1)
+**Last Updated**: 2026-05-06 (v4.5.2)
 
 ---
 
 ## 变更记录 (Changelog)
 
 > 完整变更历史请查看 [CHANGELOG.md](./CHANGELOG.md)
+
+### 2026-05-06 (v4.5.2) — ⚡ 体验优化：14 命令切事件驱动等待 + gemini plugin 全 8 处 patch
+
+- ⚡ **14 个多模型协作命令统一"事件驱动等待协议 v2"**：删除主线主动 `TaskOutput({block:true, timeout:600000})` poll，改 spawn 后 turn end + 等引擎 `<task-notification>` 自动唤醒。覆盖 review/analyze/optimize/plan/execute/codex-exec/test/workflow/spec-*/team/debate/spec-impl 全部多模型场景。autonomous 已用此模式 dogfood 验证，现推广全场景。**消除 4-5 min poll interval**，体验对齐 autonomous。
+- 🐛 **gemini plugin v1.0.1 全 8 处 spawn windowsHide patch**：新发现 P-4/5/6/7/8（broker daemon / runCommand / taskkill / spawnDetached / binaryAvailable），加 `templates/scripts/repatch-gemini-plugin.mjs` 幂等一键修复脚本（regex 匹配 CRLF/LF 兼容）。
+- ✅ 测试 1309/1309 不变（仅文档/模板变更），typecheck pass。
 
 ### 2026-05-06 (v4.5.1) — 🐛 Hotfix: launcher path namespace + plugin known-issue 文档化
 

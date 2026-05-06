@@ -104,20 +104,26 @@ EOF",
 | 后端 | `~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/reviewer.md` |
 | 前端 | `~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/reviewer.md` |
 
-**并行调用**：使用 `run_in_background: true` 启动，用 `TaskOutput` 等待结果。**必须等所有模型返回后才能进入下一阶段**。
+**并行调用 + 事件驱动等待（v4.5.2 起）**：
 
-**等待后台任务**（使用最大超时 600000ms = 10 分钟）：
+1. 在同一 message 内 spawn 两个（或多个）`Bash(run_in_background: true)` 并行任务
+2. spawn 完成后主线说明已启动哪些 task（含 task-id），然后**直接 turn end**，**不调 TaskOutput**
+3. Claude Code 引擎在每个 background task 完成时自动发 `<task-notification>` system-reminder 触发主线新 turn
+4. 主线在收到通知的新 turn 处理：
+   - 从 notification `<task-id>` 定位是哪个任务
+   - 从 `<output-file>` 路径 read stdout（plugin --json 输出 5-50KB）
+   - JSON parse `result.text` 字段（plugin 通道）/ `--progress` 行（codeagent-wrapper 通道）
+5. **必须等所有相关 task 都收到通知**才进入下一阶段（主线按 task-id 计数已收齐）
 
-```
-TaskOutput({ task_id: "<task_id>", block: true, timeout: 600000 })
-```
+⛔ **禁止做**：
+- 调 `TaskOutput({block: true, timeout: 600000})` —— 这会 freeze 主线 10 分钟，且超时后还要轮询，体验极差（v4.5.1 之前的旧模式，已废弃）
+- 收到部分通知就跳过等其他模型
+- 主动 Kill task
 
-**重要**：
-- 必须指定 `timeout: 600000`，否则默认只有 30 秒会导致提前超时。
-如果 10 分钟后仍未完成，继续用 `TaskOutput` 轮询，**绝对不要 Kill 进程**。
-- 若因等待时间过长跳过了等待 TaskOutput 结果，则**必须调用 `AskUserQuestion` 工具询问用户选择继续等待还是 Kill Task。禁止直接 Kill Task。**
-- ⛔ **前端模型失败必须重试**：若前端模型调用失败（非零退出码或输出包含错误信息），最多重试 2 次（间隔 5 秒）。仅当 3 次全部失败时才跳过前端模型结果并使用单模型结果继续。
-- ⛔ **后端模型结果必须等待**：后端模型执行时间较长（5-15 分钟）属于正常。TaskOutput 超时后必须继续用 TaskOutput 轮询，**绝对禁止在后端模型未返回结果时直接跳过或继续下一阶段**。已启动的后端任务若被跳过 = 浪费 token + 丢失结果。
+⚠️ **失败处理**：
+- notification `status: failed` / exit code ≠ 0 / stdout < 100 字节 / JSON parse 失败 → 视为失败
+- v1.7.87 标准 2-retry / 5s / 3-attempts 规则
+- 3 次全失败才考虑降级到单模型继续
 
 ---
 
@@ -149,7 +155,7 @@ TaskOutput({ task_id: "<task_id>", block: true, timeout: 600000 })
    - 需求：审查代码变更（git diff 内容）
    - OUTPUT：按 Critical/Major/Minor/Suggestion 分类列出可访问性、响应式、设计一致性问题
 
-用 `TaskOutput` 等待两个模型的审查结果。**必须等所有模型返回后才能进入下一阶段**。
+**事件驱动等待**：spawn 完两个 Bash bg 后主线 turn end，等 task-notification 自动唤醒。两个 task 都收到通知后进阶段 3。
 
 **务必遵循上方 `多模型调用规范` 的 `重要` 指示**
 

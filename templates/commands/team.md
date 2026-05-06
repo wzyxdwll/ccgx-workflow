@@ -178,14 +178,10 @@ Phase 8: INTEGRATION   → Lead 全量验证 + 报告 + 清理
    })
    ```
 
-   **等待结果**:
-   ```
-   TaskOutput({ task_id: "<codex_task_id>", block: true, timeout: 600000 })
-   TaskOutput({ task_id: "<gemini_task_id>", block: true, timeout: 600000 })
-   ```
+   **事件驱动等待 (v4.5.2)**：spawn 两个 Bash bg 后说明 task-id 然后 **turn end**。引擎在每个 task 完成时自动发 `<task-notification>`，主线在通知触发的新 turn 处理结果。**不调 TaskOutput**。两个 task 都收到通知后才进下一步。
 
-   ⛔ **前端模型失败必须重试**：若前端模型调用失败，最多重试 2 次（间隔 5 秒）。3 次全败才跳过。
-   ⛔ **后端模型结果必须等待**：后端模型执行 5-15 分钟属正常，超时后继续轮询，禁止跳过。
+   ⛔ **禁止**：调 `TaskOutput({block: true, timeout: 600000})` (旧 freeze poll 模式) / Kill task。
+   ⚠️ **失败处理**：notification status=failed / exit ≠ 0 / parse 失败 → v1.7.87 标准 2-retry / 5s / 3-attempts；3 次全失败才降级单模型。
 
 3. **Spawn Architect teammate**
    - 先调用 TaskCreate 工具，subject 为 "架构蓝图设计"。
@@ -334,8 +330,10 @@ Phase 8: INTEGRATION   → Lead 全量验证 + 报告 + 清理
    })
    ```
 
-   ⛔ **前端模型失败必须重试**：若失败，最多重试 2 次（间隔 5 秒）。3 次全败才跳过。
-   ⛔ **后端模型结果必须等待**：超时后继续轮询，禁止跳过。
+   **事件驱动等待 (v4.5.2)**：spawn 两个 Bash bg 后说明 task-id 然后 **turn end**。引擎在每个 task 完成时自动发 `<task-notification>`，主线在通知触发的新 turn 处理。**不调 TaskOutput**。两个 task 都收到通知才进 step 3。
+
+   ⛔ **禁止**：调 `TaskOutput({block: true, timeout: 600000})` (旧 freeze poll 模式) / Kill task。
+   ⚠️ **失败处理**：notification status=failed / exit ≠ 0 / parse 失败 → v1.7.87 标准 2-retry / 5s / 3-attempts；3 次全失败才降级单模型。
 
 3. **Spawn Reviewer teammate**
    - 调用 TaskCreate，subject 为 "Review: 综合代码审查"。

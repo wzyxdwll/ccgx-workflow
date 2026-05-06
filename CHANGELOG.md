@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [4.5.2] - 2026-05-06 — ⚡ 体验优化: 14 命令统一切事件驱动等待 + gemini plugin 全 8 处 patch
+
+### ✨ 体验改进（最高 ROI）
+
+- **14 个多模型协作命令统一切"事件驱动等待协议 v2"**：删除主线主动 `TaskOutput({block:true, timeout:600000})` poll 模式，改为 spawn 后主线 turn end + 等引擎自动 `<task-notification>` 唤醒。autonomous 已用此模式（v4.5 dogfood 验证），现在推广到 review/analyze/optimize/plan/execute/codex-exec/test/workflow/spec-impl/spec-plan/spec-research/spec-review/team/debate 全部多模型场景。
+  - 用户体验：消除 4-5 min poll interval，task 完成瞬间主线被唤醒处理（事件驱动 vs 轮询）
+  - 主线行为：spawn 完不冻结，turn end 退出；等通知唤醒新 turn 处理
+  - 涉及文件：14 个 templates/commands/*.md
+- **gemini plugin v1.0.1 全 8 处 spawn windowsHide 补全**（P-1 到 P-8）：之前用户已 patch 3 处，扫出新 5 处（broker daemon 启动 / runCommand / taskkill / spawnDetached / binaryAvailable）
+  - 新增 `templates/scripts/repatch-gemini-plugin.mjs` 一键幂等修复脚本（regex 匹配 CRLF/LF 兼容）
+  - 完整文档 `.ccg-migration/PLUGIN-PATCHES.md` 8 个 patch + "patch 后必须重启 broker daemon" 关键提醒
+
+### ✅ 验证
+
+- `pnpm typecheck` ✓
+- `pnpm test` ✓ **1309/1309**
+- 14 个命令 final grep: 0 处旧 `TaskOutput poll` 指示残留（仅"禁止 TaskOutput"指示形式存在）
+
+### 📝 文档
+
+- `.ccg-migration/PLUGIN-PATCHES.md`：补 P-4/5/6/7/8 完整记录（症状/根因/patch 步骤/重启 daemon/repatch 脚本入口）
+- `.ccg-migration/v4.4-to-v4.5.md`：清单表加 P-8，总数 7→8
+
+---
+
 ## [4.5.1] - 2026-05-06 — 🐛 Hotfix: launcher path namespace + plugin known-issue 文档化
 
 ### 🐛 修复

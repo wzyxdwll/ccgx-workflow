@@ -83,20 +83,20 @@ EOF",
 
 **会话复用**：每次调用返回 `SESSION_ID: xxx`，后续阶段用 `resume xxx` 复用上下文（注意：是 `resume`，不是 `--resume`）。
 
-**并行调用**：使用 `run_in_background: true` 启动，用 `TaskOutput` 等待结果。**必须等所有模型返回后才能进入下一阶段**。
+**并行调用 + 事件驱动等待（v4.5.2 起）**：
 
-**等待后台任务**（使用最大超时 600000ms = 10 分钟）：
+1. 同 message 内 spawn 多个 `Bash(run_in_background: true)` 并行任务
+2. spawn 完后主线说明已启动 task-id，**直接 turn end**，**不调 TaskOutput**
+3. Claude Code 引擎在每个 task 完成时自动发 `<task-notification>` system-reminder 触发主线新 turn
+4. 主线在新 turn 处理：从 `<output-file>` 路径 read stdout，按通道 schema parse 结果
+5. **必须等所有相关 task 都收到通知**才进入下一阶段（按 task-id 计数已收齐）
 
-```
-TaskOutput({ task_id: "<task_id>", block: true, timeout: 600000 })
-```
+⛔ **禁止**：
+- 调 `TaskOutput({block: true, timeout: 600000})` —— v4.5.1 之前的旧 freeze poll 模式，已废弃
+- 收到部分通知就跳过等其他模型
+- 主动 Kill task
 
-**重要**：
-- 必须指定 `timeout: 600000`，否则默认只有 30 秒会导致提前超时。
-如果 10 分钟后仍未完成，继续用 `TaskOutput` 轮询，**绝对不要 Kill 进程**。
-- 若因等待时间过长跳过了等待 TaskOutput 结果，则**必须调用 `AskUserQuestion` 工具询问用户选择继续等待还是 Kill Task。禁止直接 Kill Task。**
-- ⛔ **前端模型失败必须重试**：若前端模型调用失败（非零退出码或输出包含错误信息），最多重试 2 次（间隔 5 秒）。仅当 3 次全部失败时才跳过前端模型结果并使用单模型结果继续。
-- ⛔ **后端模型结果必须等待**：后端模型执行时间较长（5-15 分钟）属于正常。TaskOutput 超时后必须继续用 TaskOutput 轮询，**绝对禁止在后端模型未返回结果时直接跳过或继续下一阶段**。已启动的后端任务若被跳过 = 浪费 token + 丢失结果。
+⚠️ **失败处理**：notification status=failed / exit ≠ 0 / stdout < 100B / JSON parse 失败 → v1.7.87 标准 2-retry / 5s / 3-attempts；3 次全失败才降级单模型继续。
 
 ---
 
