@@ -1,7 +1,7 @@
 /**
  * Unit tests for templates/scripts/ccg-phase-runner-launcher.mjs (v4.5 P1b).
  *
- * The launcher is a flat ES module shipped to ~/.claude/scripts/ — no transpile
+ * The launcher is a flat ES module shipped to ~/.claude/.ccg/scripts/ — no transpile
  * step. We exercise the pure helpers (parseArgs / buildClaudeArgs / TIER_BUDGET
  * / atomicWriteFileSync) via a dynamic ESM import. main() is integration-level
  * and not unit-tested here (it spawns `claude`, which we don't want in CI).

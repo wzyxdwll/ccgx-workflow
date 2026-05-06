@@ -391,7 +391,7 @@ export interface BuildPhaseRunnerLauncherOptions {
   /** prompt 落盘文件路径；缺省 `.context/jobs/<jobId>/prompt.txt` */
   promptFile?: string
   /**
-   * Launcher 安装路径。生产默认 `~/.claude/scripts/ccg-phase-runner-launcher.mjs`
+   * Launcher 安装路径。生产默认 `~/.claude/.ccg/scripts/ccg-phase-runner-launcher.mjs`
    * （installer.ts ship 到此处）。tests/dev workflow 可 override。
    */
   launcherPath?: string
@@ -400,7 +400,7 @@ export interface BuildPhaseRunnerLauncherOptions {
 }
 
 /** Default launcher install path (installer.ts ships file here) */
-export const DEFAULT_LAUNCHER_PATH = '~/.claude/scripts/ccg-phase-runner-launcher.mjs'
+export const DEFAULT_LAUNCHER_PATH = '~/.claude/.ccg/scripts/ccg-phase-runner-launcher.mjs'
 
 /**
  * v4.5 P1f: 构造 launcher 包装的 phase-runner spawn 命令。
@@ -426,7 +426,7 @@ export const DEFAULT_LAUNCHER_PATH = '~/.claude/scripts/ccg-phase-runner-launche
  *     { phaseId: 'phase-6', phaseType: 'backend', workdir: '/d/repo', jobId: 'job-abc' },
  *     { tier: 'triple' },
  *   )
- *   // → node '~/.claude/scripts/ccg-phase-runner-launcher.mjs' \
+ *   // → node '~/.claude/.ccg/scripts/ccg-phase-runner-launcher.mjs' \
  *   //     --job-id 'job-abc' --workdir '/d/repo' \
  *   //     --prompt-file '.context/jobs/job-abc/prompt.txt' \
  *   //     --tier 'triple' --grace-ms 5000 \

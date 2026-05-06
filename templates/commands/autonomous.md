@@ -441,7 +441,7 @@ process-tree kill-tree / cancel.flag 协作 / reconciler）。
 ```bash
 # 1. 把 phase prompt 写到 .context/jobs/<job-id>/prompt.txt（主线先 Write）
 # 2. 用 Bash run_in_background=true 启动 launcher 包装的子进程：
-Bash(node '~/.claude/scripts/ccg-phase-runner-launcher.mjs' \
+Bash(node '~/.claude/.ccg/scripts/ccg-phase-runner-launcher.mjs' \
        --job-id '<job-id>' \
        --workdir '<workdir>' \
        --prompt-file '.context/jobs/<job-id>/prompt.txt' \

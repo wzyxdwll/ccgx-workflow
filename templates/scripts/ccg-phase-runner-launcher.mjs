@@ -22,7 +22,7 @@
 //         the cancel.flag is observed cooperatively, then the process tree
 //         is killed after the grace period.
 //
-//  Usage (called by `Bash(node ~/.claude/scripts/ccg-phase-runner-launcher.mjs ...)`):
+//  Usage (called by `Bash(node ~/.claude/.ccg/scripts/ccg-phase-runner-launcher.mjs ...)`):
 //
 //    node ccg-phase-runner-launcher.mjs \
 //      --job-id <id> \
@@ -376,7 +376,7 @@ async function main(argv) {
 // ---------------------------------------------------------------------------
 // kill-tree implementation (POSIX -pgid + Windows taskkill /T /F).
 // Inline rather than imported because this script is shipped as a flat .mjs
-// to ~/.claude/scripts/ — no transpile pipeline.
+// to ~/.claude/.ccg/scripts/ — no transpile pipeline.
 // ---------------------------------------------------------------------------
 
 function scheduleKillTree(child, graceMs) {

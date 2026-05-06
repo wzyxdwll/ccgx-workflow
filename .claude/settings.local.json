@@ -10,7 +10,18 @@
       "Bash(npm pack *)",
       "Bash(npm install *)",
       "Bash(ccg --version)",
-      "Bash(grep -v \":0$\")"
+      "Bash(grep -v \":0$\")",
+      "Bash(ccg init *)",
+      "PowerShell(Get-Process *)",
+      "PowerShell(Get-CimInstance *)",
+      "Bash(whoami /priv)",
+      "Bash(whoami /groups)",
+      "Bash(mkdir -p /d/workflow/ccg-workflow/.tmp-dump)",
+      "Bash(cp /c/Windows/Minidump/030926-25125-01.dmp /d/workflow/ccg-workflow/.tmp-dump/)",
+      "PowerShell(whoami; whoami /groups | Select-String -Pattern \"Administrators|Mandatory Label\"; \"---\"; Test-Path C:\\\\Windows\\\\Minidump\\\\; Test-Path C:\\\\Windows\\\\Minidump\\\\030926-25125-01.dmp; \"---\"; try { Get-ChildItem C:\\\\Windows\\\\Minidump\\\\ | Select-Object Name, Length, LastWriteTime | Format-Table -AutoSize } catch { Write-Host \"ERROR: $_\" })",
+      "PowerShell(Get-Command *)",
+      "PowerShell(winget search *)",
+      "PowerShell(winget install *)"
     ]
   }
 }

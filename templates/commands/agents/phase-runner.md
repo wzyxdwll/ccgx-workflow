@@ -13,7 +13,7 @@ color: cyan
 
 ## 🔁 v4.5 启动模式（CLI 子进程）
 
-**v4.5 起 phase-runner 由 OS-level CLI 子进程承载**（`Bash(claude -p --agent ccg/phase-runner ...)` 经 `~/.claude/scripts/ccg-phase-runner-launcher.mjs` 包装），不再用主进程 sidechain `Agent(subagent_type="phase-runner")`。
+**v4.5 起 phase-runner 由 OS-level CLI 子进程承载**（`Bash(claude -p --agent ccg/phase-runner ...)` 经 `~/.claude/.ccg/scripts/ccg-phase-runner-launcher.mjs` 包装），不再用主进程 sidechain `Agent(subagent_type="phase-runner")`。
 
 **与 v4.0 的根本差异**：
 - v4.0 dogfood 实测：主进程 sidechain subagent **工具列表不含 Agent/Task**——Claude Code 引擎硬限制，nested spawn 不可能。phase-runner 只能 Read/Write/Edit/Bash 自实施。
