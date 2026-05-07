@@ -54,13 +54,6 @@ export type { SkillMeta } from './skill-registry'
 // Binary version tracking
 // ═══════════════════════════════════════════════════════
 
-/**
- * Expected codeagent-wrapper binary version.
- * Must match the `version` constant in codeagent-wrapper/main.go.
- * When this differs from the installed binary, update triggers re-download.
- */
-const EXPECTED_BINARY_VERSION = '5.10.0'
-
 // ═══════════════════════════════════════════════════════
 // Install context — shared across sub-functions
 // ═══════════════════════════════════════════════════════
@@ -87,25 +80,15 @@ interface InstallContext {
 }
 
 // ═══════════════════════════════════════════════════════
-// Shim launcher install (v3.0.0+)
+// Shim launcher install
 //
-// Replaces the v1.x ~ v2.x Go binary `codeagent-wrapper` (16 MB, cross-compiled
-// for 6 platforms, downloaded from GitHub Release with R2 CDN fallback).
+// `~/.claude/bin/codeagent-wrapper` (Unix shell + Windows .cmd) is a tiny
+// forwarder to `~/.claude/.ccg/scripts/invoke-model.mjs`. Templates call the
+// shim path so the indirection is invisible to user-facing call sites.
 //
-// New architecture:
-//   1. Pure Node.js script invoke-model.mjs (~870 lines) ships in the npm
-//      package under templates/scripts/ and is copied at install time to
-//      ~/.claude/.ccg/scripts/invoke-model.mjs
-//   2. Tiny launcher shim at ~/.claude/bin/codeagent-wrapper (Unix shell) and
-//      ~/.claude/bin/codeagent-wrapper.cmd (Windows cmd) forwards to the mjs
-//      script via `node`. Templates and permissions.allow keep the
-//      ~/.claude/bin/codeagent-wrapper path → zero BC churn for 51 hardcoded
-//      template call sites.
-//   3. No network at install time. No platform binary matrix. No CI release
-//      pipeline tied to ccg-workflow versioning.
-//
-// The launcher exposes `--version` returning `codeagent-wrapper version 5.10.0`
-// (matches EXPECTED_BINARY_VERSION for installer sanity checks).
+// invoke-model.mjs is the real implementation (Node ESM, no external deps).
+// Plugin spawn (`Agent(codex:codex-rescue)` / `Agent(gemini:gemini-rescue)`)
+// is the preferred path; this shim is the fallback when plugins are absent.
 // ═══════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════
@@ -465,79 +448,6 @@ function getLauncherName(): string {
 }
 
 /**
- * Check if codeagent-wrapper launcher exists and is functional.
- * Returns true if the launcher passes `--version` check.
- */
-export async function verifyBinary(installDir: string): Promise<boolean> {
-  const binDir = join(installDir, 'bin')
-  const launcherPath = join(binDir, getLauncherName())
-
-  if (!(await fs.pathExists(launcherPath))) return false
-
-  try {
-    const { execSync } = await import('node:child_process')
-    execSync(`"${launcherPath}" --version`, { stdio: 'pipe' })
-    return true
-  }
-  catch {
-    return false
-  }
-}
-
-/**
- * Check if installed launcher reports the expected version.
- * The mjs script embeds `codeagent-wrapper version 5.10.0` for BC.
- */
-export async function verifyBinaryVersion(installDir: string): Promise<boolean> {
-  const binDir = join(installDir, 'bin')
-  const launcherPath = join(binDir, getLauncherName())
-
-  try {
-    const { execSync } = await import('node:child_process')
-    const output = execSync(`"${launcherPath}" --version`, { stdio: 'pipe' }).toString().trim()
-    const version = output.replace(/^.*version\s*/, '')
-    return version === EXPECTED_BINARY_VERSION
-  }
-  catch {
-    return false
-  }
-}
-
-/**
- * Show prominent red-box warning when codeagent-wrapper shim install failed.
- * v3.0.0+: install is purely local file copy + launcher write, so failure
- * means corrupted npm package or fs permission problem (not network).
- */
-export function showBinaryDownloadWarning(binDir: string): void {
-  const launcherName = getLauncherName()
-  const displayPath = process.platform === 'win32'
-    ? `${binDir.replace(/\//g, '\\')}\\${launcherName}`
-    : `${binDir}/${launcherName}`
-
-  console.log()
-  console.log(ansis.red.bold(`  ╔════════════════════════════════════════════════════════════╗`))
-  console.log(ansis.red.bold(`  ║  ⚠  codeagent-wrapper 启动器安装失败                       ║`))
-  console.log(ansis.red.bold(`  ║     Launcher shim install failed (fs / package issue)      ║`))
-  console.log(ansis.red.bold(`  ╚════════════════════════════════════════════════════════════╝`))
-  console.log()
-  console.log(ansis.yellow(`  多模型协作命令 (/ccg:workflow, /ccg:plan 等) 需要此启动器才能工作。`))
-  console.log(ansis.yellow(`  Multi-model commands require this launcher to work.`))
-  console.log()
-  console.log(ansis.cyan(`  自动修复 / Auto fix:`))
-  console.log()
-  console.log(ansis.white(`    1. 清缓存重装 / Clean & reinstall:`))
-  console.log(ansis.cyan(`       npm cache clean --force`))
-  console.log(ansis.cyan(`       npx ccg-workflow@latest`))
-  console.log()
-  console.log(ansis.white(`    2. 检查路径写权限 / Check write permissions:`))
-  console.log(ansis.cyan(`       ${displayPath}`))
-  console.log()
-  console.log(ansis.gray(`  v3.0.0+ 启动器是 ~870 行 Node 脚本（无 Go binary 下载），`))
-  console.log(ansis.gray(`  失败通常意味着 fs 权限问题或 npm 包损坏，而非网络。`))
-  console.log()
-}
-
-/**
  * Install codeagent-wrapper as a tiny launcher shim that forwards to the
  * Node.js script invoke-model.mjs. v3.0.0+ replaces the old Go binary with
  * pure JavaScript — no platform matrix, no GitHub Release download, no R2.
@@ -590,33 +500,7 @@ async function installShim(ctx: InstallContext): Promise<void> {
       }
     }
 
-    // 2. Clean up any stale Go binary from v1.x/v2.x
-    for (const stale of ['codeagent-wrapper.exe', 'codeagent-wrapper']) {
-      const stalePath = join(binDir, stale)
-      if (await fs.pathExists(stalePath)) {
-        try {
-          // Quick version check: if it already returns the expected version
-          // string AND looks like a launcher (small), keep it
-          const { execSync } = await import('node:child_process')
-          const out = execSync(`"${stalePath}" --version`, { stdio: 'pipe' }).toString().trim()
-          if (out.includes(EXPECTED_BINARY_VERSION)) {
-            const stat = await fs.stat(stalePath)
-            // Launcher is tiny (<2KB), Go binary is multi-MB
-            if (stat.size > 100_000) {
-              await fs.remove(stalePath) // stale Go binary, drop it
-            }
-          }
-          else {
-            await fs.remove(stalePath) // wrong version or unrelated, drop it
-          }
-        }
-        catch {
-          await fs.remove(stalePath) // unreadable, drop it
-        }
-      }
-    }
-
-    // 3. Write platform launcher — bake actual installDir path so launcher
+    // 2. Write platform launcher — bake actual installDir path so launcher
     //    works regardless of CLAUDE_CONFIG_DIR / test temp dirs / custom locations.
     if (process.platform === 'win32') {
       // Windows .cmd: native backslash path
@@ -638,7 +522,7 @@ async function installShim(ctx: InstallContext): Promise<void> {
       await fs.chmod(shPath, 0o755)
     }
 
-    // 4. Verify launcher works
+    // 3. Verify launcher works
     try {
       const { execSync } = await import('node:child_process')
       const launcherPath = join(binDir, getLauncherName())

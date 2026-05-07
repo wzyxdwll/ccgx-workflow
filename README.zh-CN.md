@@ -64,8 +64,13 @@ Codex   Gemini
 | **Node.js 20+** | 是 | `ora@9.x` 要求 Node ≥ 20 |
 | **Claude Code CLI** | 是 | [安装方法](#安装-claude-code) |
 | **jq** | 是 | 自动授权 Hook 依赖（[安装方法](#安装-jq)） |
-| **codex@openai-codex plugin** | 否 | 启用后端 Codex 路由（强烈推荐） |
-| **gemini@google-gemini plugin** | 否 | 启用前端 Gemini 路由（强烈推荐） |
+| **codex 接入** | **二选一** | `codex@openai-codex` plugin（推荐）**或** `npm i -g @openai/codex` |
+| **gemini 接入** | **二选一** | `gemini@google-gemini` plugin（推荐）**或** `npm i -g @google/gemini-cli` |
+
+> **为什么是「二选一」**：ccgx-workflow 优先走 plugin（Claude Code 一键装、内置鉴权）。
+> plugin 没装时降级到 `~/.claude/bin/codeagent-wrapper` shim 启动独立 CLI。两条路
+> **任一**没装的，对应 `/ccg:*` 命令在调 codex/gemini 时会以 exit 127 退出并打印
+> 安装提示。
 
 ### 一键安装
 
@@ -101,16 +106,41 @@ npx ccgx-workflow menu  # 选择「安装 Claude Code」
 
 ---
 
-## 启用多模型协作（codex / gemini plugin）
+## 启用多模型协作（codex / gemini 接入）
 
-ccgx-workflow 通过 Claude Code 官方 plugin 机制调用 codex 和 gemini，**不再依赖旧的 `codeagent-wrapper` 二进制**。装 plugin 才能开启完整的双模型并行能力。
+ccgx-workflow 需要 codex + gemini 接入，每个走 **两条路之一**：
 
-### 安装命令（在 Claude Code 内执行）
+### 路径 A — Claude Code plugin（推荐）
+
+在 Claude Code 内执行：
 
 ```
 /plugin install codex@openai-codex
 /plugin install gemini@google-gemini
 ```
+
+一键安装，鉴权由 Claude Code 接管。模板直接 spawn plugin agent
+（`Agent(codex:codex-rescue)` / `Agent(gemini:gemini-rescue)`），不经过 shim。
+
+### 路径 B — 独立 CLI fallback
+
+```bash
+# codex CLI
+npm i -g @openai/codex
+codex login
+
+# gemini CLI
+npm i -g @google/gemini-cli
+gemini auth login
+```
+
+plugin 没装时，模板通过 `~/.claude/bin/codeagent-wrapper`（一个调 `codex` /
+`gemini` 的 Node shim）落地。鉴权 key 自己配。
+
+### 混搭
+
+可以 codex 走 plugin、gemini 走 CLI，反之亦然。ccgx-workflow 每次调用独立检测，
+按可用路径择优。
 
 `@` 后是 marketplace identifier。如果提示 marketplace 未配置，在 Claude Code 里执行 `/help plugin` 查看本地 marketplace 管理命令，或参考 [Claude Code plugin 官方文档](https://docs.claude.com/en/docs/claude-code/plugins)。
 

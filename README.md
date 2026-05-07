@@ -67,8 +67,13 @@ Codex   Gemini
 | **Node.js 20+** | Yes | `ora@9.x` requires Node ≥ 20 |
 | **Claude Code CLI** | Yes | [Install guide](#install-claude-code) |
 | **jq** | Yes | Used for auto-authorization hook ([install](#install-jq)) |
-| **codex@openai-codex plugin** | No | Enables backend Codex routing (strongly recommended) |
-| **gemini@google-gemini plugin** | No | Enables frontend Gemini routing (strongly recommended) |
+| **codex access** | **One of** | `codex@openai-codex` plugin (recommended) **OR** `npm i -g @openai/codex` |
+| **gemini access** | **One of** | `gemini@google-gemini` plugin (recommended) **OR** `npm i -g @google/gemini-cli` |
+
+> **Why "one of"**: ccgx-workflow prefers the plugin path (one-click install in Claude Code,
+> integrated auth). When the plugin is absent it falls back to spawning the standalone CLI
+> via `~/.claude/bin/codeagent-wrapper`. Without **either**, `/ccg:*` commands that invoke
+> codex/gemini fail with exit 127 + a friendly install hint.
 
 ### Installation
 
@@ -104,16 +109,43 @@ Supports npm / homebrew / curl / powershell / cmd.
 
 ---
 
-## Enabling Multi-Model Collaboration (codex / gemini plugins)
+## Enabling Multi-Model Collaboration (codex / gemini access)
 
-ccgx-workflow calls codex and gemini through Claude Code's official plugin mechanism, **no longer relying on the legacy `codeagent-wrapper` binary**. Install plugins to unlock full dual-model parallel capability.
+ccgx-workflow needs codex + gemini access via **one of two paths** for each:
 
-### Install (run inside Claude Code)
+### Path A — Claude Code plugins (recommended)
+
+Run inside Claude Code:
 
 ```
 /plugin install codex@openai-codex
 /plugin install gemini@google-gemini
 ```
+
+One-click install, integrated auth via Claude Code. Templates spawn plugin
+agents (`Agent(codex:codex-rescue)` / `Agent(gemini:gemini-rescue)`) directly,
+no shim involved.
+
+### Path B — standalone CLI fallback
+
+```bash
+# codex CLI
+npm i -g @openai/codex
+codex login
+
+# gemini CLI
+npm i -g @google/gemini-cli
+gemini auth login
+```
+
+When the plugin is absent, templates fall back to invoking the CLI through
+`~/.claude/bin/codeagent-wrapper` (a Node shim that wraps `codex` / `gemini`).
+You handle key configuration manually.
+
+### Mix and match
+
+You can use plugin for codex + CLI for gemini, or vice versa. ccgx-workflow
+detects each independently and picks the best available path per call site.
 
 The `@` suffix is the marketplace identifier. If a marketplace isn't configured, run `/help plugin` inside Claude Code to see local marketplace management commands, or refer to [Claude Code plugin docs](https://docs.claude.com/en/docs/claude-code/plugins).
 

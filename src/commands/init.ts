@@ -7,7 +7,7 @@ import { homedir } from 'node:os'
 import { join } from 'pathe'
 import { i18n, initI18n } from '../i18n'
 import { createDefaultConfig, ensureCcgDir, getCcgDir, readCcgConfig, writeCcgConfig } from '../utils/config'
-import { computeSyncReport, getAllCommandIds, installAceTool, installAceToolRs, installContextWeaver, installFastContext, installMcpServer, installWorkflows, showBinaryDownloadWarning, syncMcpToCodex, syncMcpToGemini, writeFastContextPrompt } from '../utils/installer'
+import { computeSyncReport, getAllCommandIds, installAceTool, installAceToolRs, installContextWeaver, installFastContext, installMcpServer, installWorkflows, syncMcpToCodex, syncMcpToGemini, writeFastContextPrompt } from '../utils/installer'
 import { isWindows } from '../utils/platform'
 import { migrateToV1_4_0, needsMigration } from '../utils/migration'
 
@@ -1185,8 +1185,11 @@ export async function init(options: InitOptions = {}): Promise<void> {
       }
     }
     else {
-      // Binary download failed — show prominent warning with manual fix instructions
-      showBinaryDownloadWarning(join(installDir, 'bin'))
+      // Launcher shim install failed — fs / npm package issue
+      console.log()
+      console.log(ansis.red.bold('  ⚠  Launcher shim install failed'))
+      console.log(ansis.yellow('     Try: npm cache clean --force && npx ccgx-workflow@latest'))
+      console.log()
     }
 
     // Show MCP resources if user skipped installation
@@ -1209,6 +1212,20 @@ export async function init(options: InitOptions = {}): Promise<void> {
       console.log(`        ${ansis.gray(i18n.t('init:mcp.localEngine'))}`)
       console.log()
     }
+
+    // Plugin / CLI prerequisites — multi-model collab needs codex + gemini access
+    console.log()
+    console.log(ansis.cyan.bold('  ⚠  Multi-model prerequisites — install one path for codex + gemini'))
+    console.log()
+    console.log(`     ${ansis.green('★')} ${ansis.bold('Plugin (recommended, one-click in Claude Code):')}`)
+    console.log(`        ${ansis.cyan('/plugins install codex@openai-codex')}`)
+    console.log(`        ${ansis.cyan('/plugins install gemini@google-gemini')}`)
+    console.log()
+    console.log(`     ${ansis.green('☆')} ${ansis.bold('CLI fallback (standalone binaries):')}`)
+    console.log(`        ${ansis.cyan('npm i -g @openai/codex')}      ${ansis.gray('# then: codex login')}`)
+    console.log(`        ${ansis.cyan('npm i -g @google/gemini-cli')} ${ansis.gray('# then: gemini auth')}`)
+    console.log()
+    console.log(ansis.gray('     Without either, /ccg:* commands invoking codex/gemini will exit 127.'))
 
     console.log()
   }

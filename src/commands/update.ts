@@ -8,7 +8,6 @@ import ora from 'ora'
 import { homedir } from 'node:os'
 import { join } from 'pathe'
 import { checkForUpdates, compareVersions } from '../utils/version'
-import { showBinaryDownloadWarning, verifyBinary } from '../utils/installer'
 import { readCcgConfig, writeCcgConfig } from '../utils/config'
 import { migrateToV1_4_0, needsMigration } from '../utils/migration'
 import { i18n } from '../i18n'
@@ -400,18 +399,6 @@ async function performUpdate(fromVersion: string, toVersion: string, isNewVersio
       catch { /* non-critical: stale backup files */ }
     }
 
-    // Verify binary exists, is functional, AND version matches
-    if (!(await verifyBinary(installDir))) {
-      showBinaryDownloadWarning(join(installDir, 'bin'))
-    }
-    else {
-      // Binary exists and runs, but check version
-      const { verifyBinaryVersion } = await import('../utils/installer')
-      const versionOk = await verifyBinaryVersion(installDir)
-      if (!versionOk) {
-        showBinaryDownloadWarning(join(installDir, 'bin'))
-      }
-    }
   }
   else {
     // Failure: restore from backups so user still has a working installation

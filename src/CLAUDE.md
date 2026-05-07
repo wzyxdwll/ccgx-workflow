@@ -119,27 +119,18 @@ v1.7.83 将原 1878 行单文件拆分为 5 个聚焦模块，各自边界清晰
 → installSkillFiles()        # templates/skills/ → ~/.claude/skills/ccg/（递归拷贝 + 路径替换）
 → installSkillGeneratedCommands()  # Skill Registry → 生成额外 slash commands
 → installRuleFiles()         # templates/rules/*.md → ~/.claude/rules/
-→ installBinaryFile()        # 下载 codeagent-wrapper（双源）
+→ installShim()              # 写入 codeagent-wrapper shim + invoke-model.mjs
 → 后置校验: installedCommands.length > 0
 ```
 
-#### Binary 管理（`src/utils/installer.ts:61`）
+#### Shim 管理
 
-```typescript
-const EXPECTED_BINARY_VERSION = '5.10.0'  // 必须与 codeagent-wrapper/main.go 中 version 常量保持一致
+`installShim()` 写入：
+- `~/.claude/.ccg/scripts/invoke-model.mjs` — Node ESM 实现（~870 行，无外部依赖）
+- `~/.claude/bin/codeagent-wrapper`（Unix）+ `~/.claude/bin/codeagent-wrapper.cmd`（Windows）— 一行 shim 转发到 mjs
+- `~/.claude/.ccg/scripts/ccg-phase-runner-launcher.mjs`（v4.5 P1b，可选）
 
-// 双源下载策略（优先国内 CDN）：
-const BINARY_SOURCES = [
-  { name: 'Cloudflare CDN', url: 'https://github.20031227.xyz/preset', timeoutMs: 30_000 },
-  { name: 'GitHub Release',  url: 'https://github.com/.../releases/download/preset', timeoutMs: 120_000 },
-]
-```
-
-- 下载前检查：`binary --version` 输出与 `EXPECTED_BINARY_VERSION` 对比，版本一致则跳过下载
-- 优先用 `curl`（自动读取系统代理 `HTTPS_PROXY`），失败后降级 Node.js `fetch`
-- 下载失败显示红框警告 + 手动修复指引，**不阻塞**安装流程（非致命错误）
-
-⚠️ **版本同步铁律**：修改 Go 代码时必须同步更新 `EXPECTED_BINARY_VERSION` 和 `codeagent-wrapper/main.go` 中的 `version`，两值必须一致，否则 `update` 不会触发 binary 重新下载。
+无网络下载、无平台 binary、无 GitHub Release / Cloudflare CDN 依赖。失败模式收窄到 fs / npm 包损坏，不再有网络或 Go binary 版本对齐问题。
 
 ---
 

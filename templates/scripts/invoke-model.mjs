@@ -186,6 +186,61 @@ function lookPath(cmd, opts = {}) {
   return cmd; // let spawn surface ENOENT
 }
 
+// Resolve `cmd` against PATH (POSIX) or PATH+PATHEXT (Windows).
+// Returns null when the binary is not found, giving callers a chance to emit
+// a friendly install hint before spawn raises ENOENT.
+function resolveOnPath(cmd, opts = {}) {
+  const env = opts.env || process.env;
+  const platform = opts.platform || process.platform;
+  const stat = opts.statFn || statSync;
+  if (path.isAbsolute(cmd) || cmd.includes('/') || (platform === 'win32' && cmd.includes('\\'))) {
+    try { const info = stat(cmd); if (info && info.isFile && info.isFile()) return cmd; }
+    catch { /* fallthrough */ }
+    return null;
+  }
+  if (platform === 'win32') {
+    const resolved = lookPath(cmd, opts);
+    return resolved !== cmd ? resolved : null;
+  }
+  const dirs = (env.PATH || '').split(':').filter(Boolean);
+  for (const dir of dirs) {
+    const full = path.join(dir, cmd);
+    try { const info = stat(full); if (info && info.isFile && info.isFile()) return full; }
+    catch { /* keep scanning */ }
+  }
+  return null;
+}
+
+// Print install guidance and exit 127 when the requested backend CLI is not
+// on PATH. Prefers Claude Code plugins (one-click) over manual CLI install.
+function exitMissingBackend(backend) {
+  const pluginInstall = backend === 'codex'
+    ? '/plugins install codex@openai-codex'
+    : backend === 'gemini'
+      ? '/plugins install gemini@google-gemini'
+      : null;
+  const npmInstall = backend === 'codex'
+    ? 'npm i -g @openai/codex'
+    : backend === 'gemini'
+      ? 'npm i -g @google/gemini-cli'
+      : null;
+  process.stderr.write([
+    '',
+    `❌ ccgx-workflow fallback: '${backend}' CLI not found on PATH.`,
+    '',
+    'Pick one of:',
+    pluginInstall
+      ? `  • Plugin (recommended): in Claude Code run  ${pluginInstall}`
+      : `  • Plugin route is unavailable for backend "${backend}".`,
+    npmInstall
+      ? `  • CLI fallback: ${npmInstall}   then  ${backend} login / auth`
+      : '',
+    '',
+    'After installing, start a new Claude Code session.',
+    '',
+  ].filter(Boolean).join('\n') + '\n');
+}
+
 function expandHome(p) {
   if (typeof p !== 'string') return p;
   if (p === '~') return homedir();
@@ -705,6 +760,15 @@ async function main() {
   if (geminiStdinPipe) targetArg = '';
 
   const { command, args } = backendCommandAndArgs(cfg, targetArg);
+
+  // Friendly fail when the backend CLI is not installed.
+  // Skip for absolute paths — those are already explicit user intent.
+  if (!path.isAbsolute(command) && !command.includes('/') && !command.includes('\\')) {
+    if (resolveOnPath(command) === null) {
+      exitMissingBackend(cfg.backend);
+      return 127;
+    }
+  }
 
   // Startup banner (main.go:432)
   process.stderr.write(
