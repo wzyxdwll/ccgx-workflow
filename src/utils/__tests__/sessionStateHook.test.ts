@@ -43,6 +43,8 @@ const hook = requireCjs(HOOK_PATH) as {
   atomicWriteFileSync: (target: string, content: string) => void
   reconcileStaleJobs: (cwd: string, options?: any) => { scanned: number, entries: any[] }
   summarizeReconciliation: (report: any) => string | null
+  // v1.0.2 additions:
+  isPhaseRunnerSubprocess: (env?: NodeJS.ProcessEnv) => boolean
 }
 
 let workdir: string
@@ -412,6 +414,63 @@ describe('summarizeReconciliation', () => {
     expect(out).toContain('2 stale-failed')
     expect(out).toContain('1 adopted-result')
     expect(out).toContain('1 no-pid-failed')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// v1.0.2 — phase-runner CLI self-reference guard
+// ---------------------------------------------------------------------------
+
+describe('isPhaseRunnerSubprocess', () => {
+  it('returns true only when both launcher env vars are present', () => {
+    expect(hook.isPhaseRunnerSubprocess({
+      CCG_JOB_ID: 'job-abc',
+      CCG_PHASE_RUNNER_TIER: 'triple',
+    } as any)).toBe(true)
+  })
+
+  it('returns false when CCG_JOB_ID alone is present', () => {
+    // CCG_JOB_ID could plausibly leak from elsewhere; require both as the
+    // narrow signature of a launcher-spawned subprocess.
+    expect(hook.isPhaseRunnerSubprocess({ CCG_JOB_ID: 'job-abc' } as any)).toBe(false)
+  })
+
+  it('returns false when CCG_PHASE_RUNNER_TIER alone is present', () => {
+    expect(hook.isPhaseRunnerSubprocess({ CCG_PHASE_RUNNER_TIER: 'fast' } as any)).toBe(false)
+  })
+
+  it('returns false on a clean (orchestrator) env', () => {
+    expect(hook.isPhaseRunnerSubprocess({} as any)).toBe(false)
+  })
+
+  it('rejects empty-string values (truthy-only contract)', () => {
+    expect(hook.isPhaseRunnerSubprocess({
+      CCG_JOB_ID: '',
+      CCG_PHASE_RUNNER_TIER: 'triple',
+    } as any)).toBe(false)
+  })
+})
+
+describe('reconcileStaleJobs self-reference guard (defense-in-depth)', () => {
+  it('no-ops when state.cli_pid equals current process.pid', () => {
+    // The bug scenario: a future call path runs the reconciler inside the
+    // very phase-runner CLI subprocess that owns this state. Without the
+    // self-pid guard the row would be classified by the live-PID branch and
+    // — should the heuristic ever tighten — could mark our own job stale.
+    const dir = join(workdir, '.context', 'jobs', 'j-self')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'state.json'), JSON.stringify({
+      task_id: 'j-self',
+      kind: 'phase-runner',
+      status: 'running',
+      started_at: new Date().toISOString(),
+      last_update: new Date().toISOString(),
+      cli_pid: process.pid,
+    }))
+    const report = hook.reconcileStaleJobs(workdir)
+    expect(report.entries).toHaveLength(1)
+    expect(report.entries[0].action).toBe('no-op')
+    expect(report.entries[0].reason).toContain('self-reference')
   })
 })
 

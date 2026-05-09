@@ -189,6 +189,33 @@ function composeMessage(head, active, summary, counts) {
 }
 
 // ---------------------------------------------------------------------------
+// v1.0.2 — phase-runner CLI self-reference guard.
+//
+// Why this exists:
+//   The launcher (templates/scripts/ccg-phase-runner-launcher.mjs) spawns
+//   `claude -p --agent ccg/phase-runner`. That child process is itself a fresh
+//   Claude Code session, so SessionStart hooks fire inside it too. Without a
+//   guard the hook would:
+//     1. Inject the orchestrator-style "Project memory restored / Active phase
+//        / Phases X/Y completed" context into a subagent that already has its
+//        own focused phase prompt — confusing the model into orchestrator
+//        behaviour (e.g. running `/ccg:status` and waiting on its own job).
+//     2. Run the reconciler over `.context/jobs/*`, see its own state.json
+//        with `cli_pid` alive, and (harmlessly) no-op — but the additionalContext
+//        injection is the actual self-reference loop trigger.
+//
+//   The launcher injects two env vars that uniquely tag a phase-runner CLI
+//   subprocess: `CCG_JOB_ID` + `CCG_PHASE_RUNNER_TIER`. Either alone is too
+//   weak (CCG_JOB_ID could be set elsewhere); requiring both keeps the
+//   detection narrow.
+// ---------------------------------------------------------------------------
+
+function isPhaseRunnerSubprocess(env) {
+  const e = env || process.env
+  return Boolean(e.CCG_JOB_ID) && Boolean(e.CCG_PHASE_RUNNER_TIER)
+}
+
+// ---------------------------------------------------------------------------
 // v4.5 P1b — startup reconciler (inlined CJS twin of src/utils/process-tree.ts).
 //
 // The hook MUST stay self-contained (see top-of-file comment). We duplicate
@@ -287,6 +314,21 @@ function reconcileStaleJobs(cwd, options) {
         jobId: id,
         action: 'mark-failed-no-result',
         reason: 'no cli_pid recorded',
+      })
+      continue
+    }
+
+    // v1.0.2 defense-in-depth: if the reconciler is somehow running inside the
+    // very phase-runner CLI subprocess that owns this state.json (the main()
+    // env-guard should already have short-circuited before reaching here),
+    // refuse to act on our own row. Without this, a future code path that
+    // tightens "cli_pid alive" handling could mistakenly mark our own job
+    // failed/adopted and burn the launcher's atomic state contract.
+    if (state.cli_pid === process.pid) {
+      report.entries.push({
+        jobId: id,
+        action: 'no-op',
+        reason: 'self-reference: state.cli_pid === process.pid',
       })
       continue
     }
@@ -444,6 +486,18 @@ function emit(additionalContext) {
 }
 
 function main() {
+  // v1.0.2 — phase-runner CLI self-reference guard. When this hook runs inside
+  // a launcher-spawned `claude -p --agent ccg/phase-runner` subprocess, emit
+  // an empty hookSpecificOutput and exit before reading roadmap/jobs. The
+  // subagent already has its own scoped prompt; injecting the orchestrator's
+  // "Project memory / Active phase / All phases completed" context confuses
+  // the model into running /ccg:status and waiting on its own running job
+  // (cli_pid → it sees itself alive → 2-min idle self-terminate, zero output).
+  if (isPhaseRunnerSubprocess(process.env)) {
+    process.stdout.write('{}')
+    process.exit(0)
+  }
+
   let input = ''
   // Timeout guard mirrors ccg-context-monitor: never hang on a stuck pipe.
   const timer = setTimeout(() => process.exit(0), 10000)
@@ -507,4 +561,6 @@ module.exports = {
   atomicWriteFileSync,
   reconcileStaleJobs,
   summarizeReconciliation,
+  // v1.0.2 additions:
+  isPhaseRunnerSubprocess,
 }

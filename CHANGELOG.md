@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.2] - 2026-05-09 — 🐛 Hotfix: phase-runner CLI 自我引用循环（2-min idle 零产出）
+
+### 🐛 修复
+
+- **phase-runner CLI 自我引用循环**：v4.5 launcher 启动的 `claude -p --agent ccg/phase-runner` 子进程会在启动时触发自身的 `SessionStart` hook（`templates/hooks/ccg-session-state.cjs`）。hook 把"主线编排者"视角的 project memory（`Project memory restored / Active phase / Phases X/Y completed`）和 reconciler 摘要注入这个本应聚焦于单 phase prompt 的子进程，导致 LLM 误判"有个 running job 在跑"，跑 `/ccg:status` 看到自己 `cli_pid` 活着 → 阻塞等待 → Claude CLI 默认 2 分钟 idle 无输出 → 自终止零产出。launcher 拿到非零 exit，job 被 reconciler 标 stale。
+  - **修复**：hook `main()` 入口检测 launcher 注入的两个 env 标识 `CCG_JOB_ID` + `CCG_PHASE_RUNNER_TIER`，识别为 phase-runner CLI 子进程时直接 emit `{}` 退出，不读 roadmap、不跑 reconciler、不注入 additionalContext。子进程从此只看到 launcher 给的 phase prompt，与主线编排者视角解耦。
+  - **defense-in-depth**：`reconcileStaleJobs` 加 `state.cli_pid === process.pid` 自识别 short-circuit。早出 main() 已让常规路径走不到这里，这条仅作未来代码迁移的安全网。
+  - 涉及文件：`templates/hooks/ccg-session-state.cjs`（+30 行 / 1 helper `isPhaseRunnerSubprocess`）+ `src/utils/__tests__/sessionStateHook.test.ts`（+50 行 / 6 新 case）
+
+### ✅ 验证
+
+- `pnpm typecheck` ✓
+- `pnpm test` ✓（新增 6 case）
+- 现存卡死 jobs：reconciler 在下次 SessionStart 自动 stale-mark，无需手动清理
+
+### 📝 设计哲学（First Principles）
+
+SessionStart hook 的「project memory restoration」服务的是**主线编排者**——一个需要跨 `/clear` 跨 session 续接 roadmap 的角色。phase-runner CLI 子进程是「被全权委派单 phase 的执行者」，它的 prompt 已自包含（phase_id / phase_goal / acceptance），不需要也不应该看到 roadmap 视角。**`SessionStart` hook 默认对每个 claude session 无差别 fire，是把「角色感知」职责推给了 hook 自己**——这是这次 bug 的结构性原因。修复用 launcher 已注入的 env 标识做「我是哪个角色」的判定，下游 hooks（v4.6+ 候选）应共享这个标识共识。
+
+---
+
 ## [4.5.2] - 2026-05-06 — ⚡ 体验优化: 14 命令统一切事件驱动等待 + gemini plugin 全 8 处 patch
 
 ### ✨ 体验改进（最高 ROI）
