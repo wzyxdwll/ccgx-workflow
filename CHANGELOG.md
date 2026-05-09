@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.3] - 2026-05-09 — 💰 phase-runner budget cap ×50 调高（消除"贴顶失败"假阳性）
+
+### 🔄 变更
+
+- **phase-runner `--max-budget-usd` 三档默认 ×50**：
+  - `fast`：$1 → **$50**
+  - `triple`：$2 → **$100**
+  - `debate`：$5 → **$250**
+- **背景**：v4.5 PoC D3 baseline 1/2/5 是按"单次 phase-runner spawn 真实 cost p90 + 50% 余量"算的，但 dogfood 实测有 $1.034 这种**贴顶失败**——比 cap 高 3.4¢ 不是 runaway，是 phase 本身略复杂。1/2/5 把"cap = runaway 抓拍"和"cap = 复杂度上限"两个职责合一，导致正常 phase 误报为 failed。50/100/250 把 cap 拉远到只抓真 runaway（一个 stuck loop 几分钟就能烧 $100+），保留 fail-fast 信号机制不变。
+- **首要 first-principles 论点**：cap 不是钱包保护，是**循环失控信号**。给更多预算 ≠ 更可能成功，runaway loop 在 $1 / $50 / $500 都是同样的"原地打转"。提高 cap 后那条信号阈值依然有效，只是 false-positive 大幅降低。
+
+### 📝 改动文件
+
+- `templates/scripts/ccg-phase-runner-launcher.mjs`：`TIER_BUDGET` 常量 + help 文案
+- `src/utils/quality-router.ts`：`PHASE_RUNNER_BUDGET_USD` + 文档注释
+- `src/utils/__tests__/buildPhaseRunnerBashCommand.test.ts`：5 处 cap 断言更新
+- `src/utils/__tests__/launcherSupervisor.test.ts`：`TIER_BUDGET` deepEqual + tier→budget loop expected
+
+### ✅ 验证
+
+- `pnpm typecheck` ✓
+- `pnpm test` ✓ **1315/1315**
+
+### 🔧 用户已撞 cap 的 retry 路径
+
+老 cap 下被标 failed 的 phase（如 P5 $1.034 撞 $1）现在直接重跑就行：
+
+```bash
+/ccg:autonomous --only=phase-NN-<slug>
+```
+
+新 cap $50 留 50× 余量，正常复杂度的 phase 不会再贴顶。
+
+---
+
 ## [1.0.2] - 2026-05-09 — 🐛 Hotfix: phase-runner CLI 自我引用循环（2-min idle 零产出）
 
 ### 🐛 修复

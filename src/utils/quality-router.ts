@@ -250,11 +250,15 @@ export function resolveNestedRescue(input: ResolveNestedInput): {
 // 3b. v4.5 P1a — phase-runner Bash subprocess 命令构造
 // ---------------------------------------------------------------------------
 
-/** v4.5 P1a: max-budget 三档（与 PoC D3 决策一致） */
+/**
+ * v4.5 P1a: max-budget 三档（v1.0.3 ×50 调高，原 PoC D3 baseline 1/2/5 太
+ * 紧贴 p90，正常复杂 phase 容易撞 cap 误报为 failed；50/100/250 保留 runaway-
+ * loop 抓拍能力但消除"贴顶失败"假阳性）。
+ */
 const PHASE_RUNNER_BUDGET_USD: Record<QualityTier, number> = {
-  fast: 1.0,
-  triple: 2.0,
-  debate: 5.0,
+  fast: 50.0,
+  triple: 100.0,
+  debate: 250.0,
 }
 
 /**
@@ -314,7 +318,7 @@ export function shellSingleQuote(s: string): string {
  * 输出符合 PoC D1-D8 全部决策：
  *   - `--output-format stream-json` AND `--verbose`（D1，T4 隐藏依赖）
  *   - `--include-partial-messages`（D2，token 级流式）
- *   - `--max-budget-usd <N>`（D3，三档 fast=1.0/triple=2.0/debate=5.0）
+ *   - `--max-budget-usd <N>`（D3，三档 fast=50/triple=100/debate=250；v1.0.3 ×50 调高）
  *   - `--dangerously-skip-permissions`（D4，子进程全自治）
  *   - `--add-dir <workdir>`（D5，subprocess cwd = phase workdir）
  *   - stdout 重定向到 `.context/jobs/<job-id>/progress.jsonl`（D6）
@@ -336,7 +340,7 @@ export function shellSingleQuote(s: string): string {
  *   )
  *   // → claude -p "$(cat .context/jobs/job-abc123/prompt.txt)" \
  *   //     --agent ccg/phase-runner --output-format stream-json --verbose \
- *   //     --include-partial-messages --max-budget-usd 2.0 \
+ *   //     --include-partial-messages --max-budget-usd 100 \
  *   //     --dangerously-skip-permissions --add-dir '/d/repo' \
  *   //     > .context/jobs/job-abc123/progress.jsonl 2>&1
  */

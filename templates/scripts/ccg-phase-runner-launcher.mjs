@@ -152,7 +152,7 @@ Required:
 
 Optional:
   --tier <fast|triple|debate>   Quality tier; maps to --max-budget-usd
-                                (fast=1, triple=2, debate=5). Default: triple.
+                                (fast=50, triple=100, debate=250). Default: triple.
   --max-budget-usd <N>          Override per-call budget cap.
   --grace-ms <N>                SIGTERM->SIGKILL grace (default 5000).
 
@@ -193,7 +193,13 @@ function writeState(workdir, jobId, state) {
 // production phase-runner spawn).
 // ---------------------------------------------------------------------------
 
-const TIER_BUDGET = { fast: 1.0, triple: 2.0, debate: 5.0 }
+// v1.0.3: ×50 raise after user feedback. PoC D3 baseline (fast=$1 / triple=$2
+// / debate=$5) was tuned for "p90 + 50% margin" of *single phase* spawns, but
+// real autonomous runs hit the cap on edge cases ($1.034 over $1) — tight
+// enough to surface as failures rather than runaway loops. Raising to 50/100/
+// 250 keeps the runaway-loop guardrail intact (a stuck loop blows >$1000 fast)
+// while removing the false-positive failure mode for legitimately complex phases.
+const TIER_BUDGET = { fast: 50.0, triple: 100.0, debate: 250.0 }
 
 function buildClaudeArgs({ promptFile, workdir, tier, maxBudgetUsd }) {
   const budget = maxBudgetUsd ?? TIER_BUDGET[tier]

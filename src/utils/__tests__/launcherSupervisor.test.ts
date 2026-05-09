@@ -175,7 +175,7 @@ describe('buildClaudeArgs', () => {
       '--output-format', 'stream-json',
       '--include-partial-messages',
       '--verbose',
-      '--max-budget-usd', '2',
+      '--max-budget-usd', '100',
       '--dangerously-skip-permissions',
       '--add-dir', '/d/repo',
     ])
@@ -198,12 +198,12 @@ describe('buildClaudeArgs', () => {
 
   it('uses TIER_BUDGET when override is null', async () => {
     const lib = await loadLauncher()
-    expect(lib.TIER_BUDGET).toEqual({ fast: 1.0, triple: 2.0, debate: 5.0 })
+    expect(lib.TIER_BUDGET).toEqual({ fast: 50.0, triple: 100.0, debate: 250.0 })
 
     const promptFile = join(workdir, 'p2.txt')
     writeFileSync(promptFile, 'x', 'utf-8')
 
-    for (const [tier, expected] of Object.entries({ fast: '1', triple: '2', debate: '5' })) {
+    for (const [tier, expected] of Object.entries({ fast: '50', triple: '100', debate: '250' })) {
       const args = lib.buildClaudeArgs({
         promptFile,
         workdir: '/x',

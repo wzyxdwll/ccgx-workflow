@@ -3,7 +3,7 @@
  * `quality-router.ts`. Covers PoC D1-D8 decisions + acceptance contract:
  *
  *   - all required CLI flags present (D1/D2/D3/D4)
- *   - max-budget tier mapping (D3: fast=1.0 / triple=2.0 / debate=5.0)
+ *   - max-budget tier mapping (v1.0.3 ×50: fast=50 / triple=100 / debate=250)
  *   - subprocess cwd via --add-dir (D5)
  *   - stream-json file path .context/jobs/<jobId>/progress.jsonl (D6)
  *   - special-character / Windows-path escape correctness
@@ -43,14 +43,14 @@ describe('buildPhaseRunnerBashCommand: required flags', () => {
     expect(cmd).toContain('--output-format stream-json')
     expect(cmd).toContain('--verbose')
     expect(cmd).toContain('--include-partial-messages')
-    expect(cmd).toContain('--max-budget-usd 1')
+    expect(cmd).toContain('--max-budget-usd 50')
     expect(cmd).toContain('--dangerously-skip-permissions')
     expect(cmd).toContain('--add-dir')
   })
 
   it('contains all PoC-mandated flags for triple tier', () => {
     const cmd = buildPhaseRunnerBashCommand(phase(), '', undefined, { tier: 'triple' })
-    expect(cmd).toContain('--max-budget-usd 2')
+    expect(cmd).toContain('--max-budget-usd 100')
     // both stream-json and verbose required (D1 hidden requirement T4)
     expect(cmd).toContain('--output-format stream-json')
     expect(cmd).toContain('--verbose')
@@ -58,7 +58,7 @@ describe('buildPhaseRunnerBashCommand: required flags', () => {
 
   it('contains all PoC-mandated flags for debate tier', () => {
     const cmd = buildPhaseRunnerBashCommand(phase(), '', undefined, { tier: 'debate' })
-    expect(cmd).toContain('--max-budget-usd 5')
+    expect(cmd).toContain('--max-budget-usd 250')
   })
 })
 
@@ -67,17 +67,17 @@ describe('buildPhaseRunnerBashCommand: required flags', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildPhaseRunnerBashCommand: max-budget mapping', () => {
-  it('fast → 1.0', () => {
+  it('fast → 50', () => {
     const cmd = buildPhaseRunnerBashCommand(phase(), '', undefined, { tier: 'fast' })
-    expect(cmd).toMatch(/--max-budget-usd 1(?:\s|$)/)
+    expect(cmd).toMatch(/--max-budget-usd 50(?:\s|$)/)
   })
-  it('triple → 2.0', () => {
+  it('triple → 100', () => {
     const cmd = buildPhaseRunnerBashCommand(phase(), '', undefined, { tier: 'triple' })
-    expect(cmd).toMatch(/--max-budget-usd 2(?:\s|$)/)
+    expect(cmd).toMatch(/--max-budget-usd 100(?:\s|$)/)
   })
-  it('debate → 5.0', () => {
+  it('debate → 250', () => {
     const cmd = buildPhaseRunnerBashCommand(phase(), '', undefined, { tier: 'debate' })
-    expect(cmd).toMatch(/--max-budget-usd 5(?:\s|$)/)
+    expect(cmd).toMatch(/--max-budget-usd 250(?:\s|$)/)
   })
   it('explicit override beats tier default', () => {
     const cmd = buildPhaseRunnerBashCommand(phase(), '', undefined, {
@@ -92,11 +92,11 @@ describe('buildPhaseRunnerBashCommand: max-budget mapping', () => {
       '',
       undefined,
     )
-    expect(cmd).toContain('--max-budget-usd 5')
+    expect(cmd).toContain('--max-budget-usd 250')
   })
-  it('defaults to triple (2.0) when neither tier nor phase.quality set', () => {
+  it('defaults to triple (100) when neither tier nor phase.quality set', () => {
     const cmd = buildPhaseRunnerBashCommand(phase({ quality: undefined }), '', undefined)
-    expect(cmd).toContain('--max-budget-usd 2')
+    expect(cmd).toContain('--max-budget-usd 100')
   })
   it('rejects invalid budget', () => {
     expect(() =>
@@ -293,20 +293,20 @@ describe('planWavesForTier: v4.5 P1a impl wave bash-direct propagation', () => {
     expect(impl.spawns[0].bashCommand).toContain('--agent ccg/phase-runner')
   })
 
-  it('fast tier impl wave gets max-budget-usd 1.0 in bashCommand', () => {
+  it('fast tier impl wave gets max-budget-usd 50 in bashCommand', () => {
     const r = planWavesForTier('fast', phase(), PLUGINS_BOTH, {
       useDirectBashInvocation: true,
     })
     const impl = r.waves.find(w => w.kind === 'impl')!
-    expect(impl.spawns[0].bashCommand).toContain('--max-budget-usd 1')
+    expect(impl.spawns[0].bashCommand).toContain('--max-budget-usd 50')
   })
 
-  it('debate tier impl wave gets max-budget-usd 5.0 in bashCommand', () => {
+  it('debate tier impl wave gets max-budget-usd 250 in bashCommand', () => {
     const r = planWavesForTier('debate', phase(), PLUGINS_BOTH, {
       useDirectBashInvocation: true,
     })
     const impl = r.waves.find(w => w.kind === 'impl')!
-    expect(impl.spawns[0].bashCommand).toContain('--max-budget-usd 5')
+    expect(impl.spawns[0].bashCommand).toContain('--max-budget-usd 250')
   })
 
   it('non-impl waves still don\'t carry bashCommand even with option ON (plan/critic/debate)', () => {
