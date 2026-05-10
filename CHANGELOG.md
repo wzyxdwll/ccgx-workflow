@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.9] - 2026-05-11 — 🐛 fix(kill-orphans): PowerShell 脚本拼接坏掉，listNodeProcesses 永远返空
+
+### 🐛 1.0.5 起的隐藏 bug
+
+`ccg kill-orphans` 自 1.0.5 ship 起在 Windows 上**完全无效**——dry-run 永远显示 `No node processes found`，且不会真杀任何东西。
+
+**根因**（`src/commands/kill-orphans.ts:60-67`）：
+
+```js
+const ps = `Get-CimInstance ... | ForEach-Object {
+    $cd = $_.CreationDate
+    $h = if ($cd) { ... } else { 0 }
+    $cmd = if ($_.CommandLine) ...
+    "$($_.ProcessId)|$h|$cmd"
+}`
+out = execSync(`powershell -NoProfile -Command "${ps.replace(/\n\s+/g, ' ')}"`, ...)
+```
+
+`\n\s+` 把换行 + 缩进替换成**单个空格**，但 PowerShell 单行多语句必须用 `;` 分隔。结果脚本被 PowerShell 解析为：`$cd = ... $h = if ... $cmd = ...`，第二个 `$h` 被当成独立 token，报 "`$h` 不是内部或外部命令"（GBK 乱码）。错误被 try/catch 吞掉，函数返回空数组。
+
+### ✨ 修复：改用 PowerShell -EncodedCommand
+
+```js
+const encoded = Buffer.from(ps, 'utf16le').toString('base64')
+out = execSync(`powershell -NoProfile -EncodedCommand ${encoded}`, ...)
+```
+
+PowerShell `-EncodedCommand` 接受 Base64 编码的 UTF-16LE 脚本，原样保留所有换行 / `$` / 引号——**完全绕开 cmd.exe 的字符串解析层**。这是 PowerShell 官方推荐的多行脚本传递方式。
+
+顺手 polish：
+- 脚本前置 `$ProgressPreference = 'SilentlyContinue'`，消掉首次加载 CimCmdlets 模块时输出到 stderr 的 CLIXML progress stream。
+- `execSync` 改 `stdio: ['ignore', 'pipe', 'ignore']`，让残留 stderr 不再 leak 到终端。
+
+### 📋 影响
+
+- 1.0.5 / 1.0.6 / 1.0.7 / 1.0.8 在 Windows 上 `kill-orphans` 全部失效。POSIX 路径不受影响（`ps -eo` 那条没有这个 bug）。
+- 没有 dev-server 误杀风险——函数返空 → 0 targets → 0 kills。但用户也没法用工具清理 broker / mcp 残留。
+
+---
+
 ## [1.0.8] - 2026-05-11 — 🐛 CI hotfix: tests env-tolerant（1.0.7 已被占用）
 
 1.0.7 npm 实际已 publish 但 CI 后续 push 撞测试 env 假设失败。版本号被 npm 锁，bump 1.0.8 重发。

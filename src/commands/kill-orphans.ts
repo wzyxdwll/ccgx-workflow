@@ -56,7 +56,13 @@ function categorize(cmdLine: string): NodeProcInfo['category'] {
 }
 
 function listNodeProcessesWindows(): NodeProcInfo[] {
-  const ps = `Get-CimInstance Win32_Process -Filter "Name='node.exe'" | ForEach-Object {
+  // PowerShell multi-statement script. Use -EncodedCommand (Base64 UTF-16LE)
+  // to avoid cmd.exe quote/`$` interpretation and the fragile `\n\s+` → space
+  // replace that broke statement separation pre-1.0.9.
+  // $ProgressPreference suppresses the CLIXML progress stream that PowerShell
+  // emits to stderr on first cmdlet/module load.
+  const ps = `$ProgressPreference = 'SilentlyContinue'
+  Get-CimInstance Win32_Process -Filter "Name='node.exe'" | ForEach-Object {
     $cd = $_.CreationDate
     $h = if ($cd) { ((Get-Date) - $cd).TotalHours } else { 0 }
     $cmd = if ($_.CommandLine) { $_.CommandLine } else { '' }
@@ -64,9 +70,11 @@ function listNodeProcessesWindows(): NodeProcInfo[] {
   }`
   let out: string
   try {
-    out = execSync(`powershell -NoProfile -Command "${ps.replace(/\n\s+/g, ' ')}"`, {
+    const encoded = Buffer.from(ps, 'utf16le').toString('base64')
+    out = execSync(`powershell -NoProfile -EncodedCommand ${encoded}`, {
       encoding: 'utf-8',
       maxBuffer: 16 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'ignore'],
     })
   }
   catch {
