@@ -142,6 +142,18 @@ const PATCHES = [
     match: /(if \(message\.error\) \{\s*\r?\n\s*)pending\.reject\(message\.error\);(\s*\r?\n\s*\} else \{)/,
     replace: `$1// CCG P-9 patch: wrap JSON-RPC error object in Error instance.\n          // Without this, callers doing \`e instanceof Error ? e.message : String(e)\`\n          // get "[object Object]" — losing real error info (auth-expired, broker-dead,\n          // parse-error, etc). See .ccg-migration/PLUGIN-PATCHES.md P-9.\n          const _err = message.error;\n          const _wrapped = Object.assign(\n            new Error(typeof _err === "object" && _err !== null && _err.message\n              ? String(_err.message)\n              : String(_err)),\n            {\n              jsonrpcCode: typeof _err === "object" && _err !== null ? _err.code : undefined,\n              jsonrpcData: typeof _err === "object" && _err !== null ? _err.data : undefined,\n            },\n          );\n          pending.reject(_wrapped);$2`,
   },
+  {
+    id: "P-12",
+    file: "gemini-companion.mjs",
+    description: "CLAUDE_PLUGIN_DATA env cross-contamination — recompute from script path",
+    // Guard: any patched marker present
+    guard: /CCG P-12 patch/,
+    // Anchor on the last import line (createStreamHandler). Newer plugin
+    // versions may add imports after this; if so, the regex misses (reported
+    // by the script's [MISS] line) and the patch is re-evaluated upstream.
+    match: /(import\s+\{\s*createStreamHandler\s*\}\s+from\s+"\.\/lib\/stream-output\.mjs";?)/,
+    replace: `$1\n\n// CCG P-12 patch: prevent CLAUDE_PLUGIN_DATA cross-contamination from previous\n// plugin invocations (e.g., codex). Recompute from this script's physical path\n// so the broker session file lands in our own data dir, enabling broker reuse.\n// See .ccg-migration/PLUGIN-PATCHES.md P-12.\n{\n  const _scriptDir = path.dirname(fileURLToPath(import.meta.url));\n  const _versionDir = path.dirname(_scriptDir);\n  const _pluginDir = path.dirname(_versionDir);\n  const _marketplaceDir = path.dirname(_pluginDir);\n  const _cacheDir = path.dirname(_marketplaceDir);\n  const _pluginsDir = path.dirname(_cacheDir);\n  const _pluginName = path.basename(_pluginDir);\n  const _marketplaceName = path.basename(_marketplaceDir);\n  process.env.CLAUDE_PLUGIN_DATA = path.join(_pluginsDir, "data", _pluginName + "-" + _marketplaceName);\n}`,
+  },
 ];
 
 let applied = 0;

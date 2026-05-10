@@ -124,10 +124,12 @@ export async function setupCommands(cli: CAC): Promise<void> {
     .command('kill-orphans', '清理 Claude Code session 退出后残留的孤儿 node 进程（MCP server / codex / gemini）')
     .option('--kill', '实际执行 kill (默认 dry-run)')
     .option('--min-age-hours <N>', '只清理超过 N 小时的进程 (默认 1)')
-    .action(async (options: { kill?: boolean, minAgeHours?: string }) => {
+    .option('--stuck', '只清理停滞进程：CPU 占比 < 1% 且 wall age > 5min（覆盖 --min-age-hours）')
+    .action(async (options: { kill?: boolean, minAgeHours?: string, stuck?: boolean }) => {
       await killOrphans({
         dryRun: !options.kill,
         minAgeHours: options.minAgeHours ? Number.parseFloat(options.minAgeHours) : 1,
+        stuckOnly: options.stuck,
       })
     })
 

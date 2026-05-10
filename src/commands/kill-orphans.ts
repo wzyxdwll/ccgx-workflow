@@ -34,6 +34,7 @@ import { isWindows } from '../utils/platform'
 interface NodeProcInfo {
   pid: number
   ageHours: number
+  cpuSeconds: number
   cmdLine: string
   category: 'mcp-server' | 'codex-cli' | 'gemini-cli' | 'phase-runner' | 'dev-server' | 'other'
 }
@@ -41,6 +42,32 @@ interface NodeProcInfo {
 export interface KillOrphansOptions {
   dryRun?: boolean
   minAgeHours?: number
+  stuckOnly?: boolean
+}
+
+// "Stuck" detection is intentionally narrow: it ONLY catches broker daemon
+// processes (acp-broker / app-server-broker) hung in an IPC syscall. We
+// deliberately exclude:
+//   - companion processes (codex-companion / gemini-companion) — they
+//     legitimately spend most wall-time blocked on remote LLM API responses,
+//     so low-CPU + high-wall is normal, not stuck.
+//   - MCP servers (context7 / playwright / ace-tool) — same reason, they
+//     idle waiting for MCP requests; --min-age-hours covers truly orphaned ones.
+//
+// Empirical signature from 1.0.x dogfood: stuck broker = 5+ minutes wall,
+// < 1% CPU/wall ratio, 0 active children.
+const STUCK_MIN_AGE_SECONDS = 300 // 5 min
+const STUCK_CPU_RATIO_THRESHOLD = 0.01 // CPU < 1% of wall time
+
+export function isBrokerProcess(p: NodeProcInfo): boolean {
+  return /acp-broker|app-server-broker|broker-lifecycle/.test(p.cmdLine)
+}
+
+export function isStuck(p: NodeProcInfo): boolean {
+  if (!isBrokerProcess(p)) return false
+  const wallSeconds = p.ageHours * 3600
+  if (wallSeconds < STUCK_MIN_AGE_SECONDS) return false
+  return p.cpuSeconds / wallSeconds < STUCK_CPU_RATIO_THRESHOLD
 }
 
 function categorize(cmdLine: string): NodeProcInfo['category'] {
@@ -61,12 +88,18 @@ function listNodeProcessesWindows(): NodeProcInfo[] {
   // replace that broke statement separation pre-1.0.9.
   // $ProgressPreference suppresses the CLIXML progress stream that PowerShell
   // emits to stderr on first cmdlet/module load.
+  // KernelModeTime + UserModeTime are in 100-nanosecond units; divide by 1e7
+  // to get seconds. Used by --stuck detection to find IPC-hung processes
+  // (broker daemons that show wall age > 5min but CPU ≈ 0).
   const ps = `$ProgressPreference = 'SilentlyContinue'
   Get-CimInstance Win32_Process -Filter "Name='node.exe'" | ForEach-Object {
     $cd = $_.CreationDate
     $h = if ($cd) { ((Get-Date) - $cd).TotalHours } else { 0 }
     $cmd = if ($_.CommandLine) { $_.CommandLine } else { '' }
-    "$($_.ProcessId)|$h|$cmd"
+    $kt = if ($_.KernelModeTime) { $_.KernelModeTime } else { 0 }
+    $ut = if ($_.UserModeTime) { $_.UserModeTime } else { 0 }
+    $cpuS = ($kt + $ut) / 10000000.0
+    "$($_.ProcessId)|$h|$cpuS|$cmd"
   }`
   let out: string
   try {
@@ -87,14 +120,17 @@ function listNodeProcessesWindows(): NodeProcInfo[] {
     if (!trimmed) continue
     const sep1 = trimmed.indexOf('|')
     const sep2 = trimmed.indexOf('|', sep1 + 1)
-    if (sep1 < 0 || sep2 < 0) continue
+    const sep3 = trimmed.indexOf('|', sep2 + 1)
+    if (sep1 < 0 || sep2 < 0 || sep3 < 0) continue
     const pid = Number.parseInt(trimmed.slice(0, sep1), 10)
     const ageHours = Number.parseFloat(trimmed.slice(sep1 + 1, sep2))
-    const cmdLine = trimmed.slice(sep2 + 1)
+    const cpuSeconds = Number.parseFloat(trimmed.slice(sep2 + 1, sep3))
+    const cmdLine = trimmed.slice(sep3 + 1)
     if (Number.isNaN(pid)) continue
     procs.push({
       pid,
       ageHours: Number.isFinite(ageHours) ? ageHours : 0,
+      cpuSeconds: Number.isFinite(cpuSeconds) ? cpuSeconds : 0,
       cmdLine,
       category: categorize(cmdLine),
     })
@@ -102,31 +138,42 @@ function listNodeProcessesWindows(): NodeProcInfo[] {
   return procs
 }
 
+function parseHmsToSeconds(spec: string): number {
+  // ps `time` column format: [DD-]HH:MM:SS or MM:SS
+  const parts = spec.split(/[-:]/).map(s => Number.parseInt(s, 10))
+  if (parts.length === 4) return parts[0] * 86400 + parts[1] * 3600 + parts[2] * 60 + parts[3]
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
+  if (parts.length === 2) return parts[0] * 60 + parts[1]
+  return 0
+}
+
 function listNodeProcessesPosix(): NodeProcInfo[] {
   let out: string
   try {
-    out = execSync('ps -eo pid,etime,command', { encoding: 'utf-8', maxBuffer: 16 * 1024 * 1024 })
+    out = execSync('ps -eo pid,etime,time,command', { encoding: 'utf-8', maxBuffer: 16 * 1024 * 1024 })
   }
   catch {
     return []
   }
   const procs: NodeProcInfo[] = []
   for (const line of out.split('\n').slice(1)) {
-    const m = line.match(/^\s*(\d+)\s+(\S+)\s+(.+)$/)
+    const m = line.match(/^\s*(\d+)\s+(\S+)\s+(\S+)\s+(.+)$/)
     if (!m) continue
-    const cmdLine = m[3]
+    const cmdLine = m[4]
     if (!/(^|\/)node(\s|$)/.test(cmdLine)) continue
     const pid = Number.parseInt(m[1], 10)
-    // etime: dd-hh:mm:ss or hh:mm:ss or mm:ss
     const etime = m[2]
+    const cpuTime = m[3]
     const parts = etime.split(/[-:]/).map(s => Number.parseInt(s, 10))
     let ageHours = 0
     if (parts.length === 4) ageHours = parts[0] * 24 + parts[1] + parts[2] / 60
     else if (parts.length === 3) ageHours = parts[0] + parts[1] / 60
     else if (parts.length === 2) ageHours = parts[0] / 60
+    const cpuSeconds = parseHmsToSeconds(cpuTime)
     procs.push({
       pid,
       ageHours,
+      cpuSeconds,
       cmdLine,
       category: categorize(cmdLine),
     })
@@ -139,20 +186,23 @@ export function listNodeProcesses(): NodeProcInfo[] {
 }
 
 function killProcessWindows(pid: number): { ok: boolean, method: string, error?: string } {
-  // 1. Stop-Process -Force
+  // 1. taskkill /F /T — cascades to child processes. Critical for broker
+  //    daemons (acp-broker / app-server-broker) that spawned `gemini --acp`
+  //    or codex CLI children: Stop-Process -Force does NOT cascade, so the
+  //    children would orphan again after killing only the parent.
+  try {
+    execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'pipe' })
+    return { ok: true, method: 'taskkill /F /T' }
+  }
+  catch { /* fall through */ }
+  // 2. Stop-Process -Force (single-process fallback)
   try {
     execSync(`powershell -NoProfile -Command "Stop-Process -Id ${pid} -Force -ErrorAction Stop"`, { stdio: 'pipe' })
     return { ok: true, method: 'Stop-Process' }
   }
   catch { /* fall through */ }
-  // 2. taskkill /F
-  try {
-    execSync(`taskkill /F /PID ${pid}`, { stdio: 'pipe' })
-    return { ok: true, method: 'taskkill /F' }
-  }
-  catch { /* fall through */ }
-  // 3. wmic process delete (different kernel API path; succeeds when above fail
-  //    on processes stuck in IPC syscall — see CCG 1.0.4 dogfood)
+  // 3. wmic process delete (different kernel API path; succeeds when above
+  //    fail on processes stuck in IPC syscall — see CCG 1.0.4 dogfood)
   try {
     execSync(`wmic process where "ProcessId=${pid}" delete`, { stdio: 'pipe' })
     return { ok: true, method: 'wmic delete' }
@@ -163,6 +213,14 @@ function killProcessWindows(pid: number): { ok: boolean, method: string, error?:
 }
 
 function killProcessPosix(pid: number): { ok: boolean, method: string, error?: string } {
+  // SIGTERM the entire process group first (negative pid = kill group),
+  // matching taskkill /T cascade semantics. Falls back to single-pid
+  // SIGTERM/SIGKILL if the target is not a process group leader.
+  try {
+    execSync(`kill -TERM -- -${pid}`, { stdio: 'pipe' })
+    return { ok: true, method: 'SIGTERM (group)' }
+  }
+  catch { /* fall through */ }
   try {
     execSync(`kill -TERM ${pid}`, { stdio: 'pipe' })
     return { ok: true, method: 'SIGTERM' }
@@ -180,9 +238,13 @@ function killProcessPosix(pid: number): { ok: boolean, method: string, error?: s
 export async function killOrphans(options: KillOrphansOptions = {}): Promise<void> {
   const dryRun = options.dryRun ?? true
   const minAgeHours = options.minAgeHours ?? 1
+  const stuckOnly = options.stuckOnly ?? false
 
+  const targetDesc = stuckOnly
+    ? 'stuck broker daemons only (CPU/wall < 1%, age > 5min, ignores companions/MCP)'
+    : `orphan node processes >${minAgeHours}h`
   console.log(ansis.cyan.bold('\n  ccgx kill-orphans'))
-  console.log(ansis.gray(`  ${dryRun ? '[DRY-RUN]' : '[KILL MODE]'} target: orphan node processes >${minAgeHours}h\n`))
+  console.log(ansis.gray(`  ${dryRun ? '[DRY-RUN]' : '[KILL MODE]'} target: ${targetDesc}\n`))
 
   const all = listNodeProcesses()
   if (all.length === 0) {
@@ -202,29 +264,43 @@ export async function killOrphans(options: KillOrphansOptions = {}): Promise<voi
     const list = groups.get(cat) ?? []
     if (list.length === 0) continue
     const oldestH = Math.max(...list.map(p => p.ageHours))
+    const stuckCount = list.filter(isStuck).length
     const tag = cat === 'dev-server' ? ansis.green('SAFE') : (cat === 'other' ? ansis.gray('UNKN') : ansis.yellow('ORPH'))
-    console.log(`    ${tag} ${cat.padEnd(14)} ${String(list.length).padStart(3)} processes  (oldest ${oldestH.toFixed(1)}h)`)
+    const stuckTag = stuckCount > 0 ? ansis.red(` ${stuckCount} stuck`) : ''
+    console.log(`    ${tag} ${cat.padEnd(14)} ${String(list.length).padStart(3)} processes  (oldest ${oldestH.toFixed(1)}h)${stuckTag}`)
   }
   console.log()
 
-  // Targets: orphans in mcp-server / codex-cli / gemini-cli / phase-runner that are old enough
+  // Targets: orphans in mcp-server / codex-cli / gemini-cli / phase-runner.
+  // --stuck restricts to stuck ones (CPU≈0 + age>5min) regardless of minAgeHours.
   const ORPHAN_CATS: NodeProcInfo['category'][] = ['mcp-server', 'codex-cli', 'gemini-cli', 'phase-runner']
-  const targets = all.filter(p => ORPHAN_CATS.includes(p.category) && p.ageHours >= minAgeHours)
+  const targets = all.filter((p) => {
+    if (!ORPHAN_CATS.includes(p.category)) return false
+    if (stuckOnly) return isStuck(p)
+    return p.ageHours >= minAgeHours
+  })
 
   if (targets.length === 0) {
-    console.log(ansis.green(`  ✓ No orphans >${minAgeHours}h to clean.`))
+    const reason = stuckOnly ? 'stuck' : `>${minAgeHours}h`
+    console.log(ansis.green(`  ✓ No ${reason} orphans to clean.`))
     return
   }
 
   console.log(ansis.bold(`  Targets (${targets.length}):`))
   for (const p of targets) {
-    const cmdShort = p.cmdLine.length > 70 ? `${p.cmdLine.slice(0, 70)}...` : p.cmdLine
-    console.log(`    PID ${String(p.pid).padStart(6)}  ${p.ageHours.toFixed(1).padStart(5)}h  ${ansis.gray(p.category.padEnd(14))} ${cmdShort}`)
+    const cmdShort = p.cmdLine.length > 60 ? `${p.cmdLine.slice(0, 60)}...` : p.cmdLine
+    const wallS = p.ageHours * 3600
+    const ratio = wallS > 0 ? (p.cpuSeconds / wallS) * 100 : 0
+    const stuckMark = isStuck(p) ? ansis.red(' STUCK') : ''
+    console.log(
+      `    PID ${String(p.pid).padStart(6)}  ${p.ageHours.toFixed(1).padStart(5)}h  CPU ${p.cpuSeconds.toFixed(1).padStart(6)}s (${ratio.toFixed(2).padStart(5)}%)  ${ansis.gray(p.category.padEnd(14))} ${cmdShort}${stuckMark}`,
+    )
   }
   console.log()
 
   if (dryRun) {
-    console.log(ansis.gray(`  Run with --kill to actually terminate (skips dev-server / other categories).`))
+    const flag = stuckOnly ? '--stuck --kill' : '--kill'
+    console.log(ansis.gray(`  Run with ${flag} to actually terminate (skips dev-server / other categories).`))
     return
   }
 

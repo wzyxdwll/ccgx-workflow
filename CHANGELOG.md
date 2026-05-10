@@ -7,6 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.10] - 2026-05-11 — ✨ B2: gemini broker 真复用（治根因 R2）+ kill-orphans --stuck 兜底
+
+### 🐛 治本: P-12 patch — `CLAUDE_PLUGIN_DATA` env 串台
+
+**症状**：自 1.0.x 起 dogfood 上 gemini broker daemon **永远不复用**——每次 task 新建 broker，旧的全成孤儿。多会话调试发现 PID 30456 (gemini broker) 把 broker session 文件写到了 codex 的 plugin data dir：
+
+```
+C:\Users\Administrator\.claude\plugins\data\codex-openai-codex\state\<workspace>\acp-session\broker.pid
+                                              ^^^^^^^^^^^^^^^^^^ 应该是 gemini-google-gemini
+```
+
+**根因**：`gemini/lib/state.mjs:51-54`（codex `state.mjs:41-42` 字面一致）信任上层 `CLAUDE_PLUGIN_DATA` env 算 stateRoot。Claude Code 主进程在 plugin 切换时不重设 env → 上次调 codex 留下的 env 串到下次调 gemini → broker 写到 codex 目录 → 下次 gemini-companion 找不到 broker session → 永远新建。
+
+**修复**（已进 `repatch-gemini-plugin.mjs` P-12）：`gemini-companion.mjs` 在最后一个 import 之后插入 patch 块，从脚本物理路径反推 plugin data dir，无条件覆写 env：
+
+```javascript
+{
+  const _scriptDir = path.dirname(fileURLToPath(import.meta.url));
+  const _versionDir = path.dirname(_scriptDir);
+  // ... 5 层 dirname 上推到 plugins/
+  process.env.CLAUDE_PLUGIN_DATA = path.join(_pluginsDir, "data", _pluginName + "-" + _marketplaceName);
+}
+```
+
+block scope 包裹避免污染 module 作用域。verification: 跑 `repatch-gemini-plugin.mjs` 后 `Summary: 1 applied, 9 already-patched, 0 unmatched`，路径解析正确指向 `gemini-google-gemini`。
+
+完整设计与上下文见 `.ccg-migration/PLUGIN-PATCHES.md` P-12。
+
+### 🛠️ 兜底: `ccg kill-orphans --stuck` + `taskkill /F /T` 级联
+
+**新增 `--stuck` 选项**：仅命中 stuck broker daemon（CPU/wall < 1% 且 wall > 5min），故意排除 companion / MCP（它们等远程 API 必然低 CPU）。判定限定在 `acp-broker | app-server-broker | broker-lifecycle` cmdline 命中的进程。
+
+```
+ccg kill-orphans --stuck             # dry-run，列卡死 broker
+ccg kill-orphans --stuck --kill      # 真杀
+```
+
+**Windows kill 路径升级**：把 `taskkill /F /T` 提到第一位（级联杀子进程组），原来 `Stop-Process -Force` 不级联，broker 死了 ACP child 还活着。POSIX 同款 `kill -TERM -- -<pid>` 杀整组。
+
+**采集 CPU 时间**：listNodeProcessesWindows 的 PowerShell 脚本加 `KernelModeTime + UserModeTime`（100ns 单位 / 1e7 → 秒）；POSIX 用 `ps -eo pid,etime,time,command` 多取一列 `time`。
+
+新增 `src/commands/__tests__/killOrphans.test.ts`（13 用例）覆盖 isStuck 边界（5min/1% 阈值）+ isBrokerProcess 分支（broker 命中 / companion 不命中 / MCP 不命中 / dev-server 不命中）。
+
+### 📋 文档化: P-14（broker idle timeout 缺失）
+
+`acp-broker.mjs` / `app-server-broker.mjs` **两边都没** idle watchdog——broker 卡在 IPC syscall 后永远不退出。B2 决策下不进 repatch 脚本（multi-region 改动跟 P-10 同级 regex 风险），写到 `PLUGIN-PATCHES.md` P-14 等观察。如果 1.0.10 ship 后两周内仍频繁见 broker 卡死，1.0.11 再做。当前由 `ccg kill-orphans --stuck` 兜底。
+
+### 🔍 诊断修正
+
+之前 dogfood 报告说"`sendBrokerShutdown` 全仓无人调"——**错的**。`gemini/scripts/session-lifecycle-hook.mjs:118` 已经在 session 退出时调用，跟 codex `session-lifecycle-hook.mjs:13` 同款 hook 模式。"R3"实际不存在，本次不修改。
+
+### 📊 多模型协作选型
+
+1.0.10 范围用 codex + gemini plugin 各自独立评审拍板：
+- codex 推 B3（治本，R1 + R2 一起做）
+- gemini 推 B2（YAGNI，先修 R2 看实测）
+- 最终采纳 B2 — 两边都同意 R2 必修；R1 multi-region patch 风险高，先验证 R2 修复后 broker 复用率再决定
+
+---
+
 ## [1.0.9] - 2026-05-11 — 🐛 fix(kill-orphans): PowerShell 脚本拼接坏掉，listNodeProcesses 永远返空
 
 ### 🐛 1.0.5 起的隐藏 bug

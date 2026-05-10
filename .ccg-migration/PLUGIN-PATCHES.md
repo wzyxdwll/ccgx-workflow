@@ -589,6 +589,168 @@ sendToAcp({
 
 ---
 
+## P-12: gemini plugin v1.0.1 — `CLAUDE_PLUGIN_DATA` env 串台导致 broker 永远孤儿化
+
+**状态**: 本地已 patch，进 repatch 脚本，上游待 PR
+**首次发现**: 2026-05-11（CCG 1.0.10 dogfood，跨会话调试发现 PID 30456 gemini broker 把 pid 文件写到了 codex 的 plugin data 目录）
+**受影响**: `gemini@google-gemini` v1.0.1（codex 同款代码理论上同问题，未观察到，A1 路径下不修）
+**触发频率**: 高（每次 plugin 调用切换时）
+
+### 症状
+
+- `gemini broker daemon` 启动后把 broker session 文件（pid file / endpoint）写到了 **codex 的** plugin data 目录：
+  ```
+  C:\Users\Administrator\.claude\plugins\data\codex-openai-codex\state\<workspace>\acp-session\broker.pid
+  ```
+- 下次 `gemini-companion` 启动 → 用 gemini 自己的 plugin data dir 算 `resolveStateDir(cwd)` → 找不到 broker session → **新建 broker** → 旧 broker 成孤儿
+- 结果：**broker 永远不复用，每次 task 都新建 broker，孤儿持续累积**
+- 配合 P-14（broker 无 idle timeout），孤儿不会自退 → 用户机器堆积 N 个 broker daemon 直到下次 reboot
+
+### 根因
+
+`gemini/scripts/lib/state.mjs:51-54`（codex `state.mjs:41-42` 字面一致）：
+
+```javascript
+function stateRootDir() {
+  return process.env[PLUGIN_DATA_ENV]
+    ? path.join(process.env[PLUGIN_DATA_ENV], "state")
+    : FALLBACK_STATE_ROOT_DIR;
+}
+```
+
+两个 plugin 都信任上层 `CLAUDE_PLUGIN_DATA` env。**Claude Code 主进程在 plugin 切换时不重设这个 env**——上次调 codex 留下的 env 串到了下次调 gemini，gemini-companion 因此把自己的 state 写到 codex 的 data dir。
+
+codex 同问题但因为 ccg-workflow 工作流里 codex 经常先调（env 一开始就是 codex 自己的），没暴露。
+
+### 临时 patch（已进 repatch 脚本）
+
+`gemini-companion.mjs` 在最后一个 import 之后插入 patch 块，从脚本物理路径反推 plugin data dir 并覆写 env：
+
+```javascript
+import { createStreamHandler } from "./lib/stream-output.mjs";
+
+// CCG P-12 patch: prevent CLAUDE_PLUGIN_DATA cross-contamination from previous
+// plugin invocations (e.g., codex). Recompute from this script's physical path
+// so the broker session file lands in our own data dir, enabling broker reuse.
+{
+  const _scriptDir = path.dirname(fileURLToPath(import.meta.url));
+  const _versionDir = path.dirname(_scriptDir);                 // .../1.0.1/
+  const _pluginDir = path.dirname(_versionDir);                 // .../gemini/
+  const _marketplaceDir = path.dirname(_pluginDir);             // .../google-gemini/
+  const _cacheDir = path.dirname(_marketplaceDir);              // .../cache/
+  const _pluginsDir = path.dirname(_cacheDir);                  // .../plugins/
+  const _pluginName = path.basename(_pluginDir);                // gemini
+  const _marketplaceName = path.basename(_marketplaceDir);      // google-gemini
+  process.env.CLAUDE_PLUGIN_DATA = path.join(_pluginsDir, "data", _pluginName + "-" + _marketplaceName);
+}
+```
+
+效果：plugin data dir 永远是 `~/.claude/plugins/data/gemini-google-gemini/`，跟 plugin 自己的身份一致，broker 真能被复用。block scope 包裹避免污染 module 作用域，所有 helper 变量限定在 `{}` 内。
+
+### 验证 patch 生效
+
+```bash
+# 1. 应用 patch
+node ~/.claude/.ccg/scripts/repatch-gemini-plugin.mjs
+
+# 2. 重启 broker daemon（让 patch 生效）
+claude plugin disable gemini@google-gemini
+claude plugin enable gemini@google-gemini
+
+# 3. 跑一次 gemini task
+node ~/.claude/plugins/cache/google-gemini/gemini/1.0.1/scripts/gemini-companion.mjs task -p "say hi" --json
+
+# 4. 检查 broker pid 写到了哪
+ls ~/.claude/plugins/data/gemini-google-gemini/state/*/acp-session/
+
+# Patch 前: 文件在 ~/.claude/plugins/data/codex-openai-codex/state/...
+# Patch 后: 文件在 ~/.claude/plugins/data/gemini-google-gemini/state/...
+```
+
+### 永久路径
+
+- 上游仓库: <https://github.com/sakibsadmanshajib/gemini-plugin-cc>
+- 修复方向（任一）：
+  - plugin 自检物理路径（patch 当前做法）
+  - Claude Code 主进程在 plugin 切换时重设 env（更上游）
+- 状态: 待提 PR
+
+---
+
+## P-14: broker daemon 无 idle timeout（已知缺陷，待观察）
+
+**状态**: 已知缺陷，**未进 repatch 脚本**（B2 决策——先验证 P-12 修复后 broker 复用率，若仍频繁卡死再做）
+**受影响**: `gemini@google-gemini` v1.0.1 + `codex@openai-codex` v1.0.4 **两边都有**
+**触发频率**: 高（任何 broker 卡在 IPC syscall 时）
+
+### 症状
+
+broker daemon `acp-broker.mjs` / `app-server-broker.mjs` 转发 ACP/AppServer RPC 给底层 CLI 子进程后等响应。如果子进程卡死（auth 过期 / 网络限流 / CLI bug），broker 永远等待 → 新进来的 client 被 reject 或排队 → 用户看到 "broker is busy" 或卡死无回。
+
+dogfood 实测：PID 28184 codex broker 跑 51 分钟 CPU=0；PID 30456 gemini broker 跑 6 分钟 CPU=0、RSS 45MB、零子进程——明显挂在 await 上不会自愈。
+
+### 根因
+
+两边 broker 都没 idle watchdog。spawn 时：
+
+```javascript
+// broker-lifecycle.mjs (两边代码字面一致)
+const child = spawn("node", [BROKER_SCRIPT, "serve", ...], {
+  detached: true,
+  windowsHide: true,
+  stdio: ["ignore", "ignore", "ignore"],
+  ...
+});
+child.unref();
+```
+
+`unref()` 后父进程不等它，broker 永远活到机器重启或被人手动杀。**没有 N 分钟 idle 自杀机制**。
+
+### 临时 patch（设计草稿，未进 repatch 脚本）
+
+`acp-broker.mjs` / `app-server-broker.mjs` 加 idle timer：
+
+```javascript
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30min
+let idleTimer = setTimeout(() => process.exit(0), IDLE_TIMEOUT_MS);
+
+function resetIdleTimer() {
+  clearTimeout(idleTimer);
+  idleTimer = null;
+}
+
+// In handleClientConnection: clear timer when a client connects
+function handleClientConnection(socket) {
+  resetIdleTimer();
+  // ... existing logic ...
+  socket.on("close", () => {
+    // ... existing logic ...
+    if (!activeClient) {
+      idleTimer = setTimeout(() => process.exit(0), IDLE_TIMEOUT_MS);
+    }
+  });
+}
+```
+
+### 为什么不进 repatch 脚本
+
+- multi-region 改动（顶部加常量、handleClientConnection 注入、socket close 注入），跟 P-10 (pendingQueue) 同级 regex 复杂度
+- plugin update 后 anchor 漂移概率高，repatch 静默失败风险大
+- B2 决策：先验证 P-12 修复后 broker 真能复用 → 孤儿产生速率应大幅下降 → kill-orphans `--stuck` 兜底可能足够
+- 升级条件：1.0.10 ship 后两周内仍频繁见 broker 卡死，或资源耗尽（OOM / fd limit），再上 1.0.11 做 P-14
+
+### 临时 mitigation
+
+`ccg kill-orphans --stuck --kill` 检测 CPU/wall < 1% 且 wall > 5min 的 broker daemon，三级 fallback 强杀（taskkill /F /T 级联 → Stop-Process → wmic delete）。**仅杀 broker 类**（`acp-broker|app-server-broker|broker-lifecycle` cmdline 命中），不动 companion / MCP（companion 等 LLM 响应本来就低 CPU）。
+
+### 永久路径
+
+- 上游仓库（两边都要提）: <https://github.com/sakibsadmanshajib/gemini-plugin-cc> + <https://github.com/openai/codex-plugin-cc>
+- 修复方向: broker daemon 加 idle watchdog
+- 状态: 待观察 + PR
+
+---
+
 ## 一键 repatch 脚本（推荐）
 
 CCG ships `~/.claude/.ccg/scripts/repatch-gemini-plugin.mjs` （幂等，可重复运行）：
@@ -654,4 +816,4 @@ ssh <other-host> 'node /tmp/repatch-gemini-plugin.mjs'
 
 ---
 
-**Last Updated**: 2026-05-10 (1.0.4)
+**Last Updated**: 2026-05-11 (1.0.10)
