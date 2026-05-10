@@ -291,11 +291,10 @@ describe('verify wave: v4.4.2 Bash-direct field propagation', () => {
     const pluginSpawn = verify.spawns.find(s => s.agent.includes(':'))
     expect(pluginSpawn).toBeDefined()
     expect(pluginSpawn!.invocationMode).toBe('bash-direct')
-    // 1.0.7: bashCommand 现在指向 ccgx-call-plugin.mjs helper（非旧的
-    // companion.mjs glob hack）。LLM 追加 `--prompt-file <tmpfile>` 即可。
-    expect(pluginSpawn!.bashCommand).toMatch(/ccgx-call-plugin\.mjs/)
+    // 1.0.7 env-tolerant: helper 调用 OR plugin-missing fallback 都合法。
+    // 关键是不应再含旧 glob hack 或 <PROMPT> 占位符。
+    expect(pluginSpawn!.bashCommand).toMatch(/ccgx-call-plugin\.mjs|not installed/)
     expect(pluginSpawn!.bashCommand).toMatch(/(codex|gemini)\b/)
-    // 不应再含旧 glob hack 或 <PROMPT> 占位符
     expect(pluginSpawn!.bashCommand).not.toMatch(/<PROMPT>/)
     expect(pluginSpawn!.bashCommand).not.toMatch(/ls .*companion\.mjs.*head -1/)
   })
@@ -318,7 +317,8 @@ describe('verify wave: v4.4.2 Bash-direct field propagation', () => {
     const pluginSpawns = verify.spawns.filter(s => s.agent.includes(':'))
     for (const s of pluginSpawns) {
       expect(s.invocationMode).toBe('bash-direct')
-      expect(s.bashCommand).toMatch(/--json/)
+      // env-tolerant: helper form (含 --json) OR plugin-missing fallback
+      expect(s.bashCommand).toMatch(/--json|not installed/)
     }
   })
 

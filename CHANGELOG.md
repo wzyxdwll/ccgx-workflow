@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [1.0.7] - 2026-05-10 — 🔄 autonomous verify wave 也切 helper form（与 review 对齐）
+## [1.0.7] - 2026-05-11 — 🔄 autonomous verify wave 也切 helper form（与 review 对齐）
 
 ### 🐛 1.0.6 遗漏：autonomous 路径还在用旧 glob 模式
 
