@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.8] - 2026-05-11 — 🐛 CI hotfix: tests env-tolerant（1.0.7 已被占用）
+
+1.0.7 npm 实际已 publish 但 CI 后续 push 撞测试 env 假设失败。版本号被 npm 锁，bump 1.0.8 重发。
+
+测试改动：5 处 `bashCommand` assertion 改为 env-tolerant——接受 helper form (`ccgx-call-plugin.mjs`) **或** plugin-missing fallback (`not installed`) 任一，仍严格校验不含旧 glob hack / `<PROMPT>` 占位符。
+
+设计 + 功能完全等同 1.0.7，仅版本号 + 测试修复。
+
+---
+
 ## [1.0.7] - 2026-05-11 — 🔄 autonomous verify wave 也切 helper form（与 review 对齐）
 
 ### 🐛 1.0.6 遗漏：autonomous 路径还在用旧 glob 模式
