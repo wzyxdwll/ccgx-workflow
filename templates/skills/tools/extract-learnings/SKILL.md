@@ -10,8 +10,6 @@ argument-hint: "[--since=30d]"
 
 # 📚 复盘关卡 · 经验萃取
 
-> v4.1-p18：作为 skill 暴露（v3.0 曾有 `/ccg:extract-learnings` 命令规划，v4.0/v4.1 收敛到 skill 化触发）。
-
 从最近的开发活动中萃取**可复用知识**，写入 `.context/learnings/<日期>-extract.md`，避免反复踩同坑。
 
 ## 使用方法
@@ -58,7 +56,7 @@ ls .claude/team-plan/*-report.md 2>/dev/null
 1. ...
 
 ## 决策记录
-- **D1: 用 SessionStart hook 注入 roadmap** — 原因：v4.0 主线零项目记忆痛点
+- **D1: 用 SessionStart hook 注入 roadmap** — 原因：主线零项目记忆痛点
 
 ## 工具陷阱
 - **subagent 不能 spawn 子 agent**（commit a7cdffd 实测）

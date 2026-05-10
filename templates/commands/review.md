@@ -5,7 +5,7 @@ argument-hint: "[代码或描述] [--adversarial] [--fix [--all] [--auto]] [--ro
 
 # Review - 多模型代码审查
 
-## Role-based routing（v4.1 specialist matrix）
+## Role-based routing（specialist matrix）
 
 可选 `--role=<name>` 叠加 role 维度路由：
 
@@ -15,13 +15,13 @@ argument-hint: "[代码或描述] [--adversarial] [--fix [--all] [--auto]] [--ro
 | **frontend**  | gemini/architect.md | gemini/reviewer.md (adversarial) | gemini/architect.md | gemini/tester.md | gemini/analyzer.md |
 | **fullstack** | codex+gemini/architect.md | both reviewer.md (adversarial) | runner 决 | runner 决 | claude |
 
-**未传 --role 时按 v4.0 双模型路由（{{BACKEND_PRIMARY}}/{{FRONTEND_PRIMARY}} reviewer.md）**——完全兼容现有 `--adversarial` / `--fix` 行为。`--role=critic` 等价于隐式 `--adversarial`（语义同义）。详见 `src/utils/specialist-router.ts`。
+**未传 --role 时按双模型路由（{{BACKEND_PRIMARY}}/{{FRONTEND_PRIMARY}} reviewer.md）**——完全兼容现有 `--adversarial` / `--fix` 行为。`--role=critic` 等价于隐式 `--adversarial`（语义同义）。详见 `src/utils/specialist-router.ts`。
 
 ---
 
 双模型并行审查，交叉验证综合反馈。无参数时自动审查当前 git 变更。
 
-**v4.1 Phase 20**：双模型并行通道从 `Bash(codeagent-wrapper)` **默认切换**为 plugin spawn —— 装了 `codex@openai-codex` + `gemini@google-gemini` plugin → 用 `Agent(subagent_type="codex:codex-rescue")` + `Agent(subagent_type="gemini:gemini-rescue")` 并行，主线只接 ≤200 token 摘要；plugin 未装 → fallback 到 codeagent-wrapper 路径（v4.0 BC，将在 v5.0 移除）。preflight 用 `Bash` 跑 `ls ~/.claude/plugins/` 检测，helper 见 `src/utils/plugin-detection.ts`。
+**双模型并行通道**：默认走 plugin spawn —— 装了 `codex@openai-codex` + `gemini@google-gemini` plugin → 用 `Agent(subagent_type="codex:codex-rescue")` + `Agent(subagent_type="gemini:gemini-rescue")` 并行，主线只接 ≤200 token 摘要；plugin 未装 → fallback 到 codeagent-wrapper 路径（BC fallback）。preflight 用 `Bash` 跑 `ls ~/.claude/plugins/` 检测，helper 见 `src/utils/plugin-detection.ts`。
 
 `--adversarial` 模式下额外触发第三层"敌对视角"审查，由官方 codex plugin 的 `Agent(codex:codex-rescue)` 在 fresh context 中专门挑前两轮意见的漏洞，适合极重要 PR / 安全敏感变更。需用户已装 `codex@openai-codex` plugin，否则降级为双模型审查。
 
@@ -49,36 +49,45 @@ argument-hint: "[代码或描述] [--adversarial] [--fix [--all] [--auto]] [--ro
 - 如果用户通过 `/add-dir` 添加了多个工作区，先用 Glob/Grep 确定任务相关的工作区
 - 如果无法确定，用 `AskUserQuestion` 询问用户选择目标工作区
 
-**调用语法**（v4.4.2 起 review/verify 路径默认走 Bash 直调）：
+**调用语法**（review/verify 路径默认走 Bash 直调）：
 
 **通道 A — Bash 直调 plugin script（默认，绕开 sonnet wrapper）**：
 
-> 1.0.4 起 Bash 命令字符串由 install 时直接渲染（基于 `~/.claude/plugins/installed_plugins.json`
-> 真值源），LLM 只需 copy 整段 + 替换 `%PROMPT%` 即可。**禁止凭印象拼 `node "$(ls ...) | head -1"
-> task -p ...` inline 命令** —— glob hack 在 plugin 多版本 cache 下行为不可预测，且参数漂移
-> 与 v4.4.1 的 195 处错名 bug 同型。
+> 占位符 `{{CODEX_BASH_TASK}}` / `{{GEMINI_BASH_TASK}}` 由 install 时渲染为
+> `node <ccgx-call-plugin.mjs 绝对路径> <vendor> --json`。LLM **只需把 prompt
+> 写入 tmpfile、追加 `--prompt-file <tmpfile>`、运行**。helper 内部处理路径解析、
+> spawn array args、shell escape 全部规避——LLM 不参与任何命令构造。
+
+**LLM 工作流（严格 3 步）**：
 
 ```
-# 后端审查（codex 视角）
-Bash({
-  command: `{{CODEX_BASH_TASK}}`,   ← install 时已渲染为完整命令，含 heredoc 安全 prompt 注入
-  description: "Review: backend (codex direct)",
-  run_in_background: true,
-  timeout: 3600000
-})
+Step 1. 用 Write 工具把完整 prompt 写到 tmpfile
+   Write({ file_path: "/tmp/ccg-review-codex-$JOB.txt", content: "<完整 prompt>" })
+   Write({ file_path: "/tmp/ccg-review-gemini-$JOB.txt", content: "<完整 prompt>" })
 
-# 前端审查（gemini 视角）
-Bash({
-  command: `{{GEMINI_BASH_TASK}}`,
-  description: "Review: frontend (gemini direct)",
-  run_in_background: true,
-  timeout: 3600000
-})
+Step 2. 用 Bash 调 helper（占位符已渲染）：
+   Bash({
+     command: `{{CODEX_BASH_TASK}} --prompt-file /tmp/ccg-review-codex-$JOB.txt`,
+     description: "Review: backend (codex direct)",
+     run_in_background: true,
+     timeout: 3600000
+   })
+   Bash({
+     command: `{{GEMINI_BASH_TASK}} --prompt-file /tmp/ccg-review-gemini-$JOB.txt`,
+     description: "Review: frontend (gemini direct)",
+     run_in_background: true,
+     timeout: 3600000
+   })
+
+Step 3. 等 task-notification 通知后 Read 各自 stdout（即 helper 输出的 JSON），parse
+   `result.stdout` 拿真实 plugin 输出，再按 plugin --json schema 解析。
 ```
 
-LLM 消费协议：把上面命令字符串里的 `%PROMPT%` 替换为完整 prompt 文本（含 ROLE_FILE 引用 +
-TASK 描述 + OUTPUT 要求），**不要在外面加任何 escape**——heredoc `<<'CCG_PROMPT_EOF'`
-的单引号 delimiter 已保证 `$` / `'` / `"` / `\` 全部按字面量处理。
+⛔ **严禁** 任何形式自拼命令：
+- 不要写 `node "$(ls ...)/codex-companion.mjs"`
+- 不要 `cat <<EOF`、不要 heredoc、不要 `-p "..."` 内联 prompt
+- 不要硬编码 plugin 路径——helper 内部解析 SSoT
+- **唯一允许**：copy 占位符内容 + 追加 `--prompt-file <tmpfile>`
 
 ⛔ **不要**用 `Agent(subagent_type="codex:codex-rescue"|"gemini:gemini-rescue")`：
 
@@ -114,7 +123,7 @@ EOF",
 })
 ```
 
-> ⚠️ 通道 B `codeagent-wrapper` 在 v4.1 已标 **deprecated**，将在 v5.0 移除。
+> ⚠️ 通道 B `codeagent-wrapper` 已标 **deprecated**。
 
 **角色提示词**：
 
@@ -123,7 +132,7 @@ EOF",
 | 后端 | `~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/reviewer.md` |
 | 前端 | `~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/reviewer.md` |
 
-**并行调用 + 事件驱动等待（v4.5.2 起）**：
+**并行调用 + 事件驱动等待**：
 
 1. 在同一 message 内 spawn 两个（或多个）`Bash(run_in_background: true)` 并行任务
 2. spawn 完成后主线说明已启动哪些 task（含 task-id），然后**直接 turn end**，**不调 TaskOutput**
@@ -135,7 +144,7 @@ EOF",
 5. **必须等所有相关 task 都收到通知**才进入下一阶段（主线按 task-id 计数已收齐）
 
 ⛔ **禁止做**：
-- 调 `TaskOutput({block: true, timeout: 600000})` —— 这会 freeze 主线 10 分钟，且超时后还要轮询，体验极差（v4.5.1 之前的旧模式，已废弃）
+- 调 `TaskOutput({block: true, timeout: 600000})` —— 这会 freeze 主线 10 分钟，且超时后还要轮询，体验极差（旧模式，已废弃）
 - 收到部分通知就跳过等其他模型
 - 主动 Kill task
 
@@ -187,15 +196,19 @@ EOF",
 调用方式（Bash 直调，绕开 sonnet wrapper）：
 
 ```
-Bash({
-  command: `{{CODEX_BASH_TASK}}`,   ← 同上，install 时渲染为完整命令
-  description: "Adversarial review (codex direct)",
-  run_in_background: true,
-  timeout: 3600000
-})
+Step 1. 用 Write 把以下 adversarial prompt 写入 tmpfile:
+   Write({ file_path: "/tmp/ccg-review-adv-$JOB.txt", content: <见下方 prompt body> })
+
+Step 2. 调 helper:
+   Bash({
+     command: `{{CODEX_BASH_TASK}} --prompt-file /tmp/ccg-review-adv-$JOB.txt`,
+     description: "Adversarial review (codex direct)",
+     run_in_background: true,
+     timeout: 3600000
+   })
 ```
 
-把命令里的 `%PROMPT%` 替换为以下完整 prompt 文本（heredoc 已保证字面量传递，不需要 escape）：
+**Adversarial prompt body**（写入 tmpfile 的内容）：
 
 ```
 --adversarial-review

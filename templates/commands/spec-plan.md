@@ -50,7 +50,7 @@ description: '多模型分析 → 消除歧义 → 零决策可执行计划'
    })
    ```
 
-   **Step 2.2 (v4.5.2 事件驱动)**: spawn 两个 Bash bg 后说明 task-id 然后 **turn end**。引擎在每个 task 完成时自动发 `<task-notification>`，主线在通知触发的新 turn 处理结果。**不调 TaskOutput**。两个 task 都收到通知后才进 step 2.3。
+   **Step 2.2 (事件驱动)**: spawn 两个 Bash bg 后说明 task-id 然后 **turn end**。引擎在每个 task 完成时自动发 `<task-notification>`，主线在通知触发的新 turn 处理结果。**不调 TaskOutput**。两个 task 都收到通知后才进 step 2.3。
 
    ⛔ **禁止**：调 `TaskOutput({block: true, timeout: 600000})` (旧 freeze poll 模式) / Kill task。
    ⚠️ **失败处理**：notification status=failed / exit ≠ 0 / parse 失败 → v1.7.87 标准 2-retry / 5s / 3-attempts；3 次全失败才降级单模型。
@@ -158,7 +158,7 @@ description: '多模型分析 → 消除歧义 → 零决策可执行计划'
      "Plan phase complete. Artifacts generated: specs.md, design.md, tasks.md. Run `/ccg:spec-impl` to start implementation."
      Do NOT proceed to modify source code.
 
-5.5. **自动 plan-checker 校验（5 维度 + max-3-loop，CCG v4.0 Phase 6）**
+5.5. **自动 plan-checker 校验（5 维度 + max-3-loop）**
 
    生成 OPSX artifacts 后，**必须**自动 spawn `plan-checker` agent 对 specs.md / design.md / tasks.md 做 5 维度校验：
 

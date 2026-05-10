@@ -1,5 +1,5 @@
 ---
-description: '后台任务观测：列表 / 单查 / 阻塞等待 / dashboard / tail 流式 / 卡点检测 / 单 phase cancel（v4.5 P7 升级）'
+description: '后台任务观测：列表 / 单查 / 阻塞等待 / dashboard / tail 流式 / 卡点检测 / 单 phase cancel'
 argument-hint: "[<job-id>] [--wait --timeout-ms <ms>] [--tail <job-id>] [--cancel <phase-id>]"
 allowed-tools:
   - Read
@@ -7,9 +7,9 @@ allowed-tools:
   - Glob
 ---
 
-# Status — 后台任务观测（v4.5 dashboard + tail）
+# Status — 后台任务观测（dashboard + tail）
 
-CCG v4.5 起 phase-runner 走 Bash subprocess（`claude -p --output-format stream-json ...`），stream 落盘到 `<workdir>/.context/jobs/<job-id>/progress.jsonl`。失去 sidechain inline UI 后，本命令是用户**唯一**的微观干预入口，必须复刻这四个长跑场景：
+phase-runner 走 Bash subprocess（`claude -p --output-format stream-json ...`），stream 落盘到 `<workdir>/.context/jobs/<job-id>/progress.jsonl`。失去 sidechain inline UI 后，本命令是用户**唯一**的微观干预入口，必须复刻这四个长跑场景：
 
 | 场景 | 模式 |
 |------|------|
@@ -33,8 +33,8 @@ CCG v4.5 起 phase-runner 走 Bash subprocess（`claude -p --output-format strea
 /ccg:status                                  # 模式 A：列表 / dashboard
 /ccg:status <job-id>                         # 模式 B：单查详情
 /ccg:status <job-id> --wait --timeout-ms <ms>  # 模式 C：阻塞等待
-/ccg:status --tail <job-id>                  # 模式 D：流式 tail（v4.5 新增）
-/ccg:status --cancel <phase-id>              # 模式 E：单 phase 协作 cancel（v4.5 新增）
+/ccg:status --tail <job-id>                  # 模式 D：流式 tail
+/ccg:status --cancel <phase-id>              # 模式 E：单 phase 协作 cancel
 ```
 
 ## 模式 A：Dashboard（无参数）
@@ -77,7 +77,7 @@ Phase 7 (Status v2) [============>       ]  60%  (12m 04s) 🛠️  edit_file
 4. 超时 → "⏱ Timeout after <X>s — job still in <status>，retry with longer --timeout-ms 或 /ccg:cancel <id>"
 5. 超时退出码 0（不视为失败）
 
-## 模式 D：Tail 流式（v4.5 新增）
+## 模式 D：Tail 流式
 
 `/ccg:status --tail <job-id>` 持续读 `progress.jsonl`，单行覆写：
 
@@ -130,7 +130,7 @@ done
 
 每次 tail 前调 `detectStuck` 注入 banner（loop / slow-tool / stalled 三类警告）。
 
-## 模式 E：单 phase 协作 cancel（v4.5 新增）
+## 模式 E：单 phase 协作 cancel
 
 `/ccg:status --cancel <phase-id>` 流程：
 
@@ -138,7 +138,7 @@ done
 2. 写 `.context/jobs/<job-id>/cancel.flag` —— 内容 `phase=<phase-id>\nrequested-at=<iso>`
 3. 翻 `state.cancel_requested=true`
 4. **5 秒 grace 等待** —— 给 phase-runner 子进程读 cancel.flag 优雅退出
-5. 5s 后子进程仍 running → 调用 `killProcessTree({ pid: state.cli_pid, pgid: state.process_group_id, graceMs: 5000 })`（来自 `src/utils/process-tree.ts`，v4.5 P1b 已落地，P1f wired）
+5. 5s 后子进程仍 running → 调用 `killProcessTree({ pid: state.cli_pid, pgid: state.process_group_id, graceMs: 5000 })`（来自 `src/utils/process-tree.ts`）
 6. 输出最终结果：`canceled gracefully` / `force-killed pid=N` / `not found`
 
 **实施样板**（主线 LLM 用 Bash + node -e 调用 helper）：
@@ -187,20 +187,20 @@ const { renderJsonl, progressBar, formatElapsed } = require('~/.claude/.ccg/dist
 // 卡点检测
 const { detectStuck, hasStuckWarning } = require('~/.claude/.ccg/dist/index.mjs')
 
-// 已有 v4.0 helper
+// job helper
 const { listJobs, getJob, requestCancel } = require('~/.claude/.ccg/dist/index.mjs')
 ```
 
 源码真相：
 - `src/utils/jobs.ts` — `listJobs / getJob / requestCancel`
-- `src/utils/stream-renderer.ts`（v4.5 P7） — `renderJsonl / renderEvent / progressBar / formatElapsed`
-- `src/utils/stuck-detector.ts`（v4.5 P7） — `detectStuck / hasStuckWarning`
-- `src/utils/process-tree.ts`（v4.5 P1b 落地 + P1f wired） — `killProcessTree / sampleProcessRssMb / writeDegradedFlag / readDegradedFlag / reconcileStaleJobs`
+- `src/utils/stream-renderer.ts` — `renderJsonl / renderEvent / progressBar / formatElapsed`
+- `src/utils/stuck-detector.ts` — `detectStuck / hasStuckWarning`
+- `src/utils/process-tree.ts` — `killProcessTree / sampleProcessRssMb / writeDegradedFlag / readDegradedFlag / reconcileStaleJobs`
 
-v4.x 暂未把 `dist/` 暴露给命令模板，主线 LLM 走 Bash + Read 等价行为：
+`dist/` 未暴露给命令模板时，主线 LLM 走 Bash + Read 等价行为：
 
 - dashboard：调 `node -e` 读各 state.json + 简单进度推断 + `=`/`>`/空格手动拼字符串
 - tail：调 `node -e` 解析 ndjson + 走 `renderEvent` 等价 switch（TS helper 是真相源）
-- cancel：直接 `echo > cancel.flag` + sleep 5 + 调 process-tree（Phase 2 ready 后）
+- cancel：直接 `echo > cancel.flag` + sleep 5 + 调 process-tree
 
-升级路径见 `.ccg-migration/v4.4-to-v4.5.md` § "/ccg:status v2 升级"。
+历史升级记录见 `.ccg-migration/INTERNAL-DEV-LOG.md`。

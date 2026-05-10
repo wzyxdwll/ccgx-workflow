@@ -1,32 +1,42 @@
 /**
- * Plugin Bash Codegen — install-time render of literal Bash command strings
- * for cross-vendor plugin invocation (codex / gemini companion scripts).
+ * Plugin Bash Codegen — install-time render of helper-script invocation
+ * commands for cross-vendor plugin invocation (codex / gemini companion).
  *
- * Why this exists (1.0.4 design after codex audit):
- *   Templates are static prompt text injected to LLM at runtime. Any "helper
- *   function call" written in templates is just pseudo-code the LLM must
- *   interpret — it has to mentally fill in opts/defaults, leading to flag
- *   drift bugs (same family as v4.4.1's 195-occurrence wrong agent name).
+ * Why this exists (1.0.5 design after 1.0.4 dogfood):
+ *   1.0.4 emitted heredoc-form Bash commands with %PROMPT% placeholder for
+ *   LLM substitution. Two failure modes hit in dogfood:
+ *     1. LLM cargo-culted anti-example code documented in templates
+ *     2. LLM in actual review session still wrote `ls $(...) | head -1`
+ *        glob-hack patterns, ignoring the heredoc placeholder mechanism
  *
- *   Solution: at install time, resolve plugin install paths from the canonical
- *   plugin SSoT (`~/.claude/plugins/installed_plugins.json`) and emit
- *   FULLY-RENDERED literal Bash command strings into templates via the
- *   existing `{{...}}` placeholder system. LLM sees a copy-paste-ready
- *   command, not a function signature it has to interpret.
+ *   Root cause: any design that asks the LLM to construct OR substitute
+ *   parts of a shell command has X% failure rate, X > 0 always.
  *
- *   Key design decisions:
- *   - Use the plugin SSoT (installed_plugins.json), NOT `ls .../companion.mjs
- *     | head -1` glob hacks (multi-version cache breaks the latter).
- *   - Use heredoc-with-quoted-EOF for prompt body so LLM never has to think
- *     about shell-escaping (critical: prompt may contain $, ', ", \, etc).
- *   - POSIX-only command form (works in Git Bash on Windows + bash on POSIX);
- *     Bash tool in Claude Code uses Git Bash on Windows by default.
- *   - Plugin missing at install time → emit a clear failure marker that
- *     surfaces a helpful error if the LLM tries to use the path.
+ *   1.0.5 fix: collapse the LLM surface to "choose vendor + pass prompt-file
+ *   path". All plugin path resolution, flag construction, and shell-escape
+ *   avoidance are done internally by `ccgx-call-plugin.mjs` Node helper
+ *   (spawn array args, no shell layer). LLM only writes prompt to a tmpfile
+ *   and runs the rendered helper command.
+ *
+ *   Placeholder semantics (1.0.5):
+ *     {{CODEX_BASH_TASK}}    →
+ *       node '<helper-abs-path>' codex --json
+ *
+ *     LLM workflow:
+ *       1. Write prompt body to /tmp/ccg-codex-XXX.txt (via Write tool)
+ *       2. Run: <placeholder> --prompt-file /tmp/ccg-codex-XXX.txt
+ *       3. Parse JSON output: {status, stdout, stderr, exitCode, ...}
+ *
+ *   The {{CODEX_BASH_TASK}} value does NOT include --prompt-file, so the LLM
+ *   appends it after writing the tmpfile. This minimizes substitution surface:
+ *   no %PROMPT_FILE% placeholder for LLM to misuse.
+ *
+ *   Plugin missing at install time → fallback emits a clear error command.
  */
 
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
+import { join as joinPosix } from 'node:path/posix'
 import { join } from 'node:path'
 
 // ---------------------------------------------------------------------------
@@ -48,10 +58,10 @@ export interface CompanionLocation {
 export interface BuildBashCommandOptions {
   /** Use --json output. Default: true. */
   jsonOutput?: boolean
-  /** Placeholder string LLM substitutes with actual prompt body. Default: '%PROMPT%'. */
-  promptPlaceholder?: string
-  /** Heredoc delimiter. Default: 'CCG_PROMPT_EOF' (collision-resistant). */
-  heredocDelimiter?: string
+  /** Override helper script absolute path. Default: ~/.claude/.ccg/scripts/ccgx-call-plugin.mjs */
+  helperPath?: string
+  /** Override homeDir (for tests). Default: os.homedir() */
+  homeDir?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -131,41 +141,45 @@ export function shellQuotePosix(s: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Build a literal Bash command string for invoking the companion's `task`
- * subcommand. The output is shell-safe and uses heredoc-with-quoted-delimiter
- * so the prompt body NEVER needs LLM-side shell-escaping.
+ * Default helper script path: `~/.claude/.ccg/scripts/ccgx-call-plugin.mjs`.
+ *
+ * Uses POSIX-style join so the rendered Bash command works in Git Bash on
+ * Windows + bash on POSIX without backslash escape concerns. The single-quoted
+ * path will be passed verbatim to Node which handles both forms on Windows.
+ */
+function defaultHelperPath(homeDir: string): string {
+  // Normalize backslash homeDir input to forward slashes for POSIX consistency.
+  const normalized = homeDir.replace(/\\/g, '/')
+  return joinPosix(normalized, '.claude', '.ccg', 'scripts', 'ccgx-call-plugin.mjs')
+}
+
+/**
+ * Build the helper-invocation Bash command. Output is the EXACT literal
+ * string the LLM should run (with `--prompt-file <path>` appended after
+ * writing prompt to a tmpfile).
  *
  * Example output (codex, jsonOutput=true):
- *   node 'C:\Users\X\.claude\plugins\cache\openai-codex\codex\1.0.4\scripts\codex-companion.mjs' task --json -p "$(cat <<'CCG_PROMPT_EOF'
- *   %PROMPT%
- *   CCG_PROMPT_EOF
- *   )"
+ *   node 'C:\Users\X\.claude\.ccg\scripts\ccgx-call-plugin.mjs' codex --json
  *
- * The LLM consuming this template only needs to:
- *   1. Copy the entire command verbatim
- *   2. Replace %PROMPT% with the actual prompt body (no escaping needed —
- *      the heredoc's single-quoted delimiter guarantees literal interpretation)
+ * The LLM workflow consuming this is:
+ *   1. Write prompt body to a tmpfile (via Write tool)
+ *   2. Append `--prompt-file <tmpfile>` and run via Bash:
+ *      Bash({ command: "<placeholder> --prompt-file /tmp/ccg-codex-X.txt" })
+ *   3. Parse JSON from stdout
+ *
+ * No shell escape, no heredoc, no path glob — Helper handles everything.
  */
 export function buildBashCommand(
-  loc: CompanionLocation,
+  _loc: CompanionLocation,
   options: BuildBashCommandOptions = {},
 ): string {
   const jsonOutput = options.jsonOutput ?? true
-  const promptPlaceholder = options.promptPlaceholder ?? '%PROMPT%'
-  const heredocDelimiter = options.heredocDelimiter ?? 'CCG_PROMPT_EOF'
-
-  const quotedPath = shellQuotePosix(loc.companionPath)
-  const flags = jsonOutput ? '--json' : ''
-
-  // Heredoc form: -p "$(cat <<'EOF' ... EOF)" — the single-quoted EOF
-  // delimiter prevents any shell expansion inside the heredoc body.
-  // Prompt body is treated as a raw literal.
-  return [
-    `node ${quotedPath} task ${flags}-p "$(cat <<'${heredocDelimiter}'`,
-    promptPlaceholder,
-    heredocDelimiter,
-    `)"`,
-  ].join('\n').replace(/ -p/, ' -p').replace(/  +/g, ' ').trimEnd()
+  const homeDir = options.homeDir ?? homedir()
+  const helperPath = options.helperPath ?? defaultHelperPath(homeDir)
+  const quotedHelper = shellQuotePosix(helperPath)
+  const vendor = _loc.vendor
+  const jsonFlag = jsonOutput ? ' --json' : ''
+  return `node ${quotedHelper} ${vendor}${jsonFlag}`
 }
 
 // ---------------------------------------------------------------------------
@@ -207,5 +221,5 @@ export function resolvePluginBashCommand(
 ): string {
   const loc = discoverCompanion(vendor, homeDir)
   if (!loc) return buildPluginMissingFallback(vendor)
-  return buildBashCommand(loc, options)
+  return buildBashCommand(loc, { ...options, homeDir: homeDir ?? options.homeDir })
 }

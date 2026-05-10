@@ -83,7 +83,7 @@ EOF",
 
 **会话复用**：每次调用返回 `SESSION_ID: xxx`，后续阶段用 `resume xxx` 复用上下文（注意：是 `resume`，不是 `--resume`）。
 
-**并行调用 + 事件驱动等待（v4.5.2 起）**：
+**并行调用 + 事件驱动等待**：
 
 1. 同 message 内 spawn 多个 `Bash(run_in_background: true)` 并行任务
 2. spawn 完后主线说明已启动 task-id，**直接 turn end**，**不调 TaskOutput**
@@ -92,7 +92,7 @@ EOF",
 5. **必须等所有相关 task 都收到通知**才进入下一阶段（按 task-id 计数已收齐）
 
 ⛔ **禁止**：
-- 调 `TaskOutput({block: true, timeout: 600000})` —— v4.5.1 之前的旧 freeze poll 模式，已废弃
+- 调 `TaskOutput({block: true, timeout: 600000})` —— 旧 freeze poll 模式，已废弃
 - 收到部分通知就跳过等其他模型
 - 主动 Kill task
 

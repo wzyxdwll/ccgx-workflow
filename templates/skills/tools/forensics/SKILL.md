@@ -10,8 +10,6 @@ argument-hint: "<file:line> 或 <function-name>"
 
 # 🔬 取证关卡 · 代码考古
 
-> v4.1-p18：作为 skill 暴露（v3.0 曾有 `/ccg:forensics` 规划）。
-
 给定一段"问题代码"或"已知 bug 现场"，反向重建事故时间线：
 
 - 这一段最早什么时候引入？哪个 PR？

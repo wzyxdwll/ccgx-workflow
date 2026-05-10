@@ -20,12 +20,12 @@ $ARGUMENTS
 
 ---
 
-## 调用通道路由（v4.1 Phase 20，CCG codeagent 退役）
+## 调用通道路由（CCG codeagent 退役）
 
-CCG v4.1 把 6 核心命令的"双模型并行"通道从 `Bash(codeagent-wrapper)` **默认切换**为 plugin spawn。判定流程：
+CCG 把 6 核心命令的"双模型并行"通道从 `Bash(codeagent-wrapper)` **默认切换**为 plugin spawn。判定流程：
 
 1. **优先 plugin spawn 路径**（默认）：用户已装 `codex@openai-codex` 和 `gemini@google-gemini` plugin → 用 `Agent(subagent_type="codex:codex-rescue")` + `Agent(subagent_type="gemini:gemini-rescue")` 并行 spawn，主线只接 plugin 自家 ≤200 token 摘要。
-2. **降级 codeagent-wrapper 路径**（v4.0 BC fallback）：plugin 未装 → fallback 到 `Bash(~/.claude/bin/codeagent-wrapper ...)`，与 v4.0 行为完全一致。
+2. **降级 codeagent-wrapper 路径**（BC fallback）：plugin 未装 → fallback 到 `Bash(~/.claude/bin/codeagent-wrapper ...)`，行为与 plugin 路径等价。
 
 **判断方法**：preflight 用 `Bash` 跑 `ls ~/.claude/plugins/ 2>/dev/null | grep -E '^(codex|gemini)@'`；两个 plugin 独立判定。
 
@@ -42,7 +42,7 @@ CCG v4.1 把 6 核心命令的"双模型并行"通道从 `Bash(codeagent-wrapper
 - 如果用户通过 `/add-dir` 添加了多个工作区，先用 Glob/Grep 确定任务相关的工作区
 - 如果无法确定，用 `AskUserQuestion` 询问用户选择目标工作区
 
-**调用语法**（v4.1 Phase 20 双通道）：
+**调用语法**（双通道）：
 
 **通道 A — plugin spawn（默认，原型生成）**：
 
@@ -133,7 +133,7 @@ EOF",
 
 **会话复用**：如果 `/ccg:plan` 提供了 SESSION_ID，使用 `resume <SESSION_ID>` 复用上下文。
 
-**事件驱动等待（v4.5.2 起）**：spawn 后主线说明 task-id 然后 **turn end**，引擎自动 `<task-notification>` 触发新 turn 处理结果。**不调 TaskOutput**。
+**事件驱动等待**：spawn 后主线说明 task-id 然后 **turn end**，引擎自动 `<task-notification>` 触发新 turn 处理结果。**不调 TaskOutput**。
 
 ⛔ **禁止**：调 `TaskOutput({block: true, timeout: 600000})` 旧 freeze poll 模式 / Kill task。
 
@@ -296,7 +296,7 @@ EOF",
 3. 执行必要的修复
 4. 修复后按需重复 Phase 5.1（直到风险可接受）
 
-#### 5.3 写入 phase-scoped SUMMARY.md（v4.0 Phase 2 状态机）
+#### 5.3 写入 phase-scoped SUMMARY.md（状态机）
 
 **强制**：每完成一个 plan 后，写 `.context/<phase>/SUMMARY.md` 让上层 orchestrator（autonomous / team-exec）只读 frontmatter（< 200 tokens / phase）就能决策推进，避免接整段 builder stdout 污染主线 context。
 

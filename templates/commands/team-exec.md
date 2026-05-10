@@ -167,7 +167,7 @@ subagent_freshness: required
 
 用 `AskUserQuestion` 让用户选择。**重试**最多再走一轮 wave 调度，第二次仍失败则强制选 2/3。
 
-### Step 5.5: Frontmatter-only Summary 读取（v4.0 Phase 2 状态机）
+### Step 5.5: Frontmatter-only Summary 读取（状态机契约）
 
 **核心契约**：Lead 不接 Builder 的全部 stdout。每个 Builder 完成任务后，**必须由 Lead 读取该任务对应的 `.context/<phase>/SUMMARY.md` 的 YAML frontmatter**——不读 body，不读 builder transcript。
 

@@ -1,11 +1,11 @@
 ---
-description: '多模型调试（v4.0 manager + debugger 双层 fresh-context）：科学方法 hypothesis 链 + 持久 session + cap 3 升级'
+description: '多模型调试（manager + debugger 双层 fresh-context）：科学方法 hypothesis 链 + 持久 session + cap 3 升级'
 argument-hint: "<问题描述> [--mode=find_root_cause_only|find_and_fix] [--role=architect|critic|implementer|tester|writer]"
 ---
 
-# Debug - 多模型调试（v4.0 重写）
+# Debug - 多模型调试（manager + debugger 双层）
 
-## Role-based routing（v4.1 specialist matrix）
+## Role-based routing（specialist matrix）
 
 可选 `--role=<name>` 叠加 role 维度路由（debug-session-manager 内 spawn 的 debugger 用 role 选 prompt）：
 
@@ -15,11 +15,11 @@ argument-hint: "<问题描述> [--mode=find_root_cause_only|find_and_fix] [--rol
 | **frontend**  | gemini/architect.md | gemini/reviewer.md (adversarial) | gemini/debugger.md | gemini/tester.md | gemini/analyzer.md |
 | **fullstack** | codex+gemini/architect.md | both reviewer.md (adversarial) | runner 决 | runner 决 | claude |
 
-**未传 --role 时按 v4.0 manager + debugger 双层流程**（debugger.md 默认 implementer 角色）——完全兼容。`--role=critic` 触发"反向假设"调试（强制构造反证），适合定位概率性 bug。详见 `src/utils/specialist-router.ts`。
+**未传 --role 时按 manager + debugger 双层流程**（debugger.md 默认 implementer 角色）——完全兼容。`--role=critic` 触发"反向假设"调试（强制构造反证），适合定位概率性 bug。详见 `src/utils/specialist-router.ts`。
 
 ---
 
-**v4.0 重大变更**：从单次双模型并行调用 → **manager + debugger 双层 fresh-context** 模式。
+**核心架构**：从单次双模型并行调用 → **manager + debugger 双层 fresh-context** 模式。
 
 主线（你）只 spawn `debug-session-manager` 一次，manager 在隔离 context 内跑完整 hypothesis 多轮循环，最终返回 ≤ 200 token 的紧凑摘要。**主线 context 不再被多轮调试 transcript 污染**——这是 GSD ROI #3 (`02-subagent-matrix.md` Section 2.6) 的核心模式。
 
@@ -198,16 +198,16 @@ manager 的 3 轮 hypothesis 都被证伪。这通常意味着：
 
 1. **只 spawn manager 一次**：禁止主线自己跑多轮 hypothesis 循环（违反 fresh-context 隔离的 GSD ROI #3 设计）
 2. **不读 manager transcript**：主线只读返回的 ≤ 200 token 摘要 + （用户需要时）`.context/debug/<slug>.md` 文件
-3. **mode 默认 find_and_fix**：与 v3.0 行为一致（用户期待修好），仅在 `--mode=find_root_cause_only` 时仅找根因
+3. **mode 默认 find_and_fix**：用户期待修好，仅在 `--mode=find_root_cause_only` 时仅找根因
 4. **cap 3 = 升级**：CCG 全体系硬规约，manager 不会偷偷继续；主线尊重 CHECKPOINT_REACHED 不重 spawn
 5. **session 文件持久**：中断恢复 / 用户审计的唯一通道
 6. **科学方法守门**：每个 hypothesis 必须 falsifiable（manager 会拒收 debugger 给的空话）
 
 ---
 
-## 与 v3.0 的差异
+## 与早期实现的差异
 
-| 维度 | v3.0（已废） | v4.0（当前） |
+| 维度 | 早期实现（已废） | 当前 |
 |------|-------------|-------------|
 | 调用模式 | 双模型并行单次诊断 | manager + debugger 双层 fresh-context |
 | 多轮 | ❌ 没有（一次性） | ✅ hypothesis 链，cap 3 |

@@ -9,9 +9,9 @@ $ARGUMENTS
 
 ---
 
-## Role-based routing（v4.1 specialist matrix）
+## Role-based routing（specialist matrix）
 
-可选参数 `--role=<name>` 在 v4.0 的 backend/frontend layer 路由之上叠加 **role 维度**，自动选择更精准的 prompt 文件。**未传 `--role` 时按现状路由（{{BACKEND_PRIMARY}}/{{FRONTEND_PRIMARY}}），完全保留 v4.0 行为兼容**——无破坏性变更。
+可选参数 `--role=<name>` 在 backend/frontend layer 路由之上叠加 **role 维度**，自动选择更精准的 prompt 文件。**未传 `--role` 时按现状路由（{{BACKEND_PRIMARY}}/{{FRONTEND_PRIMARY}}），完全保留默认行为兼容**——无破坏性变更。
 
 **Role × Layer 路由矩阵**：
 
@@ -23,11 +23,11 @@ $ARGUMENTS
 
 **判定流程**：
 
-1. **解析 layer**：根据 $ARGUMENTS 涉及文件类型推断 `backend` / `frontend` / `fullstack`（与 v4.0 现有逻辑一致）。
-2. **解析 role**：从 $ARGUMENTS 提取 `--role=<name>`（5 个合法值：`architect` / `critic` / `implementer` / `tester` / `writer`），不存在或非法值 → fallback v4.0 模型路由。
+1. **解析 layer**：根据 $ARGUMENTS 涉及文件类型推断 `backend` / `frontend` / `fullstack`。
+2. **解析 role**：从 $ARGUMENTS 提取 `--role=<name>`（5 个合法值：`architect` / `critic` / `implementer` / `tester` / `writer`），不存在或非法值 → fallback 默认模型路由。
 3. **选 prompt 文件**：按矩阵查 `(role, layer)` 单元格 → ROLE_FILE 路径。
 4. **adversarial 标记**：role=critic 时，prompt 段额外注入 "deliberately hunt for flaws / contradict majority view" 指令，触发敌对审查模式。
-5. **runner 决**：fullstack × {implementer, tester} 时，per-file 选 codex 或 gemini（同 v4.0 phase-runner Type 路由逻辑）。
+5. **runner 决**：fullstack × {implementer, tester} 时，per-file 选 codex 或 gemini（同 phase-runner Type 路由逻辑）。
 
 **示例**：
 
@@ -50,18 +50,18 @@ $ARGUMENTS
 
 ---
 
-## 调用通道路由（v4.1 Phase 20，CCG codeagent 退役）
+## 调用通道路由（CCG codeagent 退役）
 
-CCG v4.1 把 6 核心命令的"双模型并行"通道从 `Bash(codeagent-wrapper)` **默认切换**为 plugin spawn。判定流程：
+CCG 把 6 核心命令的"双模型并行"通道从 `Bash(codeagent-wrapper)` **默认切换**为 plugin spawn。判定流程：
 
 1. **优先 plugin spawn 路径**（默认）：用户已装 `codex@openai-codex` 和 `gemini@google-gemini` plugin → 用 `Agent(subagent_type="codex:codex-rescue")` + `Agent(subagent_type="gemini:gemini-rescue")` 并行 spawn，主线只接 plugin 自家 ≤200 token 摘要协议（`STATUS: ... / FINDINGS: ... / NOTES: ...`）。
-2. **降级 codeagent-wrapper 路径**（v4.0 BC fallback）：plugin 未装 → fallback 到 `Bash(~/.claude/bin/codeagent-wrapper --backend ... resume ... <<'EOF' ... EOF)`，与 v4.0 行为完全一致。
+2. **降级 codeagent-wrapper 路径**（BC fallback）：plugin 未装 → fallback 到 `Bash(~/.claude/bin/codeagent-wrapper --backend ... resume ... <<'EOF' ... EOF)`，与 plugin 路径行为等价。
 
 **判断方法**：preflight 用 `Bash` 跑 `ls ~/.claude/plugins/ 2>/dev/null | grep -E '^codex@'` 与 `... | grep -E '^gemini@'` 各一次。匹配到对应行 → plugin 已装。两个 plugin 独立判定，可分别 mix-and-match（仅 codex plugin 装了 → backend 走 plugin、frontend 走 codeagent）。
 
 **单一真相源**：plugin 检测逻辑 helper 见 `src/utils/plugin-detection.ts`（导出 `detectPlugin` / `detectPluginAvailability` / `bothPluginsInstalled`）。命令模板把判定结果渲染到执行计划，`Agent(...)` 调用与 `Bash(...)` 调用的具体语法见下面"多模型调用规范"段。
 
-**为什么默认 plugin**：v4.0.1 nested-spawn 测试证明 plugin advisor 摘要协议（≤200 token）压制了 codeagent stdout 全文回灌主线的痛点，主线 context 增量从 +5%/调用 降到 +1.5%/调用。详见 `.ccg-research/07-multimodel-collaboration-rethink.md`。
+**为什么默认 plugin**：nested-spawn 测试证明 plugin advisor 摘要协议（≤200 token）压制了 codeagent stdout 全文回灌主线的痛点，主线 context 增量从 +5%/调用 降到 +1.5%/调用。详见 `.ccg-research/07-multimodel-collaboration-rethink.md`。
 
 ⚠️ **重要**：本命令本身不在 subagent context 内（主线命令），**可以**调 `Agent(...)` 工具——这跟 `phase-runner` 等 subagent 的"引擎层禁止嵌套 spawn Agent"约束不冲突。
 
@@ -74,7 +74,7 @@ CCG v4.1 把 6 核心命令的"双模型并行"通道从 `Bash(codeagent-wrapper
 - 如果用户通过 `/add-dir` 添加了多个工作区，先用 Glob/Grep 确定任务相关的工作区
 - 如果无法确定，用 `AskUserQuestion` 询问用户选择目标工作区
 
-**调用语法**（v4.1 Phase 20 双通道）：
+**调用语法**（双通道）：
 
 **通道 A — plugin spawn（默认）**：
 
@@ -115,7 +115,7 @@ EOF",
 })
 ```
 
-> ⚠️ 通道 B 走 `codeagent-wrapper`（Node 脚本 `templates/scripts/invoke-model.mjs`），v4.1 已标 **deprecated**，将在 v5.0 移除。建议用户安装 codex/gemini plugin 享受 v4.1 主线 context 优化。
+> ⚠️ 通道 B 走 `codeagent-wrapper`（Node 脚本 `templates/scripts/invoke-model.mjs`），已标 **deprecated**，建议用户安装 codex/gemini plugin 享受主线 context 优化。
 
 **角色提示词**：
 
@@ -126,7 +126,7 @@ EOF",
 
 **会话复用**：每次调用返回 `SESSION_ID: xxx`（通常由 wrapper 输出），**必须保存**以供后续 `/ccg:execute` 使用。
 
-**事件驱动等待（v4.5.2 起）**：spawn 后主线说明 task-id 然后 **turn end**，引擎自动 `<task-notification>` 触发新 turn 处理结果。**不调 TaskOutput**。
+**事件驱动等待**：spawn 后主线说明 task-id 然后 **turn end**，引擎自动 `<task-notification>` 触发新 turn 处理结果。**不调 TaskOutput**。
 
 ⛔ **禁止**：调 `TaskOutput({block: true, timeout: 600000})` 旧 freeze poll 模式 / Kill task。
 
@@ -192,7 +192,7 @@ EOF",
    - 关注：UI/UX 影响、用户体验、视觉设计
    - OUTPUT: 多角度解决方案 + 优劣势分析
 
-事件驱动等待 (v4.5.2)：spawn 完两个 Bash bg 后主线 turn end，等 task-notification 自动唤醒。**📌 保存 SESSION_ID**（`CODEX_SESSION` 和 `GEMINI_SESSION`）。
+事件驱动等待：spawn 完两个 Bash bg 后主线 turn end，等 task-notification 自动唤醒。**📌 保存 SESSION_ID**（`CODEX_SESSION` 和 `GEMINI_SESSION`）。
 
 #### 2.2 交叉验证
 
@@ -251,7 +251,7 @@ EOF",
 - GEMINI_SESSION: <session_id>
 ```
 
-### 🛡 Phase 2.5：自动 plan-checker 校验（5 维度 + max-3-loop，CCG v4.0 Phase 6）
+### 🛡 Phase 2.5：自动 plan-checker 校验（5 维度 + max-3-loop）
 
 写出 `.claude/plan/<功能名>.md` 后、向用户交付前，**必须**自动 spawn `plan-checker` agent 做 5 维度强校验：
 
@@ -289,7 +289,7 @@ if loop_count == 3 and result.hasBlocker:
 
 1. 向用户展示完整实施计划（含伪代码）+ plan-checker 报告摘要（BLOCKER/WARNING 数量 + verdict）
 2. 将计划保存至 `.claude/plan/<功能名>.md`（功能名从需求中提取，如 `user-auth`、`payment-module` 等）
-3. **写 phase-scoped CONTEXT.md**（v4.0 Phase 2 状态机）：把本次 plan 的冻结决策固化到 `.context/<phase>/CONTEXT.md`，下游 `/ccg:execute` 与 `/ccg:team-exec` 仅读此文件的 YAML frontmatter 即可获得全部决策（< 200 tokens / phase）。**目录约定**：`<phase>` 取计划文件主名（如 `user-auth`），用 `sanitizePhase()` 规范化非法字符。
+3. **写 phase-scoped CONTEXT.md**（状态机）：把本次 plan 的冻结决策固化到 `.context/<phase>/CONTEXT.md`，下游 `/ccg:execute` 与 `/ccg:team-exec` 仅读此文件的 YAML frontmatter 即可获得全部决策（< 200 tokens / phase）。**目录约定**：`<phase>` 取计划文件主名（如 `user-auth`），用 `sanitizePhase()` 规范化非法字符。
 
    **CONTEXT.md 必含 frontmatter 字段（机器可读契约）**：
    ```yaml

@@ -2,9 +2,9 @@
 
 > [根目录](../CLAUDE.md) > **templates**
 
-**Last Updated**: 2026-05-04 (v4.1.0)
+**Last Updated**: 2026-05-10 (1.0.4)
 
-> v4.1-p18：`commands/` 删 5 文件（team-research/plan/review/health/map-codebase），`skills/tools/` 新增 4 skill（health/map-codebase/extract-learnings/forensics）。`/ccg:team` 加子命令路由。详见根 [CHANGELOG.md](../CHANGELOG.md#410---2026-05-04) + [.ccg-migration/v4-to-v4.1.md](../.ccg-migration/v4-to-v4.1.md)。
+> 当前状态描述。历史变更见 [CHANGELOG.md](../CHANGELOG.md) + [.ccg-migration/INTERNAL-DEV-LOG.md](../.ccg-migration/INTERNAL-DEV-LOG.md)。
 
 ---
 
@@ -20,9 +20,9 @@
 
 ---
 
-## v4.0 新协议（fresh-context subagent + .context state）
+## 核心协议（fresh-context subagent + .context state）
 
-v4.0 引入 4 个核心协议解决"主线 context 漂移"和"沙箱限制下 git/test 闭环"两大痛点。设计参考 `.ccg-research/` 路线图与 `.ccg/roadmap.md` 12 phase dogfood 实测。
+引入 4 个核心协议解决"主线 context 漂移"和"沙箱限制下 git/test 闭环"两大痛点。设计参考 `.ccg-research/` 路线图与 `.ccg/roadmap.md` 多 phase dogfood 实测。
 
 ### A. phase-runner subagent 协议（autonomous 长跑骨架）
 
@@ -84,7 +84,7 @@ job-id 化背景任务管理，schema：
 
 `codebase-mapper` agent 4 路并行扫描产出：`STACK.md` / `INTEGRATIONS.md` / `ARCHITECTURE.md` / `STRUCTURE.md` / `CONVENTIONS.md` / `TESTING.md` / `CONCERNS.md`。`init.md` Step 1.5 启动时自动 spawn。
 
-### G. v4.0 新增 4 个 subagent
+### G. 新增 4 个 subagent
 
 | Agent | 文件 | 用途 |
 |-------|------|------|
@@ -101,7 +101,7 @@ job-id 化背景任务管理，schema：
 
 | 目录 | 文件数 | 用途 | 安装目标 |
 |------|--------|------|----------|
-| `commands/` | 30 `.md` | 斜杠命令模板（v4.1-p18: 31 → 30，删 team-research/plan/review/health/map-codebase 共 5 个 + 新增 debate） | `~/.claude/commands/ccg/` |
+| `commands/` | 30 `.md` | 斜杠命令模板 | `~/.claude/commands/ccg/` |
 | `commands/agents/` | 7 `.md` | 子智能体定义 | `~/.claude/agents/ccg/` |
 | `prompts/claude/` | 6 `.md` | Claude 专家提示词 | `~/.claude/.ccg/prompts/claude/` |
 | `prompts/codex/` | 6 `.md` | Codex 专家提示词 | `~/.claude/.ccg/prompts/codex/` |

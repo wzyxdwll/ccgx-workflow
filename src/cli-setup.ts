@@ -5,6 +5,7 @@ import { version } from '../package.json'
 import { configMcp } from './commands/config-mcp'
 import { diagnoseMcp, fixMcp } from './commands/diagnose-mcp'
 import { init } from './commands/init'
+import { killOrphans } from './commands/kill-orphans'
 import { showMainMenu } from './commands/menu'
 import { i18n, initI18n } from './i18n'
 import { readCcgConfig } from './utils/config'
@@ -116,6 +117,18 @@ export async function setupCommands(cli: CAC): Promise<void> {
     .command('diagnose-mcp', i18n.t('cli:help.commandDescriptions.diagnoseMcp'))
     .action(async () => {
       await diagnoseMcp()
+    })
+
+  // Kill orphan node processes (1.0.5+)
+  cli
+    .command('kill-orphans', '清理 Claude Code session 退出后残留的孤儿 node 进程（MCP server / codex / gemini）')
+    .option('--kill', '实际执行 kill (默认 dry-run)')
+    .option('--min-age-hours <N>', '只清理超过 N 小时的进程 (默认 1)')
+    .action(async (options: { kill?: boolean, minAgeHours?: string }) => {
+      await killOrphans({
+        dryRun: !options.kill,
+        minAgeHours: options.minAgeHours ? Number.parseFloat(options.minAgeHours) : 1,
+      })
     })
 
   // Fix MCP command (Windows only)

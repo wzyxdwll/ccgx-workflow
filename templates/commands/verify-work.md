@@ -1,6 +1,6 @@
 ---
 name: ccg:verify-work
-description: 会话式 UAT 工作流 - UAT.md 状态文件 + cold-start smoke 自动注入 + 自动 diagnose-plan-fix 收敛环（v4.0 P9）
+description: 会话式 UAT 工作流 - UAT.md 状态文件 + cold-start smoke 自动注入 + 自动 diagnose-plan-fix 收敛环
 argument-hint: "[task-id]"
 allowed-tools:
   - Read
@@ -13,23 +13,23 @@ allowed-tools:
   - Agent
 ---
 
-# Verify Work — 会话式 UAT 工作流（v4.0 Phase 9）
+# Verify Work — 会话式 UAT 工作流
 
-v3.0 的 verify-work 是纯**编排器**——按变更性质开 verify-{module,security,quality,change} 子门，跑完聚合报告。但它**没法做真正的 UAT**：
+早期的 verify-work 是纯**编排器**——按变更性质开 verify-{module,security,quality,change} 子门，跑完聚合报告。但它**没法做真正的 UAT**：
 
 1. 用户得自己拿着报告人肉对照"这事儿到底验没验过"；
 2. `/clear` 后所有上下文丢失，UAT 进度归零；
 3. 只看代码不跑冷启动——race condition / silent seed failure / 缺环境变量在生产才暴露；
 4. 用户报 issue 后没有自动收敛环——靠用户手动来回贴报告。
 
-v4.0 把 verify-work 改造成**有状态的会话工作流**：
+当前 verify-work 是**有状态的会话工作流**：
 
 - **UAT.md frontmatter 状态文件**：跨 `/clear` 持久化，下次进入命令自动 resume；
 - **逐项核对**（show expected → ask if matches）：每条期望行为都明示问，不让模糊滑过；
 - **Cold-start smoke 自动注入**：扫 git diff 命中关键路径即注入"杀进程 → 清临时态 → 冷启动 → 主查询返回数据"测试；
 - **自动 diagnose → planner --gaps → plan-checker 收敛环**（max 3 轮）：用户报 issue 立即触发，无需手动调度。
 
-**与 v3.0 的关系**：v3.0 的多门聚合不删，迁移为 Step 2（verify-* 子门作为静态扫描）。v4.0 的会话循环裹在外层（Step 0/1/3/4/5）。
+**多门聚合保留**：早期的多门聚合不删，迁移为 Step 2（verify-* 子门作为静态扫描）。会话循环裹在外层（Step 0/1/3/4/5）。
 
 ---
 
@@ -132,9 +132,9 @@ fi
 
 ### Step 2 — 静态门 + cold-start smoke 注入
 
-#### 2a. 静态扫描（v3.0 多门保留）
+#### 2a. 静态扫描（多门保留）
 
-按 git diff 性质开门（v3.0 决策矩阵）：
+按 git diff 性质开门（决策矩阵）：
 
 | 变更性质 | 触发判据 | 门组 |
 |---------|---------|------|
@@ -317,7 +317,7 @@ else:
 | verify-change | Step 2a 静态门，常规改动必跑 |
 | verifier agent | Step 2a 末尾兜底，做需求矩阵反向溯源（v4 Phase 8 加 Level 4 数据流） |
 
-## 与 v4.0 helper 的契约
+## 与 helper 的契约
 
 | Helper | 用途 |
 |--------|------|

@@ -1,5 +1,5 @@
 ---
-description: '中止活跃后台任务：先写 cancel.flag（cooperative）→ grace 5s → kill-tree 强制（v4.5 P1b 升级）'
+description: '中止活跃后台任务：先写 cancel.flag（cooperative）→ grace 5s → kill-tree 强制'
 argument-hint: "<job-id> [--force]"
 allowed-tools:
   - Read
@@ -7,11 +7,11 @@ allowed-tools:
   - Bash
 ---
 
-# Cancel - 中止活跃后台任务（v4.5 升级）
+# Cancel - 中止活跃后台任务
 
 写一个**协作式**取消信号到 `.context/jobs/<job-id>/cancel.flag`，并在 grace period（默认 5s）后**强制 kill 进程树**作为兜底。后台子任务（codex:codex-rescue / phase-runner / autonomous loop）每次推进步骤前轮询 cancel.flag，发现存在则清理并退出。卡在 OS-level 不可中断 syscall 的子进程由 kill-tree fallback 兜底。
 
-> ⚠️ v4.5 之前是**纯协作**取消（不持有 PID），v4.5 P1b 引入 supervisor + cli_pid + process_group_id 后升级为**协作 + 强制兜底**。如果 phase-runner 已通过 `ccg-phase-runner-launcher.mjs` 启动，state.json 会含 `cli_pid`，本命令在 grace period 后调用 kill-tree（POSIX：`kill -TERM -<pgid>` → `kill -KILL`；Windows：`taskkill /T /F /PID`）。
+> ⚠️ 当前模式为 **协作 + 强制兜底**（supervisor + cli_pid + process_group_id）。如果 phase-runner 已通过 `ccg-phase-runner-launcher.mjs` 启动，state.json 会含 `cli_pid`，本命令在 grace period 后调用 kill-tree（POSIX：`kill -TERM -<pgid>` → `kill -KILL`；Windows：`taskkill /T /F /PID`）。
 
 ## 使用方法
 
@@ -38,7 +38,7 @@ allowed-tools:
    requested-by: /ccg:cancel
    ```
 
-   v4.5+：`src/utils/jobs.ts` 的 `requestCancel` 走 `atomicWriteFileSync`（temp + rename），cancel.flag 永远不会半写。
+   `src/utils/jobs.ts` 的 `requestCancel` 走 `atomicWriteFileSync`（temp + rename），cancel.flag 永远不会半写。
 
 2. 更新 state.json：把 `cancel_requested` 设为 `true`（**status 仍保持 running/queued** —— 真实 status 转 `canceled` 由子任务退出时自己写或由 Step 4 兜底写）
 
@@ -50,7 +50,7 @@ allowed-tools:
 
 读取 state.json 中的 `cli_pid` + `process_group_id`：
 
-- **没有 cli_pid**（v4.5 之前的 legacy job 或非 launcher 路径）：保持原有协作行为，提醒用户"无 PID 记录，请手动 `kill -9` 残留进程"。
+- **没有 cli_pid**（legacy job 或非 launcher 路径）：保持原有协作行为，提醒用户"无 PID 记录，请手动 `kill -9` 残留进程"。
 - **有 cli_pid**：用 Bash 执行 kill-tree：
   - **POSIX**: 优先 `kill -TERM -<pgid>` 走进程组（含 nested plugin 子进程）；失败回退 `kill -TERM <cli_pid>`；再 grace 1s 后 `kill -KILL`。
   - **Windows**: `taskkill /T /F /PID <cli_pid>` 杀整棵进程树（含 nested plugin）。
@@ -88,10 +88,10 @@ Status: canceled (forced via kill-tree)
 ## 严格约束
 
 - ✅ **协作优先**——总是先写 cancel.flag 给子进程自己退的机会，避免半写文件
-- ✅ **强制兜底**（v4.5+ supervised job）——grace 后 kill-tree 防 hang 死循环
+- ✅ **强制兜底**（supervised job）——grace 后 kill-tree 防 hang 死循环
 - ✅ 幂等——多次调用不报错，不重写 flag
 - ✅ 已终态的 job 调用 cancel 也不报错（友好降级）
-- ✅ atomic write（v4.5 P1b）——cancel.flag 永远不会半写
+- ✅ atomic write——cancel.flag 永远不会半写
 - ❌ **不要**直接把 status 改成 `canceled`——会与子任务退出时的写入产生竞态（除非 kill-tree 生效后）
 - ❌ **不要**删除 `.context/jobs/<id>/` 目录——历史可观测性必须保留
 
@@ -111,7 +111,7 @@ if (isCancelRequested(workdir, jobId)) {
 }
 ```
 
-phase-runner / codex:codex-rescue / autonomous loop 全部接入此契约（v4.0 Phase 7 + v4.5 P1b）。
+phase-runner / codex:codex-rescue / autonomous loop 全部接入此契约。
 
 ## 与其他命令的协作
 

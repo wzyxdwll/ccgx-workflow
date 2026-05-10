@@ -106,7 +106,7 @@ REVIEW_EOF",
 |------|-------|--------|
 | 审查 | `~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/reviewer.md` | `~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/reviewer.md` |
 
-**事件驱动等待（v4.5.2 起）**：spawn 后主线说明 task-id 然后 **turn end**，引擎自动 `<task-notification>` 触发新 turn 处理结果。**不调 TaskOutput**。
+**事件驱动等待**：spawn 后主线说明 task-id 然后 **turn end**，引擎自动 `<task-notification>` 触发新 turn 处理结果。**不调 TaskOutput**。
 
 ⛔ **禁止**：调 `TaskOutput({block: true, timeout: 600000})` 旧 freeze poll 模式 / Kill task。
 
@@ -223,7 +223,7 @@ EXEC_EOF",
 
 如果计划中无 `CODEX_SESSION`（用户跳过了 `/ccg:plan` 的多模型分析），则使用新会话。
 
-事件驱动等待 (v4.5.2)：spawn 完后主线 turn end，等 task-notification 自动唤醒。
+事件驱动等待：spawn 完后主线 turn end，等 task-notification 自动唤醒。
 
 ---
 

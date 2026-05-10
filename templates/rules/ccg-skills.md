@@ -2,7 +2,7 @@
 
 When working in a project, automatically invoke the corresponding quality gate skills based on the scenario below. These skills are installed at `~/.claude/skills/ccg/` and can be called directly.
 
-**v4.0+ NOTE**: The unified entry point `/ccg:verify --gate=<name>` is preferred over the legacy `verify-*` skill names. Both still work in v4.x for BC. Examples below show the new form first, with the legacy alias in parentheses.
+**NOTE**: The unified entry point `/ccg:verify --gate=<name>` is preferred over the legacy `verify-*` skill names. Both still work for BC. Examples below show the new form first, with the legacy alias in parentheses.
 
 ## Trigger Rules
 

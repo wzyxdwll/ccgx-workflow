@@ -170,60 +170,61 @@ describe('discoverCompanion', () => {
 // buildBashCommand
 // ---------------------------------------------------------------------------
 
-describe('buildBashCommand', () => {
-  function fakeLoc(vendor: 'codex' | 'gemini', companionPath: string) {
+describe('buildBashCommand (1.0.5 helper form)', () => {
+  function fakeLoc(vendor: 'codex' | 'gemini') {
     return {
       vendor,
       installPath: '/fake/install',
-      companionPath,
+      companionPath: `/fake/install/scripts/${vendor}-companion.mjs`,
       version: '1.0.0',
     } as const
   }
 
-  it('emits canonical heredoc form with %PROMPT% placeholder', () => {
-    const cmd = buildBashCommand(fakeLoc('codex', '/path/codex-companion.mjs'))
-    // Must contain quoted path
-    expect(cmd).toContain(`'/path/codex-companion.mjs'`)
-    // Must use task subcommand + --json by default
-    expect(cmd).toContain('task --json')
-    // Must contain heredoc delimiter
-    expect(cmd).toContain(`<<'CCG_PROMPT_EOF'`)
-    // Must contain %PROMPT% placeholder
-    expect(cmd).toContain('%PROMPT%')
-    // Must close heredoc
-    expect(cmd).toContain('CCG_PROMPT_EOF\n)"')
+  it('emits helper invocation with vendor + --json by default', () => {
+    const cmd = buildBashCommand(fakeLoc('codex'), { homeDir: '/H' })
+    // Helper path quoted (not companion path)
+    expect(cmd).toContain(`'/H/.claude/.ccg/scripts/ccgx-call-plugin.mjs'`)
+    // Vendor positional arg
+    expect(cmd).toContain(' codex')
+    // --json by default
+    expect(cmd).toContain('--json')
+    // Should NOT contain 1.0.4 heredoc artifacts
+    expect(cmd).not.toContain('CCG_PROMPT_EOF')
+    expect(cmd).not.toContain('%PROMPT%')
+    expect(cmd).not.toContain('task -p')
+    expect(cmd).not.toContain('cat <<')
+    // Should NOT contain companion path (helper resolves it internally)
+    expect(cmd).not.toContain('codex-companion.mjs')
   })
 
   it('omits --json when jsonOutput=false', () => {
-    const cmd = buildBashCommand(fakeLoc('codex', '/path/c.mjs'), { jsonOutput: false })
+    const cmd = buildBashCommand(fakeLoc('codex'), { jsonOutput: false, homeDir: '/H' })
     expect(cmd).not.toContain('--json')
-    // But still has task -p
-    expect(cmd).toContain('task -p')
   })
 
-  it('respects custom prompt placeholder', () => {
-    const cmd = buildBashCommand(fakeLoc('gemini', '/g.mjs'), { promptPlaceholder: '<<<PROMPT>>>' })
-    expect(cmd).toContain('<<<PROMPT>>>')
-    expect(cmd).not.toContain('%PROMPT%')
+  it('renders gemini vendor', () => {
+    const cmd = buildBashCommand(fakeLoc('gemini'), { homeDir: '/H' })
+    expect(cmd).toContain(' gemini')
+    expect(cmd).not.toContain(' codex')
   })
 
-  it('respects custom heredoc delimiter', () => {
-    const cmd = buildBashCommand(fakeLoc('codex', '/c.mjs'), { heredocDelimiter: 'MY_EOF' })
-    expect(cmd).toContain(`<<'MY_EOF'`)
-    expect(cmd).toContain('MY_EOF\n)"')
+  it('respects custom helperPath', () => {
+    const cmd = buildBashCommand(fakeLoc('codex'), { helperPath: '/custom/helper.mjs' })
+    expect(cmd).toContain(`'/custom/helper.mjs'`)
+    expect(cmd).not.toContain('ccgx-call-plugin.mjs')
   })
 
-  it('quotes paths with spaces correctly', () => {
-    const cmd = buildBashCommand(
-      fakeLoc('codex', '/path with spaces/codex-companion.mjs'),
-    )
-    expect(cmd).toContain(`'/path with spaces/codex-companion.mjs'`)
+  it('quotes helper path with spaces correctly', () => {
+    const cmd = buildBashCommand(fakeLoc('codex'), { helperPath: '/path with spaces/helper.mjs' })
+    expect(cmd).toContain(`'/path with spaces/helper.mjs'`)
   })
 
-  it('preserves Windows backslash paths literally', () => {
-    const winPath = 'C:\\Users\\X\\.claude\\plugins\\cache\\openai-codex\\codex\\1.0.4\\scripts\\codex-companion.mjs'
-    const cmd = buildBashCommand(fakeLoc('codex', winPath))
-    expect(cmd).toContain(`'${winPath}'`)
+  it('does NOT include any user prompt content (LLM passes via --prompt-file)', () => {
+    // Critical: helper form never embeds prompt body. LLM appends
+    //   --prompt-file <tmpfile>  separately after writing prompt to disk.
+    const cmd = buildBashCommand(fakeLoc('codex'), { homeDir: '/H' })
+    expect(cmd).not.toContain('-p ')
+    expect(cmd).not.toContain('--prompt-file')
   })
 })
 
@@ -256,12 +257,16 @@ describe('buildPluginMissingFallback', () => {
 // ---------------------------------------------------------------------------
 
 describe('resolvePluginBashCommand', () => {
-  it('returns rendered command when plugin is installed', () => {
+  it('returns helper invocation command when plugin is installed', () => {
     setupFakePlugin('codex', '1.0.4')
     const cmd = resolvePluginBashCommand('codex', {}, tmpHome)
-    expect(cmd).toContain('task --json')
-    expect(cmd).toContain('%PROMPT%')
+    expect(cmd).toContain('ccgx-call-plugin.mjs')
+    expect(cmd).toContain(' codex')
+    expect(cmd).toContain('--json')
     expect(cmd).not.toContain('not installed')
+    // 1.0.5: never inline companion path nor prompt placeholder
+    expect(cmd).not.toContain('codex-companion.mjs')
+    expect(cmd).not.toContain('%PROMPT%')
   })
 
   it('returns fallback when plugin is not installed', () => {

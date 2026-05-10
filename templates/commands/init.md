@@ -42,7 +42,7 @@ Task({
 
 等待返回时间戳后，保存为 `$TIMESTAMP` 供后续使用。
 
-### 🗺️ 步骤 1.5：codebase-mapper 4 路并行扫描（v4.0）
+### 🗺️ 步骤 1.5：codebase-mapper 4 路并行扫描
 
 **强制**：在调用 init-architect 之前，**必须在同一条 assistant message 中并行 spawn 4 个 `codebase-mapper`**（多 tool calls 一次发出）。每个实例只处理一个 focus，把扫描结果写到 `.context/codebase/` 下对应文件，主线只接收一行确认。
 

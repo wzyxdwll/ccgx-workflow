@@ -1,5 +1,5 @@
 ---
-description: '取后台任务最终结果：读取 .context/jobs/<id>/result.md，输出 ≤ 200 token 摘要（v4.0 异步三件套）'
+description: '取后台任务最终结果：读取 .context/jobs/<id>/result.md，输出 ≤ 200 token 摘要'
 argument-hint: "<job-id>"
 allowed-tools:
   - Read

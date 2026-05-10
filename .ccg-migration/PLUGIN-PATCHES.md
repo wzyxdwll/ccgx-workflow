@@ -1,6 +1,6 @@
 # Plugin Patches — 上游 Claude Code plugin known issue 持续维护
 
-CCG v4.4+ 通过 plugin 路径调用 codex / gemini（替代 v3.0 之前的 codeagent-wrapper）。CCG 自身代码无法控制 plugin 行为，但用户机器上的 plugin 偶尔会有可被本地修补的 bug。本文档是这类问题的持续清单 + workaround，**不是 CCG release notes**。
+CCG 通过 plugin 路径调用 codex / gemini。CCG 自身代码无法控制 plugin 行为，但用户机器上的 plugin 偶尔会有可被本地修补的 bug。本文档是这类问题的持续清单 + workaround，**不是 CCG release notes**。
 
 > **维护原则**：每条 issue 必须包含 (1) 症状 / (2) 根因 / (3) 受影响 plugin 版本 / (4) 临时 patch (本地手改) / (5) 永久路径 (上游 PR/issue 链接)。
 
@@ -11,7 +11,7 @@ CCG v4.4+ 通过 plugin 路径调用 codex / gemini（替代 v3.0 之前的 code
 ## P-1: gemini plugin v1.0.1 — Windows spawn 抢焦点（隐形 cmd 弹窗）
 
 **状态**: 未修（上游待 PR），本地 patch 可立即缓解
-**首次发现**: 2026-05-06（v4.5 release 后用户反馈）
+**首次发现**: 2026-05-06
 **受影响**: `gemini@google-gemini` v1.0.1 on Windows
 **未受影响**: `codex@openai-codex` v1.0.4（同型代码加了 `windowsHide: true`，对照参考）
 
@@ -99,7 +99,7 @@ node ~/.claude/plugins/cache/google-gemini/gemini/1.0.1/scripts/gemini-companion
 ## P-2: gemini plugin v1.0.1 — Windows 调底层 `gemini --acp` CLI 时 ENOENT + 闪 cmd 黑窗
 
 **状态**: 本地已 patch（`.bak` 备份存在），上游待 PR
-**首次发现**: v4.5 之前（早期发现，未正式归档）— 现 v4.5.1 补档
+**首次发现**: 早期发现（未正式归档），现已补档
 **受影响**: `gemini@google-gemini` v1.0.1 on Windows
 **触发频率**: 每次 ACP broker 启动 + 每个 ACPClient 实例化（高频）
 **与 P-1 区别**: P-1 spawn 的是 Node task-worker（不需 shell），P-2 spawn 的是底层 `gemini` CLI（npm 装的 .cmd 脚本，必须 shell:true）
@@ -591,7 +591,7 @@ sendToAcp({
 
 ## 一键 repatch 脚本（推荐）
 
-CCG v4.5.1+ ships `~/.claude/.ccg/scripts/repatch-gemini-plugin.mjs` （幂等，可重复运行）：
+CCG ships `~/.claude/.ccg/scripts/repatch-gemini-plugin.mjs` （幂等，可重复运行）：
 
 ```bash
 node ~/.claude/.ccg/scripts/repatch-gemini-plugin.mjs
@@ -654,4 +654,4 @@ ssh <other-host> 'node /tmp/repatch-gemini-plugin.mjs'
 
 ---
 
-**Last Updated**: 2026-05-06 (v4.5.1 hotfix release)
+**Last Updated**: 2026-05-10 (1.0.4)

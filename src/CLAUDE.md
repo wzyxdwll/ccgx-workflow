@@ -128,7 +128,7 @@ v1.7.83 将原 1878 行单文件拆分为 5 个聚焦模块，各自边界清晰
 `installShim()` 写入：
 - `~/.claude/.ccg/scripts/invoke-model.mjs` — Node ESM 实现（~870 行，无外部依赖）
 - `~/.claude/bin/codeagent-wrapper`（Unix）+ `~/.claude/bin/codeagent-wrapper.cmd`（Windows）— 一行 shim 转发到 mjs
-- `~/.claude/.ccg/scripts/ccg-phase-runner-launcher.mjs`（v4.5 P1b，可选）
+- `~/.claude/.ccg/scripts/ccg-phase-runner-launcher.mjs`（可选 supervisor）
 
 无网络下载、无平台 binary、无 GitHub Release / Cloudflare CDN 依赖。失败模式收窄到 fs / npm 包损坏，不再有网络或 Go binary 版本对齐问题。
 

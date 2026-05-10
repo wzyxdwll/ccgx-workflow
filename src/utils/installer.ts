@@ -486,8 +486,7 @@ async function installShim(ctx: InstallContext): Promise<void> {
       await fs.chmod(destMjs, 0o755)
     }
 
-    // 1b. v4.5 P1b: ship phase-runner launcher alongside invoke-model. The
-    //     autonomous template + cancel.md spawn it via
+    // 1b. Phase-runner launcher: autonomous template + cancel.md spawn it via
     //     `node ~/.claude/.ccg/scripts/ccg-phase-runner-launcher.mjs ...`.
     //     Optional file — absence is non-fatal (older deployments stay on
     //     direct `Bash(claude -p ...)` from buildPhaseRunnerBashCommand).
@@ -497,6 +496,21 @@ async function installShim(ctx: InstallContext): Promise<void> {
       await fs.copy(srcLauncher, destLauncher, { overwrite: true })
       if (process.platform !== 'win32') {
         await fs.chmod(destLauncher, 0o755)
+      }
+    }
+
+    // 1c. ccgx-call-plugin helper (1.0.5): used by review/verify wave Bash
+    //     direct path. Templates render `{{CODEX_BASH_TASK}}` etc. as
+    //     `node <this script> codex --json` — LLM appends --prompt-file
+    //     <tmpfile> after writing prompt body to disk. Helper internally
+    //     resolves companion path from installed_plugins.json SSoT and
+    //     spawns with array args (no shell escape).
+    const srcCallPlugin = join(ctx.templateDir, 'scripts', 'ccgx-call-plugin.mjs')
+    if (await fs.pathExists(srcCallPlugin)) {
+      const destCallPlugin = join(scriptDir, 'ccgx-call-plugin.mjs')
+      await fs.copy(srcCallPlugin, destCallPlugin, { overwrite: true })
+      if (process.platform !== 'win32') {
+        await fs.chmod(destCallPlugin, 0o755)
       }
     }
 

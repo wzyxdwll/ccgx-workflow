@@ -16,7 +16,7 @@
 > `ccgx-workflow` is a deep rewrite of [`ccg-workflow`](https://www.npmjs.com/package/ccg-workflow) v3.x.
 > The original project went unmaintained after 2026-05 (the original author's
 > GitHub homepage went offline), leaving its multi-model collaboration users
-> exposed to drift. This project re-architected from v4.0 onward:
+> exposed to drift. This project re-architected from the ground up:
 > fresh-context subagent protocols, Plan-Critic-Verify quality tiers,
 > OS-level three-layer process isolation, broker tx_id anti-drift,
 > and 8 plugin patches with a one-shot repatch script.

@@ -10,8 +10,6 @@ argument-hint: "[--fast] [focus-area]"
 
 # 🗺 制图关卡 · 代码库结构图
 
-> v4.1-p18：从 `/ccg:map-codebase` 命令迁移为 skill。`/ccg:map-codebase` 自动生成路由保留。
-
 为陌生项目 / 大型 brownfield 项目快速画一张"地图"：哪些模块、模块间怎么依赖、关键技术栈、入口点在哪。输出三件套：
 
 1. **mermaid 模块依赖图**（可视化）

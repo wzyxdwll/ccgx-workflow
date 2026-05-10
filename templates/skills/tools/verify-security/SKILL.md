@@ -7,9 +7,9 @@ user-invocable: true
 disable-model-invocation: false
 allowed-tools: Bash, Read, Grep
 argument-hint: <扫描路径>
-deprecated_in: v4.0
+deprecated_in: 1.0.0
 replaced_by: /ccg:verify --gate=security
-deprecation_message: v4.0+ 推荐使用 `/ccg:verify --gate=security`。本命令仍可用以保持 BC，将在 v5.0 移除。详见 .ccg-migration/DEPRECATIONS.md
+deprecation_message: 推荐使用 `/ccg:verify --gate=security`。本命令仍可用以保持 BC。详见 .ccg-migration/DEPRECATIONS.md
 ---
 
 # ⚖ 校验关卡 · 安全校验

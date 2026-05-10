@@ -9,9 +9,9 @@ allowed-tools:
   - Agent
 ---
 
-# /ccg:verify - 统一校验关卡（v4.0+）
+# /ccg:verify - 统一校验关卡
 
-替代 v3.x 时代的 4 个独立命令 `/ccg:verify-{change,quality,security,module}`，统一入口 + 子门路由，降低命令面板认知负担。
+替代早期的 4 个独立命令 `/ccg:verify-{change,quality,security,module}`，统一入口 + 子门路由，降低命令面板认知负担。
 
 ## 使用方法
 
@@ -48,7 +48,7 @@ $ARGUMENTS
 
 ## 兼容性
 
-旧的 `/ccg:verify-change` / `/ccg:verify-quality` / `/ccg:verify-security` / `/ccg:verify-module` 仍可工作（由 Skill Registry 自动生成），但 SKILL.md 已标记 `deprecated_in: v4.0`、`replaced_by: /ccg:verify --gate=<name>`。建议新工作流使用本统一命令。
+旧的 `/ccg:verify-change` / `/ccg:verify-quality` / `/ccg:verify-security` / `/ccg:verify-module` 仍可工作（由 Skill Registry 自动生成），但 SKILL.md 已标记 `deprecated_in: 1.0.0`、`replaced_by: /ccg:verify --gate=<name>`。建议新工作流使用本统一命令。
 
 ## 执行流程
 
