@@ -351,6 +351,244 @@ claude plugin enable gemini@google-gemini
 
 ---
 
+## P-9: gemini plugin v1.0.1 — JSON-RPC 错误吞没（`[object Object]` 遮蔽真因）
+
+**状态**: 未修（上游待 PR），本地 patch 立即生效
+**首次发现**: 2026-05-10（CCG 1.0.4 dogfood，broker 死后用户看不到任何有用错误信息）
+**受影响**: `gemini@google-gemini` v1.0.1
+
+### 症状
+
+- broker daemon 死亡 / auth 过期 / IPC 异常时，主线只看到 `Error: [object Object]`
+- gemini agent 报 "Likely auth expiry or broker connectivity issue" 类**模糊推测**——它能给的最具体诊断
+- 卡 700+ 分钟无任何信号；CCG 主线无法判断 broker 是死了、auth 过期、还是 RPC 协议失配
+- **诊断完全瘫痪**——这是 P-1~P-8 之上更上游的可观测性问题
+
+### 根因
+
+`~/.claude/plugins/cache/google-gemini/gemini/1.0.1/scripts/lib/acp-client.mjs:95` 经典 JS 错误处理反 pattern：
+
+```javascript
+// acp-client.mjs:88-100 (有 bug)
+if ("id" in message && message.id !== null) {
+  const pending = this.pending.get(message.id);
+  if (pending) {
+    this.pending.delete(message.id);
+    if (message.error) {
+      pending.reject(message.error);  // ← 直接 reject 一个 plain object {code, message, data}
+    } else {
+      pending.resolve(message.result);
+    }
+  }
+  return;
+}
+```
+
+JSON-RPC 错误 schema 是 `{code: number, message: string, data?: any}` 普通对象，**不是 Error 实例**。上层调用方做 `try { await ... } catch (e) { e instanceof Error ? e.message : String(e) }` 时：
+- `e instanceof Error` → `false`
+- `String({code: -32603, message: "..."})` → `"[object Object]"`
+- **真错误信息全部丢失**
+
+### 临时 patch
+
+把 plain error object 包装成 Error 实例 + 保留 JSON-RPC code/data 作为附加属性：
+
+```javascript
+// acp-client.mjs:88-100 (patched)
+if ("id" in message && message.id !== null) {
+  const pending = this.pending.get(message.id);
+  if (pending) {
+    this.pending.delete(message.id);
+    if (message.error) {
+      // CCG P-9 patch: wrap JSON-RPC error object in Error instance.
+      const _err = message.error;
+      const _wrapped = Object.assign(
+        new Error(typeof _err === "object" && _err !== null && _err.message
+          ? String(_err.message)
+          : String(_err)),
+        {
+          jsonrpcCode: typeof _err === "object" && _err !== null ? _err.code : undefined,
+          jsonrpcData: typeof _err === "object" && _err !== null ? _err.data : undefined,
+        },
+      );
+      pending.reject(_wrapped);
+    } else {
+      pending.resolve(message.result);
+    }
+  }
+  return;
+}
+```
+
+效果：
+- `e instanceof Error` → `true`（上层 catch 逻辑正常工作）
+- `e.message` → 真实错误描述（"Auth token expired" / "Broker not responding" / "Parse error" 等）
+- `e.jsonrpcCode` → 可程序化判断（-32001 auth-expired / -32603 internal / -32700 parse-error 等）
+- `e.jsonrpcData` → 调试上下文（验证细节 / 字段路径等）
+
+### 验证 patch 生效
+
+P-9 是**诊断使能 patch**，验证方法是触发故障看错误信息是否变可读：
+
+```bash
+# 1. 应用 patch（手动或跑 repatch 脚本）
+node ~/.claude/.ccg/scripts/repatch-gemini-plugin.mjs
+
+# 2. 重启 broker daemon（让 patch 生效）
+claude plugin disable gemini@google-gemini
+claude plugin enable gemini@google-gemini
+
+# 3. 故意触发 auth 失败（让 token 过期或人为破坏 ~/.gemini/auth.json）
+# 4. 调 gemini 看错误信息
+
+# Patch 前: "Error: [object Object]"
+# Patch 后: "Error: <真实错误> (code -32xxx)"
+```
+
+### 永久路径
+
+- 上游仓库：`gemini@google-gemini` plugin（待找 issue tracker）
+- 修复方向：`pending.reject()` 前包 Error 实例
+- 状态：待提 PR
+
+### 价值（meta）
+
+P-9 是所有 P-* 的**可观测性前提**。修了它，未来其他 plugin bug 至少能拿到真错误信息去诊断——这就是为什么列为最高优先级而不是按时间序号。
+
+---
+
+## P-10: gemini plugin v1.0.1 — broker init 期 client 请求被吞（无 pendingQueue）
+
+**状态**: 已知 manual patch 在用户机器上工作，**未进 CCG repatch 脚本**（多行结构变更，regex guard 风险高，需进一步评估）
+**首次发现**: 2026-05-04（CCG 1.0.4 dogfood，`.bak` 与当前 acp-broker.mjs 对比时显形）
+**受影响**: `gemini@google-gemini` v1.0.1 原版
+
+### 症状
+
+broker daemon 启动后约 1-3 秒内 ACP 子进程还在初始化（`acpReady === false`），这期间到达的 client 请求**直接被 reject 或丢弃**——下游主线收到无效响应（配合 P-9 修复前会显示成 `[object Object]`）。
+
+### 根因
+
+原版 `acp-broker.mjs` 的 `handleClientMessage` 在 `acpReady === false` 时直接报错或丢请求，没有 pending queue 缓冲：
+
+```javascript
+// acp-broker.mjs (有 bug 原版)
+function handleClientMessage(socket, raw) {
+  // ...
+  // Check if ACP process is ready.
+  if (!acpReady) {
+    // 直接报错或丢，没缓冲
+  }
+  // ...
+}
+```
+
+### 临时 patch（多行结构变更，比 P-1~P-8 复杂）
+
+3 处协同修改：
+
+1. 文件顶部加缓冲：
+   ```javascript
+   const pendingQueue = []; // requests queued while ACP is initializing
+   ```
+
+2. ACP ready 时 drain：
+   ```javascript
+   // 在 acpReady = true 后立即
+   const _queued = pendingQueue.splice(0);
+   for (const { socket: _qs, message: _qm } of _queued) {
+     handleClientMessage(_qs, JSON.stringify(_qm));
+   }
+   ```
+
+3. handleClientMessage 改 queue：
+   ```javascript
+   // Check if ACP process is ready; queue the request if still initializing.
+   if (!acpReady) {
+     if (acpProcess && !acpReady) {
+       // ACP is starting up — queue for up to 30s
+       pendingQueue.push({ socket, message });
+     } else {
+       // 原报错路径
+     }
+     return;
+   }
+   ```
+
+### 永久路径
+
+- 上游待提 issue 给 `gemini@google-gemini` plugin
+- 修复方向：原 spec 应当包含 init queue 机制
+- **CCG repatch 脚本暂不收**：multi-region 编辑、regex guard 难以鲁棒匹配，rollback 风险高于 P-1~P-8
+
+---
+
+## P-11: gemini plugin v1.0.1 — ACP `initialize` 缺 `protocolVersion`
+
+**状态**: 已知 manual patch，**未进 CCG repatch 脚本**（同 P-10 理由）
+**首次发现**: 2026-05-04 manual patch；2026-05-10 由 P-9 之后真错误透出确认
+**受影响**: `gemini@google-gemini` v1.0.1 原版
+
+### 症状
+
+broker spawn `gemini --acp` 后发送的 `initialize` 请求被 gemini-cli 0.39.1 拒绝：
+
+```json
+{"code": -32603, "message": "Internal error",
+ "data": [{"expected": "number", "code": "invalid_type",
+           "path": ["protocolVersion"],
+           "message": "Invalid input: expected number, received undefined"}]}
+```
+
+`acpReady` 永不变 true，所有后续 RPC 全失败。配合 P-9 修复前，错误显示成 `[object Object]`。
+
+### 根因
+
+原版 `acp-broker.mjs` initialize 调用漏 `protocolVersion` 字段：
+
+```javascript
+// acp-broker.mjs (有 bug 原版)
+sendToAcp({
+  jsonrpc: "2.0",
+  id: initId,
+  method: "initialize",
+  params: {
+    // 缺 protocolVersion ← 这里
+    clientInfo: {
+      name: "gemini-plugin-cc-broker",
+      version: "1.0.0"
+    }
+  }
+});
+```
+
+gemini-cli 0.39.1 的 ACP schema 要求 `params.protocolVersion: number`，原版 plugin 没发，被 zod schema validator 拒绝。
+
+### 临时 patch（1 行）
+
+```javascript
+sendToAcp({
+  jsonrpc: "2.0",
+  id: initId,
+  method: "initialize",
+  params: {
+    protocolVersion: 1,  // ← 加这行
+    clientInfo: {
+      name: "gemini-plugin-cc-broker",
+      version: "1.0.0"
+    }
+  }
+});
+```
+
+### 永久路径
+
+- 上游待提 issue 给 `gemini@google-gemini` plugin
+- 修复方向：跟 ACP 协议规范对齐 `protocolVersion`
+- **CCG repatch 脚本暂不收**：跟 gemini-cli 版本耦合（不同 cli 版本可能要 0/1/2 不同值），regex 添加要谨慎；待 gemini-cli + plugin 双方 spec 稳定后再纳入
+
+---
+
 ## 一键 repatch 脚本（推荐）
 
 CCG v4.5.1+ ships `~/.claude/.ccg/scripts/repatch-gemini-plugin.mjs` （幂等，可重复运行）：

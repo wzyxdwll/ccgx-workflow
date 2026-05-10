@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.4] - 2026-05-10 — 🛡 plugin Bash codegen + P-9 错误透出 + P-10/P-11 文档化
+
+### ✨ 架构升级（核心）
+
+- **plugin Bash 命令 install-time 渲染**（codex 审计 NO-GO 后重做）：模板里 `node "$(ls ~/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs | head -1)" task -p "..." --json` 这种 inline 拼接 + glob hack 全替换为 4 个 install-time 占位符：
+  - `{{CODEX_BASH_TASK}}` / `{{CODEX_BASH_TASK_TEXT}}`
+  - `{{GEMINI_BASH_TASK}}` / `{{GEMINI_BASH_TASK_TEXT}}`
+  - 安装时从 plugin SSoT (`~/.claude/plugins/installed_plugins.json`) 读真实 installPath，渲染**完整 literal Bash 命令字符串**注入模板
+  - 用 heredoc-with-quoted-EOF 包裹 prompt body，LLM 替换 `%PROMPT%` 时**零 escape 负担**（`$ ' " \` 全字面量）
+  - plugin 未装时 fallback 到清晰错误命令（exit 1 + stderr "plugin not available"），不静默坏掉
+- **新文件 `src/utils/plugin-bash-codegen.ts`**（~180 行 + 26 单测）：
+  - `discoverCompanion(vendor, homeDir?)` — 从 SSoT 读取，返回 `{installPath, companionPath, version}`
+  - `buildBashCommand(loc, opts?)` — 渲染 literal 命令
+  - `shellQuotePosix(s)` — POSIX 单引号 escape（兼容 Git Bash on Win + bash on POSIX）
+  - `resolvePluginBashCommand(vendor, opts?, homeDir?)` — 顶层入口（installer 用）
+- **`src/utils/installer-template.ts:injectConfigVariables`** 扩展：新增 4 个占位符的 install-time 替换路径
+- **`templates/commands/review.md`** 改写 3 处 inline 命令：
+  - 阶段 2 backend codex review → `{{CODEX_BASH_TASK}}`
+  - 阶段 2 frontend gemini review → `{{GEMINI_BASH_TASK}}`
+  - 阶段 2.5 adversarial review → `{{CODEX_BASH_TASK}}`（prompt 内嵌 `--adversarial-review` 前缀）
+- **`templates/commands/agents/interface-auditor.md`** 加第 5 项检查 rule（critical）：检测模板里 inline `node ... companion.mjs ... task -p` 命令 → BLOCKER。防回归。
+
+### 🐛 plugin patches（gemini 1.0.1）
+
+- **P-9 已 patch + 已加进 repatch 脚本**（`templates/scripts/repatch-gemini-plugin.mjs`）：
+  - `lib/acp-client.mjs:95` 的 `pending.reject(message.error)` 改为 wrap Error 实例 + 保留 `jsonrpcCode/jsonrpcData` 附加属性
+  - 修复"`[object Object]` 错误黑洞"——所有 broker 死亡 / auth 过期 / RPC 异常的真错误现在透出
+  - 这是**诊断使能 patch**，所有其他 plugin bug 修了它才能拿到真错误
+- **P-10 (broker pendingQueue) + P-11 (ACP `protocolVersion`) 文档化**到 `.ccg-migration/PLUGIN-PATCHES.md`：
+  - 标"已知 manual patch，未进 repatch 脚本"——multi-region 编辑、regex guard 风险高
+  - 等 gemini-cli + plugin 双方 spec 稳定后再纳入
+
+### 📝 设计哲学（First Principles）
+
+> codex 审计第一轮 NO-GO 提案后，根本论点：**模板是 prompt 文本，LLM 看到「helper 函数调用」必然在脑子里"扮演这个 helper"——参数漂移问题没消除，只是从 Bash flag 维度漂移到 helper opts 维度漂移**。
+>
+> 1.0.4 正确武器：install-time codegen → literal command string 注入模板 → LLM 看到的是「copy 这段 + 替换 %PROMPT%」，**零参数自由发挥空间**。
+>
+> 跟 CCG 已有的模板变量系统（`{{FRONTEND_PRIMARY}}` / `{{MCP_SEARCH_TOOL}}` 等）哲学一致：**安装时计算、运行时零猜测**。
+
+### ✅ 验证
+
+- `pnpm typecheck` ✓
+- `pnpm test` ✓ **1341/1341**（1315 + 26 新增 codegen 用例）
+- review.md 实测：placeholder 注入后命令完整可读，heredoc safe pattern
+
+### 📊 改动统计
+
+| 文件 | 类型 | LOC |
+|------|------|-----|
+| `src/utils/plugin-bash-codegen.ts` | 新增 | ~180 |
+| `src/utils/__tests__/pluginBashCodegen.test.ts` | 新增 | ~210 |
+| `src/utils/installer-template.ts` | 扩展 | +35 |
+| `templates/commands/review.md` | 重写 3 处 inline | +15 / -25 |
+| `templates/commands/agents/interface-auditor.md` | 加 rule 5 | +35 |
+| `templates/scripts/repatch-gemini-plugin.mjs` | P-9 patch entry | +12 |
+| `.ccg-migration/PLUGIN-PATCHES.md` | P-9/P-10/P-11 文档 | +220 |
+| `~/.claude/plugins/cache/google-gemini/...acp-client.mjs` | 用户机器 P-9 已应用 | +14 |
+
+### 🎯 下游收益
+
+- 未来 plugin 故障的真错误**能看见**了（不再 `[object Object]`）
+- 模板维护者**没机会编 Bash flag** —— install-time 渲染卡死
+- multi-version plugin cache 路径解析**确定性**——SSoT 直接给 installPath，不靠 glob
+- interface-auditor 守门——回归到 inline 拼接立刻 BLOCKER
+
+---
+
 ## [1.0.3] - 2026-05-09 — 💰 phase-runner budget cap ×50 调高（消除"贴顶失败"假阳性）
 
 ### 🔄 变更

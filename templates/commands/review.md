@@ -51,25 +51,44 @@ argument-hint: "[代码或描述] [--adversarial] [--fix [--all] [--auto]] [--ro
 
 **调用语法**（v4.4.2 起 review/verify 路径默认走 Bash 直调）：
 
-**通道 A — Bash 直调 plugin script（v4.4.2 默认，绕开 sonnet wrapper）**：
+**通道 A — Bash 直调 plugin script（默认，绕开 sonnet wrapper）**：
+
+> 1.0.4 起 Bash 命令字符串由 install 时直接渲染（基于 `~/.claude/plugins/installed_plugins.json`
+> 真值源），LLM 只需 copy 整段 + 替换 `%PROMPT%` 即可。**禁止凭印象拼 `node "$(ls ...) | head -1"
+> task -p ...` inline 命令** —— glob hack 在 plugin 多版本 cache 下行为不可预测，且参数漂移
+> 与 v4.4.1 的 195 处错名 bug 同型。
 
 ```
+# 后端审查（codex 视角）
 Bash({
-  command: `node "$(ls ~/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs | head -1)" task -p "<整段 prompt 含 ROLE_FILE + TASK + OUTPUT 要求>" --json`,
+  command: `{{CODEX_BASH_TASK}}`,   ← install 时已渲染为完整命令，含 heredoc 安全 prompt 注入
   description: "Review: backend (codex direct)",
   run_in_background: true,
   timeout: 3600000
 })
 
+# 前端审查（gemini 视角）
 Bash({
-  command: `node "$(ls ~/.claude/plugins/cache/google-gemini/gemini/*/scripts/gemini-companion.mjs | head -1)" task -p "<整段 prompt>" --json`,
+  command: `{{GEMINI_BASH_TASK}}`,
   description: "Review: frontend (gemini direct)",
   run_in_background: true,
   timeout: 3600000
 })
 ```
 
-⛔ **不要**用 `Agent(subagent_type="codex:codex-rescue"|"gemini:gemini-rescue")` —— plugin spawn 走 sonnet wrapper，broker 故障/CLI 空答时 wrapper 可能 silent fallback 自答冒充 cross-vendor 视角（v4.4.2 hotfix 决策，详见 `src/utils/verify-orchestrator.ts:planVerifyWave` `useDirectBashInvocation` 选项）。
+LLM 消费协议：把上面命令字符串里的 `%PROMPT%` 替换为完整 prompt 文本（含 ROLE_FILE 引用 +
+TASK 描述 + OUTPUT 要求），**不要在外面加任何 escape**——heredoc `<<'CCG_PROMPT_EOF'`
+的单引号 delimiter 已保证 `$` / `'` / `"` / `\` 全部按字面量处理。
+
+⛔ **不要**用 `Agent(subagent_type="codex:codex-rescue"|"gemini:gemini-rescue")`：
+
+review/verify 路径输出**直接落地**决策（PR merge / advance / revise / escalate），无下游兜底。
+plugin 经由 `Agent(...)` spawn 时引擎启动 sonnet wrapper 扮演 codex/gemini 客户端，broker 故障 /
+CLI 空答 / auth 过期时 wrapper 受 instruction-tuning 驱动**自答 fabricated cross-vendor 视角**
+（silent fallback），主线无法察觉。Bash 直调消除 wrapper 层，stdout 即真实 plugin 输出。
+
+详见 `src/utils/verify-orchestrator.ts:planVerifyWave` 的 `useDirectBashInvocation` 选项 +
+`src/utils/plugin-bash-codegen.ts`（1.0.4 install-time codegen）。
 
 主线接 stdout JSON（5-50KB），按 plugin --json schema 解析 `result.text` 字段，失败信号：
 - exit code ≠ 0 → loud fail，触发 v1.7.87 标准 2-retry / 5s / 3-attempts 规则
@@ -165,11 +184,21 @@ EOF",
 
 **仅当 `$ARGUMENTS` 含 `--adversarial` 字面量时启动**。否则跳过本阶段。
 
-调用方式（v4.4.2 起 Bash 直调，绕开 sonnet wrapper）：
+调用方式（Bash 直调，绕开 sonnet wrapper）：
 
 ```
 Bash({
-  command: `node "$(ls ~/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs | head -1)" task -p "--adversarial-review
+  command: `{{CODEX_BASH_TASK}}`,   ← 同上，install 时渲染为完整命令
+  description: "Adversarial review (codex direct)",
+  run_in_background: true,
+  timeout: 3600000
+})
+```
+
+把命令里的 `%PROMPT%` 替换为以下完整 prompt 文本（heredoc 已保证字面量传递，不需要 escape）：
+
+```
+--adversarial-review
 
 请对以下代码变更进行敌对视角审查：
 
@@ -184,14 +213,11 @@ Bash({
 你的任务：
 1. 找出前两轮**未发现或低估**的安全/性能/正确性漏洞
 2. 假设代码作者刻意误导，挑刺
-3. 输出格式：[Critical-Adversarial] / [Major-Adversarial] 列表，每条标'为什么前两轮没发现'" --json`,
-  description: "Adversarial review (codex direct)",
-  run_in_background: true,
-  timeout: 3600000
-})
+3. 输出格式：[Critical-Adversarial] / [Major-Adversarial] 列表，每条标"为什么前两轮没发现"
 ```
 
-⛔ 不用 `Agent(subagent_type="codex:codex-rescue")` —— v4.4.2 决策：review/verify 路径绕开 sonnet wrapper，避免 silent fallback 冒充 adversarial 视角。
+⛔ 不用 `Agent(subagent_type="codex:codex-rescue")`：review/verify 路径输出直接落地，silent fallback
+风险（sonnet wrapper 受 instruction-tuning 自答冒充 adversarial 视角）不可接受。详见前文「通道 A」段。
 
 收到 stdout JSON 后解析 `result.text` 字段保留待阶段 3 综合。stdout 空或 exit≠0 → 走标准 2-retry 规则。
 

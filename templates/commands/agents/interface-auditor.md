@@ -99,7 +99,32 @@ phase_files: [<本 phase 修改/新增的相对路径>]
 [{severity: info, category: commit-diff-drift, message: "subject says 'add foo' but git stat 无新建 foo 路径文件 (best-effort 检测，可能误报)"}]
 ```
 
-### 5. Mock 与 ground truth schema 偏差（info/major）
+### 5. Inline plugin Bash 命令拼接（critical，1.0.4 新增）
+
+**目的**：检测模板里有没有手写 inline `node "$(ls .../codex-companion.mjs | head -1)" task -p ...` 命令——绕过 1.0.4 install-time codegen 占位符（`{{CODEX_BASH_TASK}}` / `{{GEMINI_BASH_TASK}}` / `{{CODEX_BASH_TASK_TEXT}}` / `{{GEMINI_BASH_TASK_TEXT}}`），重新引入 v4.4.1 同型的"flag 漂移 + 路径 glob hack"风险。
+
+**为什么这是 critical**：
+
+- inline 拼接给 LLM 自由发挥空间——LLM 看到示例后会**编造**未在示例中出现的 flag（与 v4.4.1 编造 `codex:rescue` 单前缀同型）
+- `ls .../*-companion.mjs | head -1` 在 plugin 多版本 cache 下行为不可预测（installed_plugins.json 才是 SSoT）
+- 跳过 install-time codegen 意味着 plugin 未装时模板**静默坏掉**而不是给出清晰错误
+
+**怎么做**：
+1. 本 phase commit 影响的 `.md` 文件中（仅扫 `templates/commands/**.md`）grep：
+   - `node\s+["'`].*?-companion\.mjs.*?\btask\b.*?-p\b` — inline 命令模式
+   - `\$\(ls\s+.*-companion\.mjs.*head\s+-1\)` — glob hack 模式
+   - `buildPluginBashCommand\s*\(` — TS-helper 伪代码模式（codex 审计提到的"helper opts 漂移"风险）
+2. 命中即 critical，除非该出现位置是：
+   - 1.0.4+ CHANGELOG / migration doc 的"反例对照"段落
+   - `agents/interface-auditor.md` 自身（本 rule 说明）
+   - 测试 fixture（`__tests__/`、`fixtures/`、`*.test.*`）
+
+**critical 例子**：
+```
+[{severity: critical, category: inline-plugin-bash, message: "review.md:58 inline `node ... codex-companion.mjs ... task -p` — 应改用 {{CODEX_BASH_TASK}} install-time codegen 占位符（1.0.4 起）"}]
+```
+
+### 6. Mock 与 ground truth schema 偏差（info/major）
 
 **目的**：测试 mock 数据跟真实 schema 不一致（与 P28 fixtures 协作；本 agent 仅做轻量提示）。
 
@@ -123,14 +148,15 @@ phase_files: [<本 phase 修改/新增的相对路径>]
 2. `git show <commit_hash> --name-only` → phase_files 验证；若 prompt 给的列表跟 git 不一致以 git 为准
 3. 过滤掉非 `.ts` / `.md` / `package.json` 的文件（图片、bin 等不审）
 
-### Step 2: 五项检查并行思考
-对每个 phase 修改文件分别跑 5 项检查的 grep。每条命中产出一个 Finding 候选。
+### Step 2: 六项检查并行思考
+对每个 phase 修改文件分别跑 6 项检查的 grep。每条命中产出一个 Finding 候选。
 
 ### Step 3: 假阳性过滤
 - SSoT 违反：排除测试文件、type union 同名、re-export
 - 半成品：排除 default export、type-only re-export 到 index.ts
 - magic string：排除 CCG 自家 agent 名（白名单）
 - commit drift：用模糊匹配，命中率不高时降级 info
+- inline-plugin-bash：排除 CHANGELOG/migration 反例段、interface-auditor.md 自身说明、测试 fixture
 - mock drift：纯 best-effort，全部标 info severity
 
 ### Step 4: 输出 ≤200 token 摘要
@@ -139,7 +165,7 @@ phase_files: [<本 phase 修改/新增的相对路径>]
 
 ```
 STATUS: complete | error
-FINDINGS: [{severity: critical|major|info, category: ssot-violation|leftover|magic-string-mismatch|commit-diff-drift|mock-drift, message: "<具体证据 + 文件路径 + 行号>"}, ...]
+FINDINGS: [{severity: critical|major|info, category: ssot-violation|leftover|magic-string-mismatch|commit-diff-drift|inline-plugin-bash|mock-drift, message: "<具体证据 + 文件路径 + 行号>"}, ...]
 NOTES: <≤80 字一行总结>
 ```
 

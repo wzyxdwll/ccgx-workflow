@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 import fs from 'fs-extra'
 import { dirname, join } from 'pathe'
 import { isWindows } from './platform'
+import { resolvePluginBashCommand } from './plugin-bash-codegen'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -143,6 +144,39 @@ export function injectConfigVariables(content: string, config: {
   // If liteMode is true, inject "--lite" flag
   const liteModeFlag = config.liteMode ? '--lite ' : ''
   processed = processed.replace(/\{\{LITE_MODE_FLAG\}\}/g, liteModeFlag)
+
+  // ─────────────────────────────────────────────────────────────────
+  // 1.0.4: Plugin Bash command codegen (install-time literal command rendering)
+  //
+  // Replaces inline `node "$(ls .../codex-companion.mjs | head -1)" task -p
+  // "..." --json` glob hacks scattered across templates. The placeholders
+  // resolve to fully-rendered Bash commands using the plugin SSoT
+  // (~/.claude/plugins/installed_plugins.json), with %PROMPT% as the
+  // LLM-substitutable prompt body marker (heredoc-protected — no escaping
+  // needed by the LLM consuming the template).
+  //
+  // Placeholder vocabulary:
+  //   {{CODEX_BASH_TASK}}        — codex companion task --json (default)
+  //   {{CODEX_BASH_TASK_TEXT}}   — codex companion task (text output, no --json)
+  //   {{GEMINI_BASH_TASK}}       — gemini companion task --json (default)
+  //   {{GEMINI_BASH_TASK_TEXT}}  — gemini companion task (text output, no --json)
+  //
+  // If the plugin is not installed at install time, a clear runtime fallback
+  // command is emitted ("plugin not available" + exit 1) so failures surface
+  // visibly instead of silently breaking templates.
+  // ─────────────────────────────────────────────────────────────────
+  if (processed.includes('{{CODEX_BASH_TASK}}')) {
+    processed = processed.replace(/\{\{CODEX_BASH_TASK\}\}/g, resolvePluginBashCommand('codex'))
+  }
+  if (processed.includes('{{CODEX_BASH_TASK_TEXT}}')) {
+    processed = processed.replace(/\{\{CODEX_BASH_TASK_TEXT\}\}/g, resolvePluginBashCommand('codex', { jsonOutput: false }))
+  }
+  if (processed.includes('{{GEMINI_BASH_TASK}}')) {
+    processed = processed.replace(/\{\{GEMINI_BASH_TASK\}\}/g, resolvePluginBashCommand('gemini'))
+  }
+  if (processed.includes('{{GEMINI_BASH_TASK_TEXT}}')) {
+    processed = processed.replace(/\{\{GEMINI_BASH_TASK_TEXT\}\}/g, resolvePluginBashCommand('gemini', { jsonOutput: false }))
+  }
 
   // MCP tool injection based on provider (registry-driven)
   const mcpProvider = config.mcpProvider || 'ace-tool'

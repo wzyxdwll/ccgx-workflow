@@ -132,6 +132,16 @@ const PATCHES = [
     match: /(spawnSync\(command,\s*\[name\],\s*\{\s*encoding:\s*"utf8",\s*stdio:\s*"pipe")(\s*\})/,
     replace: '$1, windowsHide: true$2',
   },
+  {
+    id: "P-9",
+    file: "lib/acp-client.mjs",
+    description: "JSON-RPC error swallowing (reject with bare {code,message} → caller sees '[object Object]')",
+    // Guard: any patched marker present
+    guard: /CCG P-9 patch/,
+    // Match: the bare reject(message.error) inside the response branch
+    match: /(if \(message\.error\) \{\s*\r?\n\s*)pending\.reject\(message\.error\);(\s*\r?\n\s*\} else \{)/,
+    replace: `$1// CCG P-9 patch: wrap JSON-RPC error object in Error instance.\n          // Without this, callers doing \`e instanceof Error ? e.message : String(e)\`\n          // get "[object Object]" — losing real error info (auth-expired, broker-dead,\n          // parse-error, etc). See .ccg-migration/PLUGIN-PATCHES.md P-9.\n          const _err = message.error;\n          const _wrapped = Object.assign(\n            new Error(typeof _err === "object" && _err !== null && _err.message\n              ? String(_err.message)\n              : String(_err)),\n            {\n              jsonrpcCode: typeof _err === "object" && _err !== null ? _err.code : undefined,\n              jsonrpcData: typeof _err === "object" && _err !== null ? _err.data : undefined,\n            },\n          );\n          pending.reject(_wrapped);$2`,
+  },
 ];
 
 let applied = 0;
