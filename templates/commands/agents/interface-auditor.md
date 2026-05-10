@@ -124,7 +124,34 @@ phase_files: [<本 phase 修改/新增的相对路径>]
 [{severity: critical, category: inline-plugin-bash, message: "review.md line N: inline plugin companion 命令拼接 — 应改用 {{CODEX_BASH_TASK}} install-time codegen 占位符"}]
 ```
 
-### 6. Mock 与 ground truth schema 偏差（info/major）
+### 6. 主线塞 diff/源代码 给 plugin（critical，1.0.6 新增）
+
+**目的**：检测模板里有没有把 `git diff` 输出 / 源文件内容 inline 进 prompt body——这会撞 OS argv ~32KB 上限（Windows `CreateProcess` / POSIX `execve`），导致大 PR 直接 spawn 失败。
+
+**为什么这是 critical**：
+
+- ARG_MAX 是 OS 级 hard ceiling，不是 99% 边缘 case
+- codex / gemini 的 task mode 都有完整 Bash + Read 工具权限，可以**自己**跑 `git diff` 读源文件
+- 主线给它们任务描述（≤ 2KB）就够了，不需要把数据塞进 prompt
+- 历史教训：1.0.4/1.0.5 dogfood 撞这个 bug，30KB diff 导致 review 命令完全瘫痪
+
+**怎么做**：
+1. 本 phase commit 影响的 `.md` 文件中 grep：
+   - `<git diff (?:内容|输出|HEAD)>` — 占位符指代 diff 内容
+   - `\$\(git diff` — shell 替换 git diff 输出
+   - `cat .*\.diff\.patch` — 读 diff patch 文件
+   - 任何"在 prompt body 里嵌入 diff/源码"的模式
+2. 命中即 critical，除非位置是：
+   - CHANGELOG / migration doc 反例对照段
+   - `agents/interface-auditor.md` 自身（本 rule 说明）
+   - 测试 fixture
+
+**critical 例子**：
+```
+[{severity: critical, category: inline-diff-prompt, message: "review.md line N: prompt body 含 <git diff 内容>——撞 ARG_MAX，应改为任务描述 + codex 自己跑 git diff"}]
+```
+
+### 7. Mock 与 ground truth schema 偏差（info/major）
 
 **目的**：测试 mock 数据跟真实 schema 不一致（与 P28 fixtures 协作；本 agent 仅做轻量提示）。
 
@@ -148,8 +175,8 @@ phase_files: [<本 phase 修改/新增的相对路径>]
 2. `git show <commit_hash> --name-only` → phase_files 验证；若 prompt 给的列表跟 git 不一致以 git 为准
 3. 过滤掉非 `.ts` / `.md` / `package.json` 的文件（图片、bin 等不审）
 
-### Step 2: 六项检查并行思考
-对每个 phase 修改文件分别跑 6 项检查的 grep。每条命中产出一个 Finding 候选。
+### Step 2: 七项检查并行思考
+对每个 phase 修改文件分别跑 7 项检查的 grep。每条命中产出一个 Finding 候选。
 
 ### Step 3: 假阳性过滤
 - SSoT 违反：排除测试文件、type union 同名、re-export
@@ -157,6 +184,7 @@ phase_files: [<本 phase 修改/新增的相对路径>]
 - magic string：排除 CCG 自家 agent 名（白名单）
 - commit drift：用模糊匹配，命中率不高时降级 info
 - inline-plugin-bash：排除 CHANGELOG/migration 反例段、interface-auditor.md 自身说明、测试 fixture
+- inline-diff-prompt：同上排除规则
 - mock drift：纯 best-effort，全部标 info severity
 
 ### Step 4: 输出 ≤200 token 摘要
@@ -165,7 +193,7 @@ phase_files: [<本 phase 修改/新增的相对路径>]
 
 ```
 STATUS: complete | error
-FINDINGS: [{severity: critical|major|info, category: ssot-violation|leftover|magic-string-mismatch|commit-diff-drift|inline-plugin-bash|mock-drift, message: "<具体证据 + 文件路径 + 行号>"}, ...]
+FINDINGS: [{severity: critical|major|info, category: ssot-violation|leftover|magic-string-mismatch|commit-diff-drift|inline-plugin-bash|inline-diff-prompt|mock-drift, message: "<具体证据 + 文件路径 + 行号>"}, ...]
 NOTES: <≤80 字一行总结>
 ```
 

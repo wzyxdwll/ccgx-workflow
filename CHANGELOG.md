@@ -7,6 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.6] - 2026-05-10 — 🔄 review/verify 不再塞 diff，让 codex/gemini 自己读
+
+### 🐛 1.0.5 dogfood 撞墙：ARG_MAX
+
+1.0.5 ship 后 dogfood 大 PR review 撞 OS argv ~32KB 上限：
+
+```
+$ node codex-companion.mjs task --json -p "<30KB diff + role prompt>"
+/usr/bin/bash: line 5: /d/Program Files/nodejs/node: Argument list too long
+```
+
+`CreateProcess`(Win) / `execve`(POSIX) 的 argv size 限制是内核级 hard ceiling，**Node `spawn` 数组 args 也走同一 syscall，没法绕**。这不是 99% 边缘 case，而是任何稍大 PR 必撞的硬墙。
+
+### 🎯 根因：架构错误
+
+review.md 从 v3.x 时代起就在 inline 塞 diff——把"给 plugin 看的数据"作为 prompt body 传输。1.0.4 / 1.0.5 都在优化"**怎么把更大 prompt 塞进去**"，方向错了。
+
+**正确架构**（跟 `/ccg:codex-exec` 同款）：主线给 codex/gemini 一个**小任务描述**（≤ 2KB），它们用自己的 Bash + Read 工具**自己跑 `git diff` 读源文件**——它们 task mode 下完整工具权限。
+
+| | 错（1.0.x） | 对（1.0.6） |
+|---|---|---|
+| 主线传给 codex 的内容 | git diff 完整 30KB+ 内容 | 任务描述（"审 git diff HEAD"，~500 字节）|
+| codex 怎么拿数据 | 从 prompt 读 | **codex 自己跑 git diff** |
+| argv 大小 | 30KB → ARG_MAX 撞墙 | 永远 < 1KB |
+| codex 工具使用 | 无 | 完整 Bash/Read |
+
+### ✨ 改动
+
+**`templates/commands/review.md`** 重写：
+- "调用语法"段加「核心原则：主线不传输 diff 内容给 codex/gemini」前置
+- "LLM 工作流"3 步改为：
+  1. Write 任务描述（≤ 2KB，**只放说明 + 角色提示词路径 + 输出 schema**）到 tmpfile
+  2. Bash `<占位符> --prompt-file <tmpfile>`
+  3. Read JSON 解析
+- 加"任务描述模板"——明确告诉 codex/gemini 自己跑 git diff
+- Adversarial wave 同改：摘要前两轮 critical 项（≤ 500 字）传，不塞完整 review 输出
+- Channel B fallback 同改：wrapper 经 stdin pipe 但 prompt 内容仍是任务描述
+- Phase 2 实施段简化：从"传 git diff 内容"改"传任务描述 + codex 自读"
+
+**`templates/commands/agents/interface-auditor.md`** 加 rule 6（critical）：
+- 检测模板里 inline 嵌入 `<git diff 内容>` / `$(git diff)` / `cat *.diff.patch` 等模式
+- 防回归到"塞 diff"反 pattern
+
+**版本里程碑**：1.0.4 codegen + 1.0.5 helper + 1.0.6 task-description = 三步收敛到正确架构。
+
+### ✅ 验证
+
+- `pnpm typecheck` ✓
+- `pnpm test` ✓ **1341/1341**
+- `pnpm build` ✓
+- review.md 实测：任务描述 ≤ 2KB，无 ARG_MAX 风险
+
+### 🎯 设计哲学（First Principles）
+
+> **数据应该被工具拿，不是塞进 prompt**。
+>
+> LLM 看到 prompt 里有数据 → 它把数据当上下文。LLM 看到 prompt 里有"去拿数据的指令" → 它用工具拿。两种模式 token 消耗差 100×，错误模式（hallucination / overflow）也完全不同。
+>
+> ccg-exec / phase-runner 一直走对路径。review/verify 我接手时没质疑既有 inline diff 设计，1.0.4/1.0.5 都在错的设计上叠 workaround。1.0.6 才是回归正确架构。
+
+### 🔧 用户已撞 ARG_MAX 的 retry
+
+老 review 用 codeagent-wrapper stdin 通道（Channel B）也是有效绕开方案——继续用没问题。1.0.6 升级后默认 Channel A 也不再撞。
+
+---
+
 ## [1.0.5] - 2026-05-10 — 🔄 收敛 LLM 命令构造表面 + ccgx kill-orphans + 内部版本号清理
 
 ### 🐛 1.0.4 dogfood 暴露的问题

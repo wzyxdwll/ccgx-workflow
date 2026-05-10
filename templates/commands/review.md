@@ -58,12 +58,18 @@ argument-hint: "[代码或描述] [--adversarial] [--fix [--all] [--auto]] [--ro
 > 写入 tmpfile、追加 `--prompt-file <tmpfile>`、运行**。helper 内部处理路径解析、
 > spawn array args、shell escape 全部规避——LLM 不参与任何命令构造。
 
+**核心原则（1.0.6 起）**：**主线不传输 diff 内容给 codex/gemini**。把 diff 作为 prompt body 内嵌会撞 OS argv ~32KB 上限（Windows `CreateProcess` / POSIX `execve`）；30KB+ diff 直接 spawn 失败。**正确做法是给 codex/gemini 一个小任务描述**，让它们用自己的 Bash + Read 工具**自己跑 `git diff` 读源文件**——它们在 task mode 下有完整工具权限。
+
 **LLM 工作流（严格 3 步）**：
 
 ```
-Step 1. 用 Write 工具把完整 prompt 写到 tmpfile
-   Write({ file_path: "/tmp/ccg-review-codex-$JOB.txt", content: "<完整 prompt>" })
-   Write({ file_path: "/tmp/ccg-review-gemini-$JOB.txt", content: "<完整 prompt>" })
+Step 1. 用 Write 工具把【小任务描述】写到 tmpfile
+   ⚠️ 内容必须是任务说明（≤ 2KB），不要塞 git diff / 文件内容
+   Write({
+     file_path: "/tmp/ccg-review-codex-$JOB.txt",
+     content: <下方"任务描述模板">  
+   })
+   Write({ 同上，gemini 版本 })
 
 Step 2. 用 Bash 调 helper（占位符已渲染）：
    Bash({
@@ -79,15 +85,46 @@ Step 2. 用 Bash 调 helper（占位符已渲染）：
      timeout: 3600000
    })
 
-Step 3. 等 task-notification 通知后 Read 各自 stdout（即 helper 输出的 JSON），parse
-   `result.stdout` 拿真实 plugin 输出，再按 plugin --json schema 解析。
+Step 3. 等 task-notification 通知后 Read 各自 stdout（helper 输出 JSON），
+   parse `result.stdout` 拿 plugin 真实输出。
 ```
 
-⛔ **严禁** 任何形式自拼命令：
-- 不要写 `node "$(ls ...)/codex-companion.mjs"`
-- 不要 `cat <<EOF`、不要 heredoc、不要 `-p "..."` 内联 prompt
+**任务描述模板**（写到 tmpfile 的内容；保持 ≤ 2KB）：
+
+```
+# 任务：代码审查
+
+工作目录：<工作目录绝对路径>（你已经在这里，可直接用 Bash/Read）
+角色：参考 <角色提示词文件路径>（主线写入：codex 用 ~/.claude/.ccg/prompts/codex/reviewer.md，gemini 用 gemini/reviewer.md）
+
+## 你要做的事（用你自己的工具）
+
+1. 跑 `git diff HEAD --stat` 看变更规模
+2. 跑 `git diff HEAD` 看完整 diff 内容（如太大，逐文件 `git diff HEAD <file>`）
+3. 涉及具体逻辑判断时 Read 相关源文件（看 import / 类型签名 / 调用上下文）
+4. 按角色视角审查：
+   - codex (backend)：算法 / 数据流 / 错误处理 / 安全 / 测试覆盖
+   - gemini (frontend)：组件结构 / 视觉一致性 / 响应式 / 可访问性
+5. **额外硬规则**（如有，主线在此追加，每条 ≤ 200 字）
+
+## 输出 JSON 格式（严格）
+
+{
+  "critical": [{file, line, issue, why, fix?}, ...],
+  "major":    [...],
+  "minor":    [...],
+  "suggestions": [...]
+}
+
+只输出 JSON，无其他文本。空类别输出 []。
+```
+
+⛔ **严禁**：
+- 不要在 prompt 里塞 git diff 内容（撞 ARG_MAX）
+- 不要塞文件源代码（同上）
+- 不要写 `node "$(ls ...)/codex-companion.mjs"`、不要 heredoc、不要 `-p "..."` 内联
 - 不要硬编码 plugin 路径——helper 内部解析 SSoT
-- **唯一允许**：copy 占位符内容 + 追加 `--prompt-file <tmpfile>`
+- **唯一允许**：copy 占位符内容 + 追加 `--prompt-file <tmpfile>`，tmpfile 只放任务描述
 
 ⛔ **不要**用 `Agent(subagent_type="codex:codex-rescue"|"gemini:gemini-rescue")`：
 
@@ -105,25 +142,22 @@ CLI 空答 / auth 过期时 wrapper 受 instruction-tuning 驱动**自答 fabric
 
 并行**两个 Bash 在同一 message 内 `run_in_background: true` 同时 spawn**。
 
-**通道 B — codeagent-wrapper fallback**（plugin 未装时降级，并行用 `run_in_background: true`）：
+**通道 B — codeagent-wrapper fallback**（plugin 未装时降级；wrapper 走 stdin pipe，无 ARG_MAX 限制）：
+
+通道 B 同样**遵循"不塞 diff"原则**——给 wrapper 传任务描述，让 backend codex/gemini CLI 自己跑 git diff 读源文件。wrapper 经 stdin 传 prompt（无 32KB 限制），但 prompt 内容应当还是任务描述而非 diff dump。
 
 ```
 Bash({
-  command: "~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --backend <{{BACKEND_PRIMARY}}|{{FRONTEND_PRIMARY}}> {{GEMINI_MODEL_FLAG}}- \"{{WORKDIR}}\" <<'EOF'
-ROLE_FILE: <角色提示词路径>
-<TASK>
-审查以下代码变更：
-<git diff 内容>
-</TASK>
-OUTPUT: 按 Critical/Major/Minor/Suggestion 分类列出问题
-EOF",
+  command: "cat /tmp/ccg-review-codex-$JOB.txt | ~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --backend codex - \"{{WORKDIR}}\"",
   run_in_background: true,
   timeout: 3600000,
-  description: "简短描述"
+  description: "Review: backend (wrapper fallback)"
 })
 ```
 
-> ⚠️ 通道 B `codeagent-wrapper` 已标 **deprecated**。
+`/tmp/ccg-review-codex-$JOB.txt` 同 通道 A 的"任务描述模板"——不变。
+
+> ⚠️ 通道 B `codeagent-wrapper` 已标 **deprecated**，仅 plugin 未装时使用。
 
 **角色提示词**：
 
@@ -173,19 +207,15 @@ EOF",
 
 **⚠️ 必须发起两个并行 Bash 调用**（参照上方调用规范）：
 
-1. **{{BACKEND_PRIMARY}} 后端审查**：`Bash({ command: "...--backend {{BACKEND_PRIMARY}}...", run_in_background: true })`
-   - ROLE_FILE: `~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/reviewer.md`
-   - 需求：审查代码变更（git diff 内容）
-   - OUTPUT：按 Critical/Major/Minor/Suggestion 分类列出安全性、性能、错误处理问题
-
-2. **{{FRONTEND_PRIMARY}} 前端审查**：`Bash({ command: "...--backend {{FRONTEND_PRIMARY}}...", run_in_background: true })`
-   - ROLE_FILE: `~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/reviewer.md`
-   - 需求：审查代码变更（git diff 内容）
-   - OUTPUT：按 Critical/Major/Minor/Suggestion 分类列出可访问性、响应式、设计一致性问题
+1. 用 Write 把任务描述写到两个 tmpfile（**仅任务说明 + 角色提示词路径，不塞 diff**）
+2. 用 `{{CODEX_BASH_TASK}}` + `{{GEMINI_BASH_TASK}}` 占位符并行 spawn：
+   - **{{BACKEND_PRIMARY}} 后端审查**：role 用 `~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/reviewer.md`
+   - **{{FRONTEND_PRIMARY}} 前端审查**：role 用 `~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/reviewer.md`
+3. 任务描述里要求 codex/gemini 自己跑 `git diff HEAD` 读 diff，按角色视角输出 JSON
 
 **事件驱动等待**：spawn 完两个 Bash bg 后主线 turn end，等 task-notification 自动唤醒。两个 task 都收到通知后进阶段 3。
 
-**务必遵循上方 `多模型调用规范` 的 `重要` 指示**
+**务必遵循上方 `多模型调用规范` 的 `重要` 指示**——尤其是"不塞 diff"原则。
 
 ### 🛡 阶段 2.5：敌对审查（仅 `--adversarial`）
 
@@ -196,8 +226,8 @@ EOF",
 调用方式（Bash 直调，绕开 sonnet wrapper）：
 
 ```
-Step 1. 用 Write 把以下 adversarial prompt 写入 tmpfile:
-   Write({ file_path: "/tmp/ccg-review-adv-$JOB.txt", content: <见下方 prompt body> })
+Step 1. 用 Write 把任务描述写入 tmpfile（同样不塞 diff，让 codex 自己读）:
+   Write({ file_path: "/tmp/ccg-review-adv-$JOB.txt", content: <下方任务描述> })
 
 Step 2. 调 helper:
    Bash({
@@ -208,26 +238,38 @@ Step 2. 调 helper:
    })
 ```
 
-**Adversarial prompt body**（写入 tmpfile 的内容）：
+**Adversarial 任务描述**（写入 tmpfile 的内容；只放摘要 + 指引，不塞 diff）：
 
 ```
---adversarial-review
+# 任务：敌对视角代码审查
 
-请对以下代码变更进行敌对视角审查：
+工作目录：{{WORKDIR}}
 
-<git diff 内容（与阶段 2 同输入）>
+## 你要做的事
 
-已有的前两轮审查意见（仅供你判断哪些被低估，不要重复结论）：
+1. 跑 `git diff HEAD` 看变更（你自己读，主线不传）
+2. 涉及逻辑判断时 Read 相关源文件
+3. 假设代码作者刻意误导，**只挑前两轮没发现 / 低估的**漏洞
 
-<阶段 2 后端审查结果摘要>
+## 前两轮审查意见摘要（避免重复结论）
 
-<阶段 2 前端审查结果摘要>
+后端审查 critical 项：
+- <主线在此填写阶段 2 后端摘要 ≤ 500 字>
 
-你的任务：
-1. 找出前两轮**未发现或低估**的安全/性能/正确性漏洞
-2. 假设代码作者刻意误导，挑刺
-3. 输出格式：[Critical-Adversarial] / [Major-Adversarial] 列表，每条标"为什么前两轮没发现"
+前端审查 critical 项：
+- <主线在此填写阶段 2 前端摘要 ≤ 500 字>
+
+## 输出 JSON 格式
+
+{
+  "critical_adversarial": [{file, line, issue, why_missed_before}, ...],
+  "major_adversarial":    [...]
+}
+
+每条必须标"为什么前两轮没发现"。只输出 JSON。
 ```
+
+主线把前两轮摘要（critical 项 ≤ 500 字）注入 tmpfile，**不要塞完整 review 输出**——主线已经看完了，传摘要即可。
 
 ⛔ 不用 `Agent(subagent_type="codex:codex-rescue")`：review/verify 路径输出直接落地，silent fallback
 风险（sonnet wrapper 受 instruction-tuning 自答冒充 adversarial 视角）不可接受。详见前文「通道 A」段。
