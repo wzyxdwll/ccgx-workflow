@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.7] - 2026-05-10 — 🔄 autonomous verify wave 也切 helper form（与 review 对齐）
+
+### 🐛 1.0.6 遗漏：autonomous 路径还在用旧 glob 模式
+
+1.0.6 修了 `templates/commands/review.md` 但 autonomous 的 verify wave 经过
+`src/utils/verify-orchestrator.ts:buildBashDirectCommand` 生成 bashCommand，
+该函数还在 emit 老的 inline glob hack：
+
+```js
+// 旧（1.0.6 遗漏）：
+return `node "$(ls ~/.claude/plugins/cache/${vendor}/${plugin}/*/scripts/${scriptName} | head -1)" task -p "<PROMPT>" --json`
+```
+
+LLM 消费这条 bashCommand 时**会**：
+1. cargo-cult 不可靠的 `ls | head -1` glob hack
+2. 把 `<PROMPT>` 替换为 30KB+ diff → 撞 ARG_MAX
+
+### ✨ 修复：delegate 到 plugin-bash-codegen.ts
+
+`buildBashDirectCommand` 改为单行 delegate：
+
+```ts
+function buildBashDirectCommand(plugin: 'codex' | 'gemini'): string {
+  return resolvePluginBashCommand(plugin)  // 1.0.5 helper-form
+}
+```
+
+Helper form 输出：`node '<ccgx-call-plugin.mjs abs path>' codex --json`
+
+LLM 追加 `--prompt-file <tmpfile>` 即可，tmpfile 含小任务描述（≤ 2KB）。
+
+### 改动
+
+- `src/utils/verify-orchestrator.ts`: `buildBashDirectCommand` 一行 delegate
+- `src/utils/__tests__/verifyOrchestrator.test.ts`: 4 断言更新（companion.mjs → ccgx-call-plugin.mjs）+ 加 1 个 1.0.7 reverse 断言（不应含 `<PROMPT>` / glob）
+- `src/utils/__tests__/qualityRouter.test.ts`: 1 断言对齐
+
+### ✅ 验证
+
+- `pnpm typecheck` ✓
+- `pnpm test` ✓ **1342/1342**（+1 reverse 断言）
+
+### 收敛轨迹（钉死）
+
+| 版本 | 修了什么 |
+|------|---------|
+| 1.0.4 | review.md inline glob → install-time 渲染占位符 |
+| 1.0.5 | LLM 替换 prompt → tmpfile + helper invocation |
+| 1.0.6 | review.md 不塞 diff，codex/gemini 自己跑 git diff |
+| **1.0.7** | **autonomous verify wave 同步切 helper form** |
+
+整个多模型调用路径现在统一走 `ccgx-call-plugin.mjs` helper，无 glob hack、无 LLM 替换、无 ARG_MAX 风险。
+
+---
+
 ## [1.0.6] - 2026-05-10 — 🔄 review/verify 不再塞 diff，让 codex/gemini 自己读
 
 ### 🐛 1.0.5 dogfood 撞墙：ARG_MAX

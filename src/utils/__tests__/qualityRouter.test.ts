@@ -291,8 +291,13 @@ describe('verify wave: v4.4.2 Bash-direct field propagation', () => {
     const pluginSpawn = verify.spawns.find(s => s.agent.includes(':'))
     expect(pluginSpawn).toBeDefined()
     expect(pluginSpawn!.invocationMode).toBe('bash-direct')
-    expect(pluginSpawn!.bashCommand).toMatch(/companion\.mjs/)
-    expect(pluginSpawn!.bashCommand).toMatch(/<PROMPT>/)
+    // 1.0.7: bashCommand 现在指向 ccgx-call-plugin.mjs helper（非旧的
+    // companion.mjs glob hack）。LLM 追加 `--prompt-file <tmpfile>` 即可。
+    expect(pluginSpawn!.bashCommand).toMatch(/ccgx-call-plugin\.mjs/)
+    expect(pluginSpawn!.bashCommand).toMatch(/(codex|gemini)\b/)
+    // 不应再含旧 glob hack 或 <PROMPT> 占位符
+    expect(pluginSpawn!.bashCommand).not.toMatch(/<PROMPT>/)
+    expect(pluginSpawn!.bashCommand).not.toMatch(/ls .*companion\.mjs.*head -1/)
   })
 
   it('triple tier: both codex+gemini verify spawns carry bashCommand', () => {

@@ -28,6 +28,7 @@ import {
   type ChallengerAgent,
   type Finding,
 } from './challenger-orchestrator'
+import { resolvePluginBashCommand } from './plugin-bash-codegen'
 
 // ---------------------------------------------------------------------------
 // 1. Schema
@@ -110,16 +111,24 @@ const CCG_PROMPT_BASE = '~/.claude/.ccg/prompts'
 // ---------------------------------------------------------------------------
 
 /**
- * v4.4.2: 给定 plugin 名构造 Bash 直调命令（绕开 sonnet wrapper）。
+ * 1.0.7: Build Bash command for verify wave plugin invocation.
  *
- * Plugin 脚本路径含版本号（如 `codex/1.0.4/scripts/codex-companion.mjs`），
- * 这里用 glob 通配，主线模板 Bash 跑时用 `ls` 解析具体版本。
+ * Delegates to `resolvePluginBashCommand()` (plugin-bash-codegen.ts) which
+ * emits the helper-form invocation:
+ *   node '<ccgx-call-plugin.mjs abs path>' codex --json
+ *
+ * The LLM consuming this command appends `--prompt-file <tmpfile>` after
+ * writing a small task-description prompt body to disk. Helper internally
+ * resolves companion path via SSoT (no glob-hack, no head -1, no
+ * `<PROMPT>` placeholder) and spawns with array args (no shell escape).
+ *
+ * Combined with the "task description, not data" pattern (1.0.6 review.md),
+ * this avoids both:
+ *   - LLM cargo-culting glob-hack patterns (1.0.4 dogfood failure)
+ *   - OS argv ARG_MAX ceiling on large diffs (1.0.5 dogfood failure)
  */
 function buildBashDirectCommand(plugin: 'codex' | 'gemini'): string {
-  const vendor = plugin === 'codex' ? 'openai-codex' : 'google-gemini'
-  const scriptName = `${plugin}-companion.mjs`
-  // 注：模板消费时主线先跑 ls 拿真实版本号，下面是带 glob 的占位
-  return `node "$(ls ~/.claude/plugins/cache/${vendor}/${plugin}/*/scripts/${scriptName} | head -1)" task -p "<PROMPT>" --json`
+  return resolvePluginBashCommand(plugin)
 }
 
 /**

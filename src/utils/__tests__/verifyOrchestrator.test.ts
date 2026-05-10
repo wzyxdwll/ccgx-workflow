@@ -120,17 +120,17 @@ describe('planVerifyWave — v4.4.2 useDirectBashInvocation', () => {
   it('useDirectBashInvocation=true switches plugin entries to bash-direct', () => {
     const p = planVerifyWave('triple', 'backend', PLUGINS_BOTH, { useDirectBashInvocation: true })
     expect(p.spawns).toHaveLength(2)
-    // codex entry
+    // codex entry — 1.0.7: bashCommand 调 helper，不再含 companion.mjs glob
     expect(p.spawns[0].agent).toBe('codex:codex-rescue')
     expect(p.spawns[0].invocationMode).toBe('bash-direct')
-    expect(p.spawns[0].bashCommand).toContain('codex-companion.mjs')
-    expect(p.spawns[0].bashCommand).toContain('openai-codex/codex/')
+    expect(p.spawns[0].bashCommand).toContain('ccgx-call-plugin.mjs')
+    expect(p.spawns[0].bashCommand).toMatch(/\bcodex\b/)
     expect(p.spawns[0].bashCommand).toContain('--json')
     // gemini entry
     expect(p.spawns[1].agent).toBe('gemini:gemini-rescue')
     expect(p.spawns[1].invocationMode).toBe('bash-direct')
-    expect(p.spawns[1].bashCommand).toContain('gemini-companion.mjs')
-    expect(p.spawns[1].bashCommand).toContain('google-gemini/gemini/')
+    expect(p.spawns[1].bashCommand).toContain('ccgx-call-plugin.mjs')
+    expect(p.spawns[1].bashCommand).toMatch(/\bgemini\b/)
   })
 
   it('fast tier + bash-direct: single plugin entry switches', () => {
@@ -138,14 +138,28 @@ describe('planVerifyWave — v4.4.2 useDirectBashInvocation', () => {
     expect(p.spawns).toHaveLength(1)
     expect(p.spawns[0].agent).toBe('gemini:gemini-rescue')
     expect(p.spawns[0].invocationMode).toBe('bash-direct')
-    expect(p.spawns[0].bashCommand).toContain('gemini-companion.mjs')
+    expect(p.spawns[0].bashCommand).toContain('ccgx-call-plugin.mjs')
+    expect(p.spawns[0].bashCommand).toMatch(/\bgemini\b/)
   })
 
   it('fast tier + bash-direct + frontend layer: codex bash-direct', () => {
     const p = planVerifyWave('fast', 'frontend', PLUGINS_BOTH, { useDirectBashInvocation: true })
     expect(p.spawns[0].agent).toBe('codex:codex-rescue')
     expect(p.spawns[0].invocationMode).toBe('bash-direct')
-    expect(p.spawns[0].bashCommand).toContain('codex-companion.mjs')
+    expect(p.spawns[0].bashCommand).toContain('ccgx-call-plugin.mjs')
+    expect(p.spawns[0].bashCommand).toMatch(/\bcodex\b/)
+  })
+
+  it('1.0.7: bashCommand never contains old glob hack or <PROMPT> placeholder', () => {
+    const p = planVerifyWave('triple', 'backend', PLUGINS_BOTH, { useDirectBashInvocation: true })
+    for (const s of p.spawns) {
+      if (s.bashCommand) {
+        expect(s.bashCommand).not.toMatch(/<PROMPT>/)
+        expect(s.bashCommand).not.toMatch(/ls .*companion\.mjs.*head -1/)
+        expect(s.bashCommand).not.toMatch(/codex-companion\.mjs/)
+        expect(s.bashCommand).not.toMatch(/gemini-companion\.mjs/)
+      }
+    }
   })
 
   it('plugin missing + bash-direct: general-purpose entry NOT marked bash-direct (no plugin script to call)', () => {
