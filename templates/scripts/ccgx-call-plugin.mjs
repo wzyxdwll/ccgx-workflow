@@ -108,12 +108,21 @@ function parseArgs(argv) {
     // 600s default was SIGTERM-ing healthy tasks mid-thought. 2h is a
     // generous safety ceiling — pass 0 to disable entirely.
     timeoutMs: 7200000,
-    // 2.1.1: NEW idle timeout. Wall-time alone is the wrong signal — a
-    // healthy long-running audit produces continuous stdout/stderr (tool
-    // calls, progress lines). A truly hung companion produces nothing.
-    // We track lastActivityAt on every stdout/stderr chunk and SIGTERM if
-    // silent for idleTimeoutMs (default 600s = 10min). Pass 0 to disable.
-    idleTimeoutMs: 600000,
+    // 2.1.2: idle detection is OPT-IN (default 0 = disabled). The original
+    // 2.1.1 assumption that "healthy long-running audits emit continuous
+    // stdout/stderr chunks" is FALSE for both vendors:
+    //   - codex-companion `task`: writes progress to its internal job
+    //     state.json (read via `codex status`); helper sees ZERO stdout
+    //     until the final JSON envelope.
+    //   - gemini-batch / gemini-cli `--output-format json`: emits 4-5
+    //     startup warning lines, then SILENT through model reasoning + all
+    //     tool calls, then the final JSON.
+    // Deep reasoning passes can silently exceed any reasonable idle
+    // threshold while being perfectly healthy. Wall-time (default 2h)
+    // remains the only safety bound by default. Callers who know their
+    // task class is supposed to stream (e.g. future protocol additions)
+    // can pass --idle-timeout-ms <N> explicitly.
+    idleTimeoutMs: 0,
     maxBudgetUsd: 50,
     // 1.0.5 regression fix: pre-1.0.5 callers always passed --write directly
     // to codex-companion. Default true preserves BC; --no-write opt-out for
@@ -178,7 +187,7 @@ Optional:
   --json                  Pass --json to companion (default: true)
   --no-json               Disable --json (text output)
   --timeout-ms <N>        Kill companion if total wall-time exceeds N ms (default: 7200000, 2h; pass 0 to disable)
-  --idle-timeout-ms <N>   Kill companion if no stdout/stderr output for N ms (default: 600000, 10min; pass 0 to disable). Idle detection is the right signal for "hung" — healthy long-running audits keep producing tool-call progress.
+  --idle-timeout-ms <N>   Kill companion if no stdout/stderr output for N ms (default: 0 = disabled). NOTE: codex-companion and gemini-batch both emit NOTHING to stdout/stderr during execution (progress lives in internal state files); idle defaults to disabled to avoid false-positive kills of healthy long tasks. Set to a positive value only if your task class is known to stream.
   --max-budget-usd <N>    Per-call cost cap (default: 50)
   --write                 Enable workspace-write sandbox (default: true; codex needs this to spawn read commands too under default approval policy)
   --no-write              Force read-only sandbox (companion approval-policy will decline most commands)

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.1.2] - 2026-05-12 — 🐛 helper idle 默认禁用（治 2.1.1 回归：误杀健康长任务）
+
+### 修复（v2.1.1 回归）
+
+- **`--idle-timeout-ms` 默认 600000 → 0**（disabled）。v2.1.1 引入 idle 检测的前提是"健康长任务持续吐 stdout/stderr chunk"——但实测 codex-companion 和 gemini-batch 都**执行期完全静默**（progress 写到内部 state 文件，不走 stdout）。10min idle 在真实 codex audit / 长 reasoning 时误杀。改 idle 为 OPT-IN：默认 0 = 禁用，wall-time 2h 保持兜底，需要 idle 检测的调用方显式传正整数。
+- **依赖升级**：`gemini@gemini-ccgx` 1.1.2+（同款 idle 默认禁用）。
+
+### 已知限制（v2.2 计划修）
+
+- helper 当前**无可靠探活**——idle stdout 检测对 codex/gemini-batch 两个 vendor 都没有可用信号。真正的 hang 检测要读 vendor 自己的 job state 文件（codex 有，gemini-batch 没有）。设计中。
+
+---
+
 ## [2.1.1] - 2026-05-12 — 🛡 helper 加 idle/wall 双层超时 + auto-cleanup symlink 防护 + review.md 跨平台路径修复
 
 ### 🐛 修复
