@@ -51,8 +51,23 @@ function findPluginVersion() {
   return versions[versions.length - 1];
 }
 
-const VERSION = findPluginVersion();
-const SCRIPTS = join(PLUGIN_BASE, VERSION, "scripts");
+// Allow redirecting the patch target to a custom location, e.g. a local fork.
+// When GEMINI_PLUGIN_SCRIPTS is set, it must point directly to the `scripts/`
+// directory (containing acp-broker.mjs, gemini-companion.mjs, lib/...).
+// Falls back to ~/.claude/plugins/cache/.../gemini/<latest>/scripts/.
+let SCRIPTS;
+let VERSION;
+if (process.env.GEMINI_PLUGIN_SCRIPTS) {
+  SCRIPTS = process.env.GEMINI_PLUGIN_SCRIPTS;
+  if (!existsSync(SCRIPTS)) {
+    throw new Error(`GEMINI_PLUGIN_SCRIPTS path does not exist: ${SCRIPTS}`);
+  }
+  VERSION = `<custom: ${SCRIPTS}>`;
+}
+else {
+  VERSION = findPluginVersion();
+  SCRIPTS = join(PLUGIN_BASE, VERSION, "scripts");
+}
 
 console.log(`Patching gemini plugin ${VERSION} at:\n  ${SCRIPTS}\n`);
 
