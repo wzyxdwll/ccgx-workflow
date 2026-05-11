@@ -39,7 +39,7 @@ argument-hint: "<分析问题或任务> [--role=architect|critic|implementer|tes
 
 CCG 把双模型并行通道从 `Bash(codeagent-wrapper)` **默认切换**为 plugin spawn：
 
-1. **优先 plugin spawn**（默认）：装了 `codex@openai-codex` + `gemini@google-gemini` plugin → 用 `Agent(subagent_type="codex:codex-rescue")` + `Agent(subagent_type="gemini:gemini-rescue")` 并行，主线接 ≤200 token 摘要。
+1. **优先 plugin spawn**（默认）：装了 `codex@openai-codex` + gemini plugin（推荐 `gemini@gemini-ccgx` fork，含 P-1..P-21 + W1/W2/I1 patch；或上游 `gemini@google-gemini` 配 repatch 脚本）→ 用 `Agent(subagent_type="codex:codex-rescue")` + `Agent(subagent_type="gemini:gemini-rescue")` 并行，主线接 ≤200 token 摘要。
 2. **降级 codeagent-wrapper**（BC fallback）：plugin 未装 → fallback 到 Bash 调用，行为与 plugin 路径等价。
 
 **判定**：preflight `Bash` 跑 `ls ~/.claude/plugins/` 看有无 `codex@*` / `gemini@*` 子目录。helper 见 `src/utils/plugin-detection.ts`。

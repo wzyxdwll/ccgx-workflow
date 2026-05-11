@@ -31,18 +31,18 @@ afterEach(() => {
   rmSync(tmpHome, { recursive: true, force: true })
 })
 
-// Helper: write a fake installed_plugins.json + companion file to tmpHome
-function setupFakePlugin(vendor: 'codex' | 'gemini', version: string) {
-  const marketplaceKey = vendor === 'codex' ? 'codex@openai-codex' : 'gemini@google-gemini'
-  const installPath = join(
-    tmpHome,
-    '.claude',
-    'plugins',
-    'cache',
-    vendor === 'codex' ? 'openai-codex' : 'google-gemini',
-    vendor,
-    version,
-  )
+// Helper: write a fake installed_plugins.json + companion file to tmpHome.
+// `extra` allows installing additional marketplace keys (used by the
+// preference-order tests to install both ccgx + upstream gemini).
+function setupFakePlugin(
+  vendor: 'codex' | 'gemini',
+  version: string,
+  marketplace?: 'openai-codex' | 'google-gemini' | 'gemini-ccgx',
+  extra?: Array<{ vendor: 'gemini', marketplace: 'google-gemini' | 'gemini-ccgx', version: string }>,
+) {
+  const mp = marketplace ?? (vendor === 'codex' ? 'openai-codex' : 'google-gemini')
+  const marketplaceKey = `${vendor}@${mp}`
+  const installPath = join(tmpHome, '.claude', 'plugins', 'cache', mp, vendor, version)
   const scriptsDir = join(installPath, 'scripts')
   const companionPath = join(scriptsDir, `${vendor}-companion.mjs`)
   mkdirSync(scriptsDir, { recursive: true })
@@ -50,24 +50,24 @@ function setupFakePlugin(vendor: 'codex' | 'gemini', version: string) {
 
   const ssotPath = join(tmpHome, '.claude', 'plugins', 'installed_plugins.json')
   mkdirSync(join(tmpHome, '.claude', 'plugins'), { recursive: true })
-  writeFileSync(
-    ssotPath,
-    JSON.stringify({
-      version: 2,
-      plugins: {
-        [marketplaceKey]: [
-          {
-            scope: 'user',
-            installPath,
-            version,
-            installedAt: '2026-05-10T00:00:00.000Z',
-          },
-        ],
-      },
-    }),
-    'utf-8',
-  )
 
+  const plugins: Record<string, unknown[]> = {
+    [marketplaceKey]: [
+      { scope: 'user', installPath, version, installedAt: '2026-05-10T00:00:00.000Z' },
+    ],
+  }
+
+  for (const e of extra ?? []) {
+    const eKey = `${e.vendor}@${e.marketplace}`
+    const eInstall = join(tmpHome, '.claude', 'plugins', 'cache', e.marketplace, e.vendor, e.version)
+    mkdirSync(join(eInstall, 'scripts'), { recursive: true })
+    writeFileSync(join(eInstall, 'scripts', `${e.vendor}-companion.mjs`), '// fake companion', 'utf-8')
+    plugins[eKey] = [
+      { scope: 'user', installPath: eInstall, version: e.version, installedAt: '2026-05-10T00:00:00.000Z' },
+    ]
+  }
+
+  writeFileSync(ssotPath, JSON.stringify({ version: 2, plugins }), 'utf-8')
   return { installPath, companionPath, version }
 }
 
@@ -144,13 +144,35 @@ describe('discoverCompanion', () => {
     expect(loc!.version).toBe('1.0.4')
   })
 
-  it('discovers gemini companion correctly', () => {
+  it('discovers gemini companion correctly (default fallback to upstream)', () => {
     const { companionPath } = setupFakePlugin('gemini', '1.0.1')
     const loc = discoverCompanion('gemini', tmpHome)
     expect(loc).not.toBeNull()
     expect(loc!.vendor).toBe('gemini')
     expect(loc!.companionPath).toBe(companionPath)
     expect(loc!.version).toBe('1.0.1')
+  })
+
+  it('CCG 2.0.0: prefers gemini-ccgx fork over google-gemini upstream when both installed', () => {
+    // User has both — fork should win.
+    const { companionPath: ccgxCompanion } = setupFakePlugin('gemini', '1.0.1-ccgx', 'gemini-ccgx', [
+      { vendor: 'gemini', marketplace: 'google-gemini', version: '1.0.1' },
+    ])
+    const loc = discoverCompanion('gemini', tmpHome)!
+    expect(loc.companionPath).toBe(ccgxCompanion)
+    expect(loc.version).toBe('1.0.1-ccgx')
+  })
+
+  it('CCG 2.0.0: fork-only install discovers correctly', () => {
+    const { companionPath } = setupFakePlugin('gemini', '1.0.1-ccgx', 'gemini-ccgx')
+    const loc = discoverCompanion('gemini', tmpHome)!
+    expect(loc.companionPath).toBe(companionPath)
+  })
+
+  it('CCG 2.0.0: upstream-only install still works (BC for non-fork users)', () => {
+    const { companionPath } = setupFakePlugin('gemini', '1.0.1', 'google-gemini')
+    const loc = discoverCompanion('gemini', tmpHome)!
+    expect(loc.companionPath).toBe(companionPath)
   })
 
   it('uses installPath from SSoT, not glob — multi-version cache safe', () => {
@@ -240,9 +262,10 @@ describe('buildPluginMissingFallback', () => {
     expect(out).toContain('exit 1')
   })
 
-  it('gemini fallback contains marketplace key and exit 1', () => {
+  it('gemini fallback recommends ccgx fork as primary install path (2.0.0)', () => {
     const out = buildPluginMissingFallback('gemini')
-    expect(out).toContain('gemini@google-gemini')
+    expect(out).toContain('gemini@gemini-ccgx')
+    expect(out).toContain('wzyxdwll/gemini-plugin-cc')
     expect(out).toContain('exit 1')
   })
 
@@ -269,10 +292,10 @@ describe('resolvePluginBashCommand', () => {
     expect(cmd).not.toContain('%PROMPT%')
   })
 
-  it('returns fallback when plugin is not installed', () => {
+  it('returns fallback when plugin is not installed (recommends ccgx fork)', () => {
     const cmd = resolvePluginBashCommand('gemini', {}, tmpHome)
     expect(cmd).toContain('not installed')
-    expect(cmd).toContain('gemini@google-gemini')
+    expect(cmd).toContain('gemini@gemini-ccgx')
     expect(cmd).toContain('exit 1')
   })
 

@@ -61,12 +61,16 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 // ---------------------------------------------------------------------------
-// Vendor → marketplace key (matches plugin-bash-codegen.ts SSoT lookup)
+// Vendor → marketplace keys (ordered preference list).
+//
+// CCG 2.0.0: gemini-ccgx (ccgx-maintained fork shipping P-1..P-21 + W1/W2/I1
+// inline, no repatch needed) is preferred over google-gemini (upstream).
+// Keep this list in sync with src/utils/plugin-bash-codegen.ts.
 // ---------------------------------------------------------------------------
 
 const VENDOR_KEYS = {
-  codex: 'codex@openai-codex',
-  gemini: 'gemini@google-gemini',
+  codex: ['codex@openai-codex'],
+  gemini: ['gemini@gemini-ccgx', 'gemini@google-gemini'],
 }
 
 // ---------------------------------------------------------------------------
@@ -154,16 +158,26 @@ function discoverCompanion(vendor, homeDir = homedir()) {
     return { error: `installed_plugins.json parse failed: ${e.message}` }
   }
 
-  const key = VENDOR_KEYS[vendor]
-  const instances = raw?.plugins?.[key]
-  if (!Array.isArray(instances) || instances.length === 0) {
-    return { error: `plugin ${key} not installed (no entry in installed_plugins.json)` }
+  // Try preferred keys in order — fork first, upstream fallback.
+  const keys = VENDOR_KEYS[vendor]
+  let instances = null
+  let matchedKey = null
+  for (const key of keys) {
+    const candidate = raw?.plugins?.[key]
+    if (Array.isArray(candidate) && candidate.length > 0) {
+      instances = candidate
+      matchedKey = key
+      break
+    }
+  }
+  if (!instances || instances.length === 0) {
+    return { error: `${vendor} plugin not installed (tried ${keys.join(', ')})` }
   }
 
   const inst = instances[0]
   const installPath = inst?.installPath
   if (typeof installPath !== 'string' || !installPath) {
-    return { error: `plugin ${key} has no installPath in installed_plugins.json` }
+    return { error: `plugin ${matchedKey} has no installPath in installed_plugins.json` }
   }
 
   const companionPath = join(installPath, 'scripts', `${vendor}-companion.mjs`)

@@ -7,6 +7,99 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.0.0] - 2026-05-11 — ✨ 主推 `gemini@gemini-ccgx` fork（ccgx-maintained）+ 完全向后兼容上游
+
+### 🎯 产品策略转向（为什么 2.0.0）
+
+技术上 fully backward-compatible —— 仍用 `gemini@google-gemini` 上游 + repatch 脚本的老用户**零改动继续工作**。但 ccgx 推荐路径从"上游 + repatch"转向"用 ccgx fork"，这是显著的架构信号，所以 major bump。
+
+**fork**: <https://github.com/wzyxdwll/gemini-plugin-cc>（marketplace name `gemini-ccgx`）
+- 把 P-1..P-21 + W1/W2/I1 全部 patch 作为永久 commit 合进源码
+- 不需要 repatch 脚本
+- 用 `claude plugin update gemini@gemini-ccgx` 拉新 patch
+- 自带 6 个集成测试（tests/ccg-patches.test.mjs：cancel passthrough / cleanup / W1 fake-success regression）
+
+### ✨ 优先级路由（核心改动）
+
+`src/utils/plugin-bash-codegen.ts` 的 `VENDOR_MARKETPLACE_KEYS` 从单 key 改成 ordered list：
+
+```ts
+const VENDOR_MARKETPLACE_KEYS: Record<Vendor, string[]> = {
+  codex: ['codex@openai-codex'],
+  gemini: ['gemini@gemini-ccgx', 'gemini@google-gemini'],  // fork 优先 + 上游 fallback
+}
+```
+
+`discoverCompanion` 遍历 keys，第一个在 `installed_plugins.json` 找到的赢。
+`templates/scripts/ccgx-call-plugin.mjs` runtime helper 同步实现。
+
+`buildPluginMissingFallback` 错误消息推荐 fork 安装路径：
+
+```
+# CCG: gemini plugin not installed at CCG install time.
+# Install with:
+#   claude plugin marketplace add wzyxdwll/gemini-plugin-cc
+#   claude plugin install gemini@gemini-ccgx
+```
+
+### 📋 兼容性矩阵
+
+| 用户场景 | 2.0.0 行为 |
+|---|---|
+| 装了 `gemini@gemini-ccgx`（推荐） | 自动用 fork，1 步安装，patch 永久 |
+| 装了 `gemini@google-gemini`（上游） | Fallback 到上游，slash command 仍 work，需配 repatch 脚本 |
+| 装了**两个**（罕见） | fork 优先 |
+| 都没装 | fallback 错误消息推荐 fork |
+
+### 🛠 文档 + 提示更新
+
+- `templates/commands/{analyze,execute,optimize,plan,review}.md`：双 plugin 选项描述（fork 推荐 / 上游 BC）
+- `src/commands/init.ts` 安装提示：推荐 fork + 上游 BC 提示
+- `templates/scripts/invoke-model.mjs` exitMissingBackend：fork-first install hint
+- `.ccg-migration/PLUGIN-PATCHES.md`：新加"2.0.0+ 推荐路径"章节 + fork vs 上游对比表
+- README 等：（next minor，先保证核心 codepath 切换）
+
+### 🧪 测试更新
+
+`src/utils/__tests__/pluginBashCodegen.test.ts`：
+- 现有 26 个测试 BC（上游路径 fallback 通过）
+- 新增 3 个 fork-priority 测试：
+  - "prefers gemini-ccgx fork over google-gemini upstream when both installed"
+  - "fork-only install discovers correctly"
+  - "upstream-only install still works (BC for non-fork users)"
+- 共 29 个测试，0 fail
+
+全套：50 文件，1358 测试，0 fail。
+
+### 🔄 plugin-detection.ts
+
+`PLUGIN_PREFIXES.gemini` 加 `'gemini-ccgx@'`，让 `challenger-orchestrator` 也认识 fork。
+
+### 📦 repatch-gemini-plugin.mjs 状态
+
+**保留**，专门给仍用上游 `gemini@google-gemini` 的用户。Plugin update 后他们继续跑这个脚本即可。CCG 2.0.0 不删除这条路径，**完全 BC**。
+
+如果用户切到 fork，repatch 不需要再跑（fork 已自带所有 patch）。脚本会显示 `1 applied, 9 already-patched`（fork 已 patched）。
+
+### 💡 升级建议
+
+**新用户**：直接装 fork
+```bash
+claude plugin marketplace add wzyxdwll/gemini-plugin-cc
+claude plugin install gemini@gemini-ccgx
+```
+
+**老用户（已装 `gemini@google-gemini`）**：可继续用，或迁移到 fork：
+```bash
+claude plugin disable gemini@google-gemini   # 避免 slash command 撞
+claude plugin marketplace add wzyxdwll/gemini-plugin-cc
+claude plugin install gemini@gemini-ccgx
+```
+
+ccgx 自动识别两种，slash command `/ccg:review` `/ccg:plan` 等都正常。
+
+---
+
 ## [1.0.10] - 2026-05-11 — ✨ B2: gemini broker 真复用（治根因 R2）+ kill-orphans --stuck 兜底
 
 ### 🐛 治本: P-12 patch — `CLAUDE_PLUGIN_DATA` env 串台

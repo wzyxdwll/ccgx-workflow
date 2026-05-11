@@ -217,7 +217,7 @@ function exitMissingBackend(backend) {
   const pluginInstall = backend === 'codex'
     ? '/plugins install codex@openai-codex'
     : backend === 'gemini'
-      ? '/plugins install gemini@google-gemini'
+      ? '/plugins install gemini@gemini-ccgx (ccgx 2.0.0 fork, recommended) — or /plugins install gemini@google-gemini (upstream)'
       : null;
   const npmInstall = backend === 'codex'
     ? 'npm i -g @openai/codex'

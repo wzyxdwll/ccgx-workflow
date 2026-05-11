@@ -65,12 +65,35 @@ export interface BuildBashCommandOptions {
 }
 
 // ---------------------------------------------------------------------------
-// Plugin name → marketplace key (the keys used in installed_plugins.json)
+// Plugin name → marketplace keys (the keys used in installed_plugins.json).
+//
+// Ordered list — the first key found in installed_plugins.json wins.
+//
+// CCG 2.0.0: gemini-ccgx (ccgx-maintained fork at wzyxdwll/gemini-plugin-cc)
+// is preferred over google-gemini (upstream sakibsadmanshajib/gemini-plugin-cc)
+// because the fork ships P-1..P-21 + W1/W2/I1 patches inline — no repatch
+// script needed. The upstream key remains as fallback so users who haven't
+// switched yet keep working (repatch-gemini-plugin.mjs still maintains them).
 // ---------------------------------------------------------------------------
 
-const VENDOR_MARKETPLACE_KEYS: Record<Vendor, string> = {
-  codex: 'codex@openai-codex',
-  gemini: 'gemini@google-gemini',
+const VENDOR_MARKETPLACE_KEYS: Record<Vendor, string[]> = {
+  codex: ['codex@openai-codex'],
+  gemini: ['gemini@gemini-ccgx', 'gemini@google-gemini'],
+}
+
+/**
+ * Primary install command shown in error / setup messages. Always points at
+ * the recommended (CCG-maintained) source for the vendor.
+ */
+const VENDOR_PRIMARY_INSTALL: Record<Vendor, { marketplace: string; key: string }> = {
+  codex: {
+    marketplace: 'openai/codex-plugin-cc',
+    key: 'codex@openai-codex',
+  },
+  gemini: {
+    marketplace: 'wzyxdwll/gemini-plugin-cc',
+    key: 'gemini@gemini-ccgx',
+  },
 }
 
 // ---------------------------------------------------------------------------
@@ -101,11 +124,18 @@ export function discoverCompanion(
     return null
   }
 
-  const key = VENDOR_MARKETPLACE_KEYS[vendor]
-  const instances = raw?.plugins?.[key]
-  if (!Array.isArray(instances) || instances.length === 0) return null
+  // Try preferred keys in order — fork first, upstream fallback.
+  const keys = VENDOR_MARKETPLACE_KEYS[vendor]
+  let inst: any = null
+  for (const key of keys) {
+    const instances = raw?.plugins?.[key]
+    if (Array.isArray(instances) && instances.length > 0) {
+      inst = instances[0]
+      break
+    }
+  }
+  if (!inst) return null
 
-  const inst = instances[0]
   const installPath = inst?.installPath
   if (typeof installPath !== 'string' || !installPath) return null
 
@@ -192,10 +222,12 @@ export function buildBashCommand(
  * instead of a silently broken command.
  */
 export function buildPluginMissingFallback(vendor: Vendor): string {
-  const key = VENDOR_MARKETPLACE_KEYS[vendor]
+  const { marketplace, key } = VENDOR_PRIMARY_INSTALL[vendor]
   return [
-    `# CCG: ${vendor} plugin (${key}) not installed at CCG install time.`,
-    `# Install with: claude plugin install ${key}`,
+    `# CCG: ${vendor} plugin not installed at CCG install time.`,
+    `# Install with:`,
+    `#   claude plugin marketplace add ${marketplace}`,
+    `#   claude plugin install ${key}`,
     `# Then re-run: npx ccgx-workflow init --skip-prompt --skip-mcp`,
     `echo 'CCG: ${vendor} plugin not available' >&2 && exit 1`,
   ].join('\n')

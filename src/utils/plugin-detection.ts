@@ -89,9 +89,12 @@ const PLUGIN_MARKERS = ['SKILL.md', 'plugin.json', 'package.json', 'manifest.jso
  * only need to know "is a codex rescue plugin available". If multiple
  * matching dirs exist, we report installed once any has a valid marker.
  */
+// CCG 2.0.0: 'gemini-ccgx@' is the ccgx-maintained fork
+// (wzyxdwll/gemini-plugin-cc). 'google-gemini@' remains as fallback for
+// users still on the upstream sakibsadmanshajib/gemini-plugin-cc.
 const PLUGIN_PREFIXES: Record<PluginName, string[]> = {
   codex: ['codex@', 'codex-rescue@', 'openai-codex@'],
-  gemini: ['gemini@', 'gemini-rescue@', 'google-gemini@'],
+  gemini: ['gemini@', 'gemini-rescue@', 'gemini-ccgx@', 'google-gemini@'],
 }
 
 // ---------------------------------------------------------------------------

@@ -8,6 +8,41 @@ CCG 通过 plugin 路径调用 codex / gemini。CCG 自身代码无法控制 plu
 
 ---
 
+## 2.0.0+ 推荐路径：用 ccgx fork（`gemini@gemini-ccgx`），不再 repatch
+
+ccgx 2.0.0 起官方推荐用 **wzyxdwll/gemini-plugin-cc** fork（在 marketplace 注册名 `gemini-ccgx`）。这个 fork 把 P-1..P-21 + W1/W2/I1 全部 patch 作为永久 commit 合进源码，**不需要 repatch 脚本**。
+
+```bash
+# 推荐：用 fork（含全部 patch）
+claude plugin marketplace add wzyxdwll/gemini-plugin-cc
+claude plugin install gemini@gemini-ccgx
+
+# 兼容：仍可用上游 + repatch 脚本（BC，不推荐）
+claude plugin marketplace add sakibsadmanshajib/gemini-plugin-cc
+claude plugin install gemini@google-gemini
+node ~/.claude/.ccg/scripts/repatch-gemini-plugin.mjs  # 每次 plugin update 后重跑
+```
+
+ccgx 2.0.0 的 `plugin-bash-codegen.ts` / `ccgx-call-plugin.mjs` 在 `installed_plugins.json` 里**优先**找 `gemini@gemini-ccgx`，找不到 fallback 到 `gemini@google-gemini`。用户什么都不改也能 work，但切到 fork 收益：
+
+| 维度 | 上游 + repatch | ccgx fork |
+|------|----------------|-----------|
+| 安装步骤 | 2 步（install + repatch） | 1 步（install） |
+| update 后 | 必须重跑 repatch | 自动包含 patch |
+| Windows pipe 隔离（P-19） | 需 patch | 已 commit |
+| ACP timeout（P-15/18） | 需 patch | 已 commit |
+| broker idle watchdog（P-14） | 需 patch | 已 commit |
+| interrupt passthrough（P-17） | 需 patch | 已 commit |
+| broker.log 启用（I1） | 需 patch | 已 commit |
+| 集成测试覆盖（I2） | 上游无 | fork tests/ccg-patches.test.mjs |
+| 升级新 patch | 跑 repatch 脚本 | `claude plugin update gemini@gemini-ccgx` |
+
+repatch 脚本（`templates/scripts/repatch-gemini-plugin.mjs`）保留，专门给仍用上游的用户。**新用户建议直接用 fork**。
+
+---
+
+---
+
 ## P-1: gemini plugin v1.0.1 — Windows spawn 抢焦点（隐形 cmd 弹窗）
 
 **状态**: 未修（上游待 PR），本地 patch 可立即缓解
