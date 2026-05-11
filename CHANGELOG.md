@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.1.0] - 2026-05-12 — ✨ gemini 改走 batch 直调（绕开 ACP），孤儿进程归零
+
+### 🎯 为什么 2.1.0（一句话）
+
+ACP broker 路径在 Windows + gemini-cli 0.40+ 实测稳定 hang（trivial 任务 5 分钟无输出），改走 gemini-cli `batch` 直调 entry，trivial 任务 29s 干净返、**新增孤儿进程 0**。
+
+### ✨ 新功能
+
+- **`gemini` 改走 `gemini-batch.mjs` 入口（绕开 ACP）**。`ccgx-call-plugin.mjs` 新增 `VENDOR_ENTRY_SCRIPTS` 注册表，gemini 优先走 fork plugin 新加的 `gemini-batch.mjs`（v1.1.0+ 的 gemini-plugin-cc），fallback 仍是 `gemini-companion.mjs`。BC 友好：旧 plugin 版本自动走老路径。
+  - 实测：trivial 任务 ACP 5+ 分钟 hang → batch 29.4s 返回。
+  - 孤儿进程：每次失败 5-10 个 MCP/broker 子进程 → **0**。
+  - 治本机制：`gemini-cli` 直接子进程跑完 prompt 后干净退出，整条进程树自然 die；`--allowed-mcp-server-names __ccgx_no_mcp__` 让 settings.json 里的 MCP 不被加载，无 MCP children 可漏。
+- **codex 单 cwd 跨仓库审计支持**。`--cwd <path>` flag 透传到 `codex-companion.mjs` 的 `task -C` 参数，让单次 helper 调用能审计 caller process.cwd 之外的仓库。
+
+### 🐛 修复（1.0.5 回归）
+
+- **`ccgx-call-plugin.mjs` 恢复 `--write` / `--model` / `--effort` flag 透传**。1.0.5 的"收敛 LLM 命令构造表面"过度精简，把这些必需 flag 也吃掉了，导致 codex 默认走 read-only sandbox（连 `Get-Content` / `rg --files` 这类只读命令都被 declined），任何审计/review 任务都立即 exit 1。
+  - `--write`：默认开（保持 1.0.4 行为），传 `--no-write` 显式切回 read-only review 模式。
+  - `--model <name>`：codex 主模型切换（gpt-5.5 等）。
+  - `--effort <level>`：reasoning effort 控制（minimal/low/medium/high/xhigh）。
+  - `--cwd <path>`：codex sandbox 是 cwd-bound 的，本 flag 让跨仓库审计可行（codex-companion 本身不暴露 `--add-dir`）。
+
+### 🗑️ 清理
+
+- **删除 `.ccg/` 下 28 个 v3.x/v4.x 内部 dogfood 残留文件**（roadmap、milestones、poc-v45）。这些是 rebrand 前从未发布到 npm 的开发期 artifact，权威归档在 `.ccg-migration/INTERNAL-DEV-LOG.md`。副作用：`SessionStart` hook 不再注入 "Project: ccg-workflow v4.5 | Phases: 8/8 completed" 这条让新会话困惑的横幅。
+
+### 📦 依赖（推荐升级）
+
+- **`gemini@gemini-ccgx` 1.1.0+** — 提供本版本依赖的 `gemini-batch.mjs` 入口。装的是 1.0.x 版本仍可工作（fallback 到 `gemini-companion.mjs`，但会撞 ACP hang）。
+
+### 🔧 仅内部
+
+- `ccgx-call-plugin.mjs` `discoverCompanion` 改为按 `VENDOR_ENTRY_SCRIPTS` 优先级链搜，首个 existing 文件胜出。
+
+---
+
 ## [2.0.0] - 2026-05-11 — ✨ 主推 `gemini@gemini-ccgx` fork（ccgx-maintained）+ 完全向后兼容上游
 
 ### 🎯 产品策略转向（为什么 2.0.0）

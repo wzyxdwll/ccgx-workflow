@@ -74,6 +74,27 @@ const VENDOR_KEYS = {
 }
 
 // ---------------------------------------------------------------------------
+// Vendor → preferred entry script (relative to <installPath>/scripts/).
+//
+// gemini: prefer `gemini-batch.mjs` (CCG-only, bypasses ACP broker entirely
+// — direct gemini-cli batch mode via stdin + --output-format json). Falls
+// back to the legacy `gemini-companion.mjs task` (ACP path) only if the
+// batch entry isn't shipped.
+//
+// Why bypass ACP: gemini-cli 0.40+'s session/new RPC runs MCP setup + auth
+// refresh + chat startup synchronously inside the agent. On Windows the
+// gemini-plugin-cc ACP broker + named-pipe transport reliably hangs trivial
+// trips for 5+ minutes even when the direct CLI returns in 10-30s. Batch
+// mode side-steps the entire transport stack (no broker, no detached
+// process, no orphan MCP children).
+// ---------------------------------------------------------------------------
+
+const VENDOR_ENTRY_SCRIPTS = {
+  codex: ['codex-companion.mjs'],
+  gemini: ['gemini-batch.mjs', 'gemini-companion.mjs'],
+}
+
+// ---------------------------------------------------------------------------
 // Argument parsing — minimal, KISS, no external CLI lib.
 // ---------------------------------------------------------------------------
 
@@ -84,6 +105,13 @@ function parseArgs(argv) {
     json: true,
     timeoutMs: 600000,
     maxBudgetUsd: 50,
+    // 1.0.5 regression fix: pre-1.0.5 callers always passed --write directly
+    // to codex-companion. Default true preserves BC; --no-write opt-out for
+    // read-only review flows.
+    write: true,
+    model: null,
+    effort: null,
+    cwd: null,
   }
 
   const positional = []
@@ -100,6 +128,11 @@ function parseArgs(argv) {
       case '--no-json':        opts.json = false; break
       case '--timeout-ms':     opts.timeoutMs = Number.parseInt(next(), 10); break
       case '--max-budget-usd': opts.maxBudgetUsd = Number.parseFloat(next()); break
+      case '--write':          opts.write = true; break
+      case '--no-write':       opts.write = false; break
+      case '--model':          opts.model = next(); break
+      case '--effort':         opts.effort = next(); break
+      case '--cwd':            opts.cwd = next(); break
       case '--help':
       case '-h':
         printHelp()
@@ -135,6 +168,11 @@ Optional:
   --no-json               Disable --json (text output)
   --timeout-ms <N>        Kill companion after N ms (default: 600000)
   --max-budget-usd <N>    Per-call cost cap (default: 50)
+  --write                 Enable workspace-write sandbox (default: true; codex needs this to spawn read commands too under default approval policy)
+  --no-write              Force read-only sandbox (companion approval-policy will decline most commands)
+  --model <name>          Override model (codex only; gemini ignores)
+  --effort <level>        Reasoning effort: none|minimal|low|medium|high|xhigh (codex only)
+  --cwd <path>            Override working directory for the companion call. codex sandbox is cwd-bound; set this when auditing a repo other than the caller's cwd.
 
 Outputs JSON to stdout: {status, vendor, version, durationMs, exitCode, stdout, stderr, error?}
 `)
@@ -180,9 +218,19 @@ function discoverCompanion(vendor, homeDir = homedir()) {
     return { error: `plugin ${matchedKey} has no installPath in installed_plugins.json` }
   }
 
-  const companionPath = join(installPath, 'scripts', `${vendor}-companion.mjs`)
-  if (!existsSync(companionPath)) {
-    return { error: `companion script missing: ${companionPath}` }
+  // Walk the preferred entry-script list. First existing file wins.
+  // BC: vendors with only the legacy companion still resolve correctly.
+  const entryCandidates = VENDOR_ENTRY_SCRIPTS[vendor] ?? [`${vendor}-companion.mjs`]
+  let companionPath = null
+  for (const name of entryCandidates) {
+    const candidate = join(installPath, 'scripts', name)
+    if (existsSync(candidate)) {
+      companionPath = candidate
+      break
+    }
+  }
+  if (!companionPath) {
+    return { error: `no entry script found for ${vendor} (tried: ${entryCandidates.join(', ')}) in ${join(installPath, 'scripts')}` }
   }
 
   return {
@@ -252,6 +300,15 @@ async function main(argv) {
     promptBody,
   ]
   if (opts.json) companionArgs.push('--json')
+  // codex-companion flag pass-through (1.0.5 regression fix). gemini-companion
+  // ignores unknown flags safely; both vendors accept this surface.
+  if (opts.write) companionArgs.push('--write')
+  if (opts.model) companionArgs.push('--model', opts.model)
+  if (opts.effort) companionArgs.push('--effort', opts.effort)
+  // --cwd pass-through: codex sandbox is cwd-bound. For cross-repo audits
+  // the caller must set this to the repo being audited (codex-companion
+  // does not expose --add-dir; multi-workspace requires deeper changes).
+  if (opts.cwd) companionArgs.push('--cwd', opts.cwd)
 
   const startedAt = Date.now()
 
