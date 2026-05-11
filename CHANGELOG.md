@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.1.1] - 2026-05-12 — 🛡 helper 加 idle/wall 双层超时 + auto-cleanup symlink 防护 + review.md 跨平台路径修复
+
+### 🐛 修复
+
+- **`review.md` 7 处 `/tmp/ccg-review-*` → `.context/tmp/ccg-review-*`**。原 `/tmp/` 在 Windows + Git Bash + Node 三方解析不一致——Claude Code Write tool / Git Bash MSYS mount / Node `fs.readFileSync` 各自把 `/tmp/` 解到不同实际路径，导致 helper 报 EX_NOINPUT (66) "prompt file read failed"。workspace-relative `.context/tmp/` 三方解析一致。
+- **helper auto-cleanup symlink 边界安全**（codex 审计必修）。原版 `resolve()` 是词法解析，`.context/tmp` 是 symlink/junction 时可绕过白名单。改用 `realpathSync()` 物理路径解析 candidate + safeRoot 双方，再做前缀比对，杜绝 symlink 穿透。
+
+### ✨ 新功能
+
+- **helper idle + wall 双层超时**（架构修正）。`--timeout-ms <N>`（默认 7200000ms = 2h）总 wall-time 安全网；新增 `--idle-timeout-ms <N>`（默认 600000ms = 10min）监控 stdout/stderr 任何 chunk，N ms 静默 → 判定 hung。正确的 "stuck" 信号是输出停滞，不是 wall-time 上限——之前 600s 默认在另一台机器误杀健康长任务。两者各传 `0` 禁用。
+- **prompt-file auto-cleanup**。helper 读完 prompt 后自动删除 `<cwd>/.context/tmp/ccg-*` 白名单内的文件。配合 `.gitignore` 加 `.context/tmp/` 双重保险，避免 review/audit 类任务留下大量 prompt 残留。
+
+### 📦 依赖（推荐升级）
+
+- **`gemini@gemini-ccgx` 1.1.1+** — 同步加 idle/wall 双层超时 + Windows 进程树 kill (`taskkill /T /F`)，防 SIGTERM 单杀产生 `cmd.exe → gemini.cmd → node` 孙子孤儿。
+
+---
+
 ## [2.1.0] - 2026-05-12 — ✨ gemini 改走 batch 直调（绕开 ACP），孤儿进程归零
 
 ### 🎯 为什么 2.1.0（一句话）

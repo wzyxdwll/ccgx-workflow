@@ -44,7 +44,7 @@
 //    --prompt-file <path>    Required. Path to file containing prompt body.
 //    --json                  Pass --json to companion (default: true).
 //    --no-json               Disable --json (text output).
-//    --timeout-ms <N>        Kill companion after N ms (default: 600000).
+//    --timeout-ms <N>        Kill companion if total wall-time exceeds N ms (default: 7200000, 2h; pass 0 to disable).
 //    --max-budget-usd <N>    Forwarded to companion (default: 50).
 //
 //  Cross-cutting:
@@ -55,9 +55,9 @@
 // =============================================================================
 
 import { spawn } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, unlinkSync } from 'node:fs'
 import { homedir, platform } from 'node:os'
-import { join } from 'node:path'
+import { basename, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 // ---------------------------------------------------------------------------
@@ -103,7 +103,17 @@ function parseArgs(argv) {
     vendor: null,
     promptFile: null,
     json: true,
-    timeoutMs: 600000,
+    // 2.1.1: wall-time bumped 600s → 7200s (2h). Real codex audits /
+    // multi-file reviews / planning tasks routinely run 5-30 min; the old
+    // 600s default was SIGTERM-ing healthy tasks mid-thought. 2h is a
+    // generous safety ceiling — pass 0 to disable entirely.
+    timeoutMs: 7200000,
+    // 2.1.1: NEW idle timeout. Wall-time alone is the wrong signal — a
+    // healthy long-running audit produces continuous stdout/stderr (tool
+    // calls, progress lines). A truly hung companion produces nothing.
+    // We track lastActivityAt on every stdout/stderr chunk and SIGTERM if
+    // silent for idleTimeoutMs (default 600s = 10min). Pass 0 to disable.
+    idleTimeoutMs: 600000,
     maxBudgetUsd: 50,
     // 1.0.5 regression fix: pre-1.0.5 callers always passed --write directly
     // to codex-companion. Default true preserves BC; --no-write opt-out for
@@ -127,6 +137,7 @@ function parseArgs(argv) {
       case '--json':           opts.json = true; break
       case '--no-json':        opts.json = false; break
       case '--timeout-ms':     opts.timeoutMs = Number.parseInt(next(), 10); break
+      case '--idle-timeout-ms': opts.idleTimeoutMs = Number.parseInt(next(), 10); break
       case '--max-budget-usd': opts.maxBudgetUsd = Number.parseFloat(next()); break
       case '--write':          opts.write = true; break
       case '--no-write':       opts.write = false; break
@@ -166,7 +177,8 @@ Required:
 Optional:
   --json                  Pass --json to companion (default: true)
   --no-json               Disable --json (text output)
-  --timeout-ms <N>        Kill companion after N ms (default: 600000)
+  --timeout-ms <N>        Kill companion if total wall-time exceeds N ms (default: 7200000, 2h; pass 0 to disable)
+  --idle-timeout-ms <N>   Kill companion if no stdout/stderr output for N ms (default: 600000, 10min; pass 0 to disable). Idle detection is the right signal for "hung" — healthy long-running audits keep producing tool-call progress.
   --max-budget-usd <N>    Per-call cost cap (default: 50)
   --write                 Enable workspace-write sandbox (default: true; codex needs this to spawn read commands too under default approval policy)
   --no-write              Force read-only sandbox (companion approval-policy will decline most commands)
@@ -285,6 +297,35 @@ async function main(argv) {
     process.exit(66) // EX_NOINPUT
   }
 
+  // 2.1.1: auto-delete the prompt file after a successful read iff the
+  // PHYSICAL path sits inside the caller's `<cwd>/.context/tmp/` AND the
+  // filename starts with `ccg-`. This is the workflow-managed throwaway-
+  // prompt directory (see templates/commands/review.md — Step 1 writes
+  // prompts here).
+  //
+  // CRITICAL — codex audit 2026-05-12 raised: lexical `resolve()` is
+  // insufficient. If `.context` or `.context/tmp` is a symlink/junction
+  // pointing outside the workspace, OR the caller passes a path whose
+  // lexical form is `<cwd>/.context/tmp/ccg-x.txt` but its physical
+  // target is `/etc/passwd` (or worse, `C:\Windows\System32\...`), the
+  // lexical-only check would still authorize the unlink. realpathSync
+  // canonicalizes ALL symlinks/junctions/`..` segments before the
+  // whitelist compare — both for the candidate file AND the safeRoot.
+  // Two ANDed gates: physical prefix + filename prefix.
+  try {
+    const resolvedFile = realpathSync(opts.promptFile)
+    const safeRoot = realpathSync(resolve(process.cwd(), '.context', 'tmp')) + sep
+    if (resolvedFile.startsWith(safeRoot) && basename(resolvedFile).startsWith('ccg-')) {
+      unlinkSync(resolvedFile)
+    }
+  }
+  catch {
+    // Best-effort. ENOENT (.context/tmp absent, file already gone, etc.)
+    // is the dominant non-error case here; we deliberately don't surface
+    // it. Real failures (permission etc.) will leave a file behind that
+    // .gitignore catches and the user's next run overwrites.
+  }
+
   // Discover companion via SSoT (no glob, no head -1)
   const disc = discoverCompanion(opts.vendor)
   if (disc.error) {
@@ -327,24 +368,53 @@ async function main(argv) {
 
   let stdoutBuf = ''
   let stderrBuf = ''
-  child.stdout.on('data', (chunk) => { stdoutBuf += chunk.toString('utf-8') })
-  child.stderr.on('data', (chunk) => { stderrBuf += chunk.toString('utf-8') })
+  let lastActivityAt = Date.now()
+  child.stdout.on('data', (chunk) => {
+    stdoutBuf += chunk.toString('utf-8')
+    lastActivityAt = Date.now()
+  })
+  child.stderr.on('data', (chunk) => {
+    stderrBuf += chunk.toString('utf-8')
+    lastActivityAt = Date.now()
+  })
 
-  // Timeout: kill child if exceeds opts.timeoutMs
+  // 2.1.1: two-layer timeout. wall-time is the safety ceiling; idle is the
+  // primary "stuck" detector — a healthy long task keeps producing tool-call
+  // / progress chunks, a truly hung companion produces nothing. SIGTERM is
+  // best-effort on Windows where the kernel doesn't propagate to the
+  // grandchild tree; companion processes on this code path are expected to
+  // do their own subtree cleanup (taskkill /T) when they receive SIGTERM.
   let timedOut = false
-  const timer = setTimeout(() => {
+  let timeoutReason = null
+  const killChild = (reason) => {
     timedOut = true
+    timeoutReason = reason
     try { child.kill('SIGTERM') } catch { /* ignore */ }
     setTimeout(() => {
       try { child.kill('SIGKILL') } catch { /* ignore */ }
     }, 5000).unref?.()
-  }, opts.timeoutMs)
+  }
+  const wallTimer = opts.timeoutMs > 0
+    ? setTimeout(() => killChild(`wall-time ${opts.timeoutMs}ms`), opts.timeoutMs)
+    : null
+  // Check idle every 30s. A 30s sampling granularity adds at most 30s slop
+  // to the configured idle threshold, which is negligible at 600s default.
+  const idleChecker = opts.idleTimeoutMs > 0
+    ? setInterval(() => {
+        const silent = Date.now() - lastActivityAt
+        if (silent >= opts.idleTimeoutMs) {
+          killChild(`idle ${silent}ms exceeds ${opts.idleTimeoutMs}ms`)
+        }
+      }, 30000)
+    : null
+  if (idleChecker?.unref) idleChecker.unref()
 
   const exit = await new Promise((resolve) => {
     child.once('exit', (code, signal) => resolve({ code, signal }))
     child.once('error', (err) => resolve({ code: 70, signal: null, errorMsg: err.message }))
   })
-  clearTimeout(timer)
+  if (wallTimer) clearTimeout(wallTimer)
+  if (idleChecker) clearInterval(idleChecker)
 
   const durationMs = Date.now() - startedAt
   const status = (!timedOut && exit.code === 0) ? 'ok' : 'error'
@@ -357,7 +427,7 @@ async function main(argv) {
     stdout: stdoutBuf,
     stderr: stderrBuf,
   }
-  if (timedOut) result.error = `timeout after ${opts.timeoutMs}ms`
+  if (timedOut) result.error = `companion killed: ${timeoutReason}`
   else if (exit.errorMsg) result.error = `spawn error: ${exit.errorMsg}`
   else if (exit.code !== 0) result.error = `companion exited with code ${exit.code}`
 

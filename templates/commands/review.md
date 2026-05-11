@@ -66,20 +66,20 @@ argument-hint: "[代码或描述] [--adversarial] [--fix [--all] [--auto]] [--ro
 Step 1. 用 Write 工具把【小任务描述】写到 tmpfile
    ⚠️ 内容必须是任务说明（≤ 2KB），不要塞 git diff / 文件内容
    Write({
-     file_path: "/tmp/ccg-review-codex-$JOB.txt",
+     file_path: ".context/tmp/ccg-review-codex-$JOB.txt",
      content: <下方"任务描述模板">  
    })
    Write({ 同上，gemini 版本 })
 
 Step 2. 用 Bash 调 helper（占位符已渲染）：
    Bash({
-     command: `{{CODEX_BASH_TASK}} --prompt-file /tmp/ccg-review-codex-$JOB.txt`,
+     command: `{{CODEX_BASH_TASK}} --prompt-file .context/tmp/ccg-review-codex-$JOB.txt`,
      description: "Review: backend (codex direct)",
      run_in_background: true,
      timeout: 3600000
    })
    Bash({
-     command: `{{GEMINI_BASH_TASK}} --prompt-file /tmp/ccg-review-gemini-$JOB.txt`,
+     command: `{{GEMINI_BASH_TASK}} --prompt-file .context/tmp/ccg-review-gemini-$JOB.txt`,
      description: "Review: frontend (gemini direct)",
      run_in_background: true,
      timeout: 3600000
@@ -148,14 +148,14 @@ CLI 空答 / auth 过期时 wrapper 受 instruction-tuning 驱动**自答 fabric
 
 ```
 Bash({
-  command: "cat /tmp/ccg-review-codex-$JOB.txt | ~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --backend codex - \"{{WORKDIR}}\"",
+  command: "cat .context/tmp/ccg-review-codex-$JOB.txt | ~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --backend codex - \"{{WORKDIR}}\"",
   run_in_background: true,
   timeout: 3600000,
   description: "Review: backend (wrapper fallback)"
 })
 ```
 
-`/tmp/ccg-review-codex-$JOB.txt` 同 通道 A 的"任务描述模板"——不变。
+`.context/tmp/ccg-review-codex-$JOB.txt` 同 通道 A 的"任务描述模板"——不变。
 
 > ⚠️ 通道 B `codeagent-wrapper` 已标 **deprecated**，仅 plugin 未装时使用。
 
@@ -227,11 +227,11 @@ Bash({
 
 ```
 Step 1. 用 Write 把任务描述写入 tmpfile（同样不塞 diff，让 codex 自己读）:
-   Write({ file_path: "/tmp/ccg-review-adv-$JOB.txt", content: <下方任务描述> })
+   Write({ file_path: ".context/tmp/ccg-review-adv-$JOB.txt", content: <下方任务描述> })
 
 Step 2. 调 helper:
    Bash({
-     command: `{{CODEX_BASH_TASK}} --prompt-file /tmp/ccg-review-adv-$JOB.txt`,
+     command: `{{CODEX_BASH_TASK}} --prompt-file .context/tmp/ccg-review-adv-$JOB.txt`,
      description: "Adversarial review (codex direct)",
      run_in_background: true,
      timeout: 3600000
