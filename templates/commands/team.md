@@ -168,6 +168,11 @@ Phase 8: INTEGRATION   → Lead 全量验证 + 报告 + 清理
 
    - **CRITICAL**: 必须在一条消息中同时发起两个并行调用。
 
+   **⚠ 预备动作（spawn 前必须执行）**：`codex:codex-rescue` / `gemini:gemini-rescue` 是 thin forwarder，不会主动 Read 路径文件。主线必须在 spawn 前先 Read 两个角色提示词文件，把**内容**直接拼入下方 Agent prompt 的 `<role>` 块。
+
+   - backend role: `Read("~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/architect.md")` → `${backendRole}`
+   - frontend role: `Read("~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/architect.md")` → `${frontendRole}`
+
    **通道 A — plugin spawn（默认）**：
 
    **FIRST Agent call ({{BACKEND_PRIMARY}})**:
@@ -175,16 +180,38 @@ Phase 8: INTEGRATION   → Lead 全量验证 + 报告 + 清理
    Agent({
      subagent_type: "codex:codex-rescue",
      description: "team Phase 2: 后端架构分析",
-     prompt: `ROLE_FILE: ~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/architect.md
+     prompt: `<role>
+${backendRole}
+</role>
 
-WORKDIR: {{WORKDIR}}
+<workdir>{{WORKDIR}}</workdir>
 
-<TASK>
-需求：<PRD 内容>
-请分析后端架构：模块边界、API 设计、数据模型、依赖关系、实施建议。
-</TASK>
+<task>
+PRD：<PRD 内容>
 
-Return ≤200 token structured summary (plugin-native protocol).`
+请分析后端架构：
+- 模块边界、API 设计、数据模型
+- 依赖关系、关键算法选择
+- 实施风险与建议
+</task>
+
+<grounding_rules>
+- 引用 file:line 标注现有代码模式
+- 区分「现有模式已支持」vs「需要新建」
+- 不要捏造未观察到的依赖
+</grounding_rules>
+
+<structured_output_contract>
+Return JSON ONLY:
+{
+  "module_boundaries": [{"name": "...", "responsibility": "...", "files_involved": []}],
+  "api_design": [{"endpoint": "...", "verb": "...", "purpose": "..."}],
+  "data_model": [{"entity": "...", "fields": [], "relations": []}],
+  "dependencies": [{"from": "...", "to": "...", "reason": "..."}],
+  "implementation_risks": [{"risk": "...", "mitigation": "..."}]
+}
+Return ≤200 token structured summary.
+</structured_output_contract>`
    })
    ```
 
@@ -193,16 +220,38 @@ Return ≤200 token structured summary (plugin-native protocol).`
    Agent({
      subagent_type: "gemini:gemini-rescue",
      description: "team Phase 2: 前端架构分析",
-     prompt: `ROLE_FILE: ~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/architect.md
+     prompt: `<role>
+${frontendRole}
+</role>
 
-WORKDIR: {{WORKDIR}}
+<workdir>{{WORKDIR}}</workdir>
 
-<TASK>
-需求：<PRD 内容>
-请分析前端架构：组件拆分、状态管理、路由设计、UI/UX 要点、实施建议。
-</TASK>
+<task>
+PRD：<PRD 内容>
 
-Return ≤200 token structured summary (plugin-native protocol).`
+请分析前端架构：
+- 组件拆分、状态管理、路由设计
+- UI/UX 关键流程、无障碍考量
+- 实施风险与建议
+</task>
+
+<grounding_rules>
+- 引用 file:line 标注现有组件 / 设计 token
+- 区分「现有组件复用」vs「需新建」
+- 不要捏造未观察到的设计系统约定
+</grounding_rules>
+
+<structured_output_contract>
+Return JSON ONLY:
+{
+  "component_decomposition": [{"component": "...", "purpose": "...", "reuses": []}],
+  "state_management": {"approach": "...", "stores": []},
+  "routing": [{"path": "...", "screen": "..."}],
+  "ux_flows": [{"flow": "...", "steps": []}],
+  "implementation_risks": [{"risk": "...", "mitigation": "..."}]
+}
+Return ≤200 token structured summary.
+</structured_output_contract>`
    })
    ```
 
@@ -357,7 +406,12 @@ Return ≤200 token structured summary (plugin-native protocol).`
    - `Bash: git diff` 获取完整变更内容。
 
 2. **{{BACKEND_PRIMARY}} + {{FRONTEND_PRIMARY}} 并行审查（PARALLEL）**
-   - 模式与 Phase 2 相同（plugin 优先 + wrapper BC fallback），使用 reviewer prompt：
+   - 模式与 Phase 2 相同（plugin 优先 + wrapper BC fallback），使用 reviewer prompt。
+
+   **⚠ 预备动作（spawn 前必须执行）**：主线先 Read 角色提示词，把内容拼入 `<role>` 块。
+
+   - backend role: `Read("~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/reviewer.md")` → `${backendRole}`
+   - frontend role: `Read("~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/reviewer.md")` → `${frontendRole}`
 
    **通道 A — plugin spawn（默认）**：
 
@@ -366,23 +420,39 @@ Return ≤200 token structured summary (plugin-native protocol).`
    Agent({
      subagent_type: "codex:codex-rescue",
      description: "team Phase 6: 后端审查",
-     prompt: `ROLE_FILE: ~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/reviewer.md
+     prompt: `<role>
+${backendRole}
+</role>
 
-WORKDIR: {{WORKDIR}}
+<workdir>{{WORKDIR}}</workdir>
 
-<TASK>
-审查以下变更：
+<task>
+审查以下变更（后端维度：逻辑 / 安全 / 性能 / 错误处理）：
 <git diff 输出或变更文件列表>
-</TASK>
 
-OUTPUT (JSON):
+Read-only review. Do NOT modify any file.
+</task>
+
+<grounding_rules>
+- 每条 finding 必须含 file:line
+- 区分 bug（可触发失败路径）与 concern（风格/可维护性偏好）
+- 检查过但没问题的项放进 passed_checks
+</grounding_rules>
+
+<dig_deeper_nudge>
+- 同根因可能扩散到其他文件——抽样验证
+- 一条精准 Critical > 五条模糊 Warning
+</dig_deeper_nudge>
+
+<structured_output_contract>
+Return JSON ONLY:
 {
   "findings": [{"severity": "Critical|Warning|Info", "dimension": "logic|security|performance|error_handling", "file": "path", "line": N, "description": "描述", "fix_suggestion": "修复建议"}],
   "passed_checks": ["检查项"],
   "summary": "总体评估"
 }
-
-Return ≤200 token structured summary (plugin-native protocol).`
+Return ≤200 token structured summary.
+</structured_output_contract>`
    })
    ```
 
@@ -391,23 +461,38 @@ Return ≤200 token structured summary (plugin-native protocol).`
    Agent({
      subagent_type: "gemini:gemini-rescue",
      description: "team Phase 6: 前端审查",
-     prompt: `ROLE_FILE: ~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/reviewer.md
+     prompt: `<role>
+${frontendRole}
+</role>
 
-WORKDIR: {{WORKDIR}}
+<workdir>{{WORKDIR}}</workdir>
 
-<TASK>
-审查以下变更：
+<task>
+审查以下变更（前端维度：模式一致性 / 可维护性 / 无障碍 / UX / 前端安全）：
 <git diff 输出或变更文件列表>
-</TASK>
 
-OUTPUT (JSON):
+Read-only review. Do NOT modify any file.
+</task>
+
+<grounding_rules>
+- 每条 finding 必须含 file:line
+- 检查过但没问题的项放进 passed_checks
+</grounding_rules>
+
+<dig_deeper_nudge>
+- 同模式问题可能扩散到相邻文件——抽样验证
+- 一条精准 Critical > 五条模糊 Warning
+</dig_deeper_nudge>
+
+<structured_output_contract>
+Return JSON ONLY:
 {
   "findings": [{"severity": "Critical|Warning|Info", "dimension": "patterns|maintainability|accessibility|ux|frontend_security", "file": "path", "line": N, "description": "描述", "fix_suggestion": "修复建议"}],
   "passed_checks": ["检查项"],
   "summary": "总体评估"
 }
-
-Return ≤200 token structured summary (plugin-native protocol).`
+Return ≤200 token structured summary.
+</structured_output_contract>`
    })
    ```
 

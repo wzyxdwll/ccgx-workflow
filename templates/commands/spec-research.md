@@ -81,6 +81,13 @@ description: '需求 → 约束集（并行探索 + OPSX 提案）'
 
    **Step 4.1**: In ONE message, spawn TWO models in parallel.
 
+   **⚠ 预备动作（spawn 前必须执行）**：`codex:codex-rescue` / `gemini:gemini-rescue` 是 thin forwarder（一行 `Bash node companion.mjs task <prompt>` 转发），**不会**主动 Read 路径文件。主线必须在 spawn 前先 Read 两个角色提示词文件，把**内容**直接拼入下方 Agent prompt 的 `<role>` 块——不是写路径。
+
+   - backend role: `Read("~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/analyzer.md")` → `${backendRole}`
+   - frontend role: `Read("~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/analyzer.md")` → `${frontendRole}`
+
+   Prompt 结构按 `gpt-5-4-prompting` skill 推荐（XML 块、紧凑、操作性）：`<role>` + `<task>` + `<grounding_rules>` + `<structured_output_contract>`。
+
    **通道 A — plugin spawn（默认）**：
 
    **FIRST Agent call ({{BACKEND_PRIMARY}} — backend boundaries)**:
@@ -88,20 +95,40 @@ description: '需求 → 约束集（并行探索 + OPSX 提案）'
    Agent({
      subagent_type: "codex:codex-rescue",
      description: "spec-research: backend boundary exploration",
-     prompt: `ROLE_FILE: ~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/analyzer.md
+     prompt: `<role>
+${backendRole}
+</role>
 
-WORKDIR: {{WORKDIR}}
+<workdir>{{WORKDIR}}</workdir>
 
-<TASK>
+<task>
 Explore backend context boundaries for <change description>:
 - Existing structures and patterns
 - Conventions in use
 - Hard constraints limiting solution space
 - Dependencies and risks
-</TASK>
+</task>
 
-OUTPUT: JSON using the output template above.
-Return ≤200 token structured summary (plugin-native protocol).`
+<grounding_rules>
+- Cite file:line for every claim about existing code
+- Mark hypotheses explicitly; don't state guesses as facts
+- If a question can't be answered from the repo, list it in open_questions
+</grounding_rules>
+
+<structured_output_contract>
+Return JSON ONLY (no preamble, no commentary):
+{
+  "module_name": "context boundary explored",
+  "existing_structures": ["key patterns found"],
+  "existing_conventions": ["standards in use"],
+  "constraints_discovered": ["hard constraints limiting solution space"],
+  "open_questions": ["ambiguities requiring user input"],
+  "dependencies": ["cross-module dependencies"],
+  "risks": ["potential blockers"],
+  "success_criteria_hints": ["observable success behaviors"]
+}
+Return ≤200 token structured summary.
+</structured_output_contract>`
    })
    ```
 
@@ -110,20 +137,40 @@ Return ≤200 token structured summary (plugin-native protocol).`
    Agent({
      subagent_type: "gemini:gemini-rescue",
      description: "spec-research: frontend boundary exploration",
-     prompt: `ROLE_FILE: ~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/analyzer.md
+     prompt: `<role>
+${frontendRole}
+</role>
 
-WORKDIR: {{WORKDIR}}
+<workdir>{{WORKDIR}}</workdir>
 
-<TASK>
+<task>
 Explore frontend context boundaries for <change description>:
 - Existing structures and patterns
 - Conventions in use
 - Hard constraints limiting solution space
 - Dependencies and risks
-</TASK>
+</task>
 
-OUTPUT: JSON using the output template above.
-Return ≤200 token structured summary (plugin-native protocol).`
+<grounding_rules>
+- Cite file:line for every claim about existing code
+- Mark hypotheses explicitly; don't state guesses as facts
+- If a question can't be answered from the repo, list it in open_questions
+</grounding_rules>
+
+<structured_output_contract>
+Return JSON ONLY (no preamble, no commentary):
+{
+  "module_name": "context boundary explored",
+  "existing_structures": ["key patterns found"],
+  "existing_conventions": ["standards in use"],
+  "constraints_discovered": ["hard constraints limiting solution space"],
+  "open_questions": ["ambiguities requiring user input"],
+  "dependencies": ["cross-module dependencies"],
+  "risks": ["potential blockers"],
+  "success_criteria_hints": ["observable success behaviors"]
+}
+Return ≤200 token structured summary.
+</structured_output_contract>`
    })
    ```
 

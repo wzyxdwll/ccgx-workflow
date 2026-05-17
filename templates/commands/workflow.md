@@ -39,41 +39,74 @@ subagent_freshness: required
 - 如果用户通过 `/add-dir` 添加了多个工作区，先用 Glob/Grep 确定任务相关的工作区
 - 如果无法确定，用 `AskUserQuestion` 询问用户选择目标工作区
 
-**调用语法**（并行用 `run_in_background: true`，串行用 `false`）：
+**调用通道路由（CCG codeagent 退役，v2.2.0+）**
+
+1. **优先 plugin spawn**（默认）：plugin 已装 → `Agent(subagent_type="<codex:codex-rescue|gemini:gemini-rescue>")`。session 复用通过 prompt 内 `--resume` flag 表达（subagent 映射为 codex/gemini `--resume-last`，**注意是 last，不是 by-id**）。
+2. **降级 codeagent-wrapper**（BC fallback）：plugin 未装 → Bash 调用，保留 `resume <SESSION_ID>` 显式会话管理。
+
+**判定**：preflight `Bash` 跑 `ls ~/.claude/plugins/` 看有无 `codex@*` / `gemini@*` 子目录。
+
+---
+
+**通道 A — plugin spawn（默认）**：
+
+**预备动作**：spawn 前主线先 Read 对应阶段的角色提示词（见下方表），把内容拼入 `<role>` 块。
 
 ```
 # 新会话调用
-Bash({
-  command: "~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --backend <{{BACKEND_PRIMARY}}|{{FRONTEND_PRIMARY}}> {{GEMINI_MODEL_FLAG}}- \"{{WORKDIR}}\" <<'EOF'
-ROLE_FILE: <角色提示词路径>
-<TASK>
+Agent({
+  subagent_type: "<codex:codex-rescue|gemini:gemini-rescue>",
+  description: "简短描述",
+  prompt: `<role>
+${roleContent}  // 主线 Read 后的角色提示词内容
+</role>
+
+<workdir>{{WORKDIR}}</workdir>
+
+<task>
 需求：<增强后的需求（如未增强则用 $ARGUMENTS）>
 上下文：<前序阶段收集的项目上下文、分析结果等>
-</TASK>
-OUTPUT: 期望输出格式
-EOF",
-  run_in_background: true,
-  timeout: 3600000,
-  description: "简短描述"
+</task>
+
+<structured_output_contract>
+<期望输出格式 / JSON schema>
+Return ≤200 token structured summary.
+</structured_output_contract>`
 })
 
-# 复用会话调用
-Bash({
-  command: "~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --backend <{{BACKEND_PRIMARY}}|{{FRONTEND_PRIMARY}}> {{GEMINI_MODEL_FLAG}}resume <SESSION_ID> - \"{{WORKDIR}}\" <<'EOF'
-ROLE_FILE: <角色提示词路径>
-<TASK>
-需求：<增强后的需求（如未增强则用 $ARGUMENTS）>
-上下文：<前序阶段收集的项目上下文、分析结果等>
-</TASK>
-OUTPUT: 期望输出格式
-EOF",
-  run_in_background: true,
-  timeout: 3600000,
-  description: "简短描述"
+# 复用会话（同一 Claude session 内的连续阶段）
+Agent({
+  subagent_type: "<codex:codex-rescue|gemini:gemini-rescue>",
+  description: "简短描述",
+  prompt: `--resume
+
+<task>
+<delta 指令（仅本阶段变化，不重述前序上下文，由 codex/gemini thread 自带历史）>
+</task>`
 })
 ```
 
-**角色提示词**：
+**通道 B — wrapper BC fallback**（plugin 未装时）：
+
+```
+# 新会话
+Bash({
+  command: "~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --backend <{{BACKEND_PRIMARY}}|{{FRONTEND_PRIMARY}}> {{GEMINI_MODEL_FLAG}}- \"{{WORKDIR}}\" <<'EOF'\nROLE_FILE: <角色提示词路径>\n<TASK>\n需求：<增强后的需求>\n上下文：<前序阶段上下文>\n</TASK>\nOUTPUT: 期望输出格式\nEOF",
+  run_in_background: true,
+  timeout: 3600000,
+  description: "简短描述 (BC)"
+})
+
+# 复用会话（显式 SESSION_ID）
+Bash({
+  command: "~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --backend <{{BACKEND_PRIMARY}}|{{FRONTEND_PRIMARY}}> {{GEMINI_MODEL_FLAG}}resume <SESSION_ID> - \"{{WORKDIR}}\" <<'EOF'\nROLE_FILE: <角色提示词路径>\n<TASK>\n需求：<增强后的需求>\n上下文：<前序阶段上下文>\n</TASK>\nEOF",
+  run_in_background: true,
+  timeout: 3600000,
+  description: "简短描述 (BC, resume)"
+})
+```
+
+**角色提示词路径**（通道 A 主线 Read 后拼入 `<role>` 块；通道 B 仍用 `ROLE_FILE:` 写在 EOF 内）：
 
 | 阶段 | 后端 | 前端 |
 |------|-------|--------|
@@ -81,7 +114,9 @@ EOF",
 | 规划 | `~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/architect.md` | `~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/architect.md` |
 | 审查 | `~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/reviewer.md` | `~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/reviewer.md` |
 
-**会话复用**：每次调用返回 `SESSION_ID: xxx`，后续阶段用 `resume xxx` 复用上下文（注意：是 `resume`，不是 `--resume`）。
+**会话复用模型差异**：
+- **通道 A（plugin）**：同 Claude session 内连续阶段用 `--resume`，自动接上一次同 backend 的 thread（codex/gemini 各自独立的 `--resume-last` 行为）。**不支持跨任务跳点 resume by ID**——若中间插了其他 codex 调用会串。
+- **通道 B（wrapper）**：每次 spawn 返回 `SESSION_ID: xxx`，后续 `resume xxx` 任意复用（注意：是 `resume`，不是 `--resume`）。
 
 **并行调用 + 事件驱动等待**：
 

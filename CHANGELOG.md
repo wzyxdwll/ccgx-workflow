@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.3.0] - 2026-05-17 — 🔄 完成全量 plugin 迁移（workflow / codex-exec / spec-impl Step 4）+ 修正 ROLE_FILE 注入
+
+### 🎯 为什么 2.3.0（一句话）
+
+2.2.0 留了两个尾巴：(1) ROLE_FILE 路径写法**实际无效**（rescue subagent 是 thin forwarder，不会 Read 文件），(2) `workflow.md` / `codex-exec.md` / `spec-impl.md Step 4` 因「依赖 session resume」未迁。本版本一次性收口：所有「调 codex/gemini」的入口都默认走 plugin，wrapper 仅作 plugin 未装时的 BC fallback。
+
+### 🐛 修复（2.2.0 回归）
+
+- **ROLE_FILE 注入方式错了**。2.2.0 的 5 个迁移模板里 prompt 内写 `ROLE_FILE: <path>`，期望 rescue subagent 读路径。但根据 `codex-rescue.md` / `gemini-rescue.md` 官方定义，subagent 是「thin forwarder」，只 `Bash node companion.mjs task <prompt>` 转发，**不 Read 文件**。那串 `ROLE_FILE: path` 被当作 task text 一部分传给 codex/gemini，**角色提示词实际从未注入**。
+- **修正**：spawn Agent **前**主线必须先 `Read(<role-file-path>)`，把**内容**直接拼入 prompt 的 `<role>` 块。同时 prompt 结构升级为 `gpt-5-4-prompting` skill 推荐的 XML 块（`<role>` + `<workdir>` + `<task>` + `<grounding_rules>` + `<dig_deeper_nudge>`（review 类） + `<structured_output_contract>`）。
+- 影响范围：`spec-research.md` / `spec-plan.md` / `spec-review.md` / `spec-impl.md Step 7` / `team.md` Phase 2 + Phase 6。
+
+### 🔄 变更
+
+- **`templates/commands/workflow.md`**：「多模型调用规范」section 从单 wrapper 调用改为双通道（plugin 默认 + wrapper BC fallback）。会话复用从 `resume <SESSION_ID>` → plugin 的 `--resume` flag（映射为 codex/gemini `--resume-last`）。BC 通道仍支持显式 SESSION_ID。
+- **`templates/commands/codex-exec.md`**：顶部调用规范 + Phase 1 + Phase 2.5 全部迁。底层调用走 codex plugin（`Agent(codex:codex-rescue, "--resume...")`），**编排逻辑（plan 解析 / Phase 2 Claude 轻量审 / Phase 2.5 返工循环 / Phase 3 多模型审）完整保留**——codex-exec 是编排器，不是 codex 调用的薄封装。
+- **`templates/commands/spec-impl.md` Step 4**：双通道。通道 A 每 task 独立 fresh-context spawn（无 SESSION_ID），Step 7 review 由主线把 Step 4-6 变更摘要显式拼入。通道 B 保留 wrapper 显式 SESSION_ID 模型。
+
+### 📌 会话模型对比
+
+| | 通道 A（plugin，默认） | 通道 B（wrapper BC） |
+|---|---|---|
+| Session 复用 | `--resume` flag → codex/gemini `--resume-last` | `resume <SESSION_ID>` 显式 |
+| 跨任务跳点 resume | ❌（只接 last thread） | ✅（任意 ID） |
+| 适用场景 | 同任务多阶段串行（workflow / codex-exec / spec-impl） | 跨任务复用 / plugin 未装 |
+| 主线 context | ≤200 token 摘要 | 全 stdout 回流（除非 bg + 不读 output 文件） |
+
+### 📌 最终统计：默认通道
+
+- **默认 plugin 的命令**（共 11 个 + 2 个内部 phase）：spec-research / spec-plan / spec-review / spec-impl（Step 4 + Step 7） / team（Phase 2 + Phase 6） / workflow / codex-exec / review / plan / execute / optimize / analyze / test / debate / autonomous
+- **不调外部模型**：其他命令
+- **保留 wrapper（非工作流并行）**：`spec-init.md` 仅 `--version` 探测、`team-exec.md` Builder 走 `Agent(team_name, sonnet)`
+
+**至此，所有「调外部模型」的入口都默认走 plugin。codeagent-wrapper 收敛为「plugin 未装」的兜底，仅在 preflight `ls ~/.claude/plugins/` 检测不到 `codex@*` / `gemini@*` 时降级使用。**
+
+### 📌 ROLE_FILE 新注入范式
+
+```
+Step X.Y: spawn Agent 前主线必须先 Read 角色提示词：
+  - backend role: Read("~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/<phase>.md") → ${backendRole}
+  - frontend role: Read("~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/<phase>.md") → ${frontendRole}
+
+然后 spawn Agent，prompt 用 XML 块结构：
+  prompt: `<role>${backendRole}</role>
+           <workdir>{{WORKDIR}}</workdir>
+           <task>...</task>
+           <grounding_rules>...</grounding_rules>
+           <structured_output_contract>...</structured_output_contract>`
+```
+
+参照 plugin 内置 `gpt-5-4-prompting` skill 推荐规范。
+
+### 📦 兼容性
+
+- 未装 plugin 的环境完全不受影响（自动降级通道 B）。
+- 装了 plugin 的环境自动升级通道 A，session 行为从「显式 SESSION_ID」改为「last thread `--resume`」——同 Claude session 内连续阶段无差异，跨任务跳点 resume 不再支持（罕见场景）。
+
+---
+
 ## [2.2.0] - 2026-05-17 — 🔄 spec-* / team 系列双模型并行迁到 plugin 路径（codeagent-wrapper 收敛）
 
 ### 🎯 为什么 2.2.0（一句话）

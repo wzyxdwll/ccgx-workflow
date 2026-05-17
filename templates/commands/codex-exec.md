@@ -46,59 +46,79 @@ $ARGUMENTS
 - 如果用户通过 `/add-dir` 添加了多个工作区，先用 Glob/Grep 确定任务相关的工作区
 - 如果无法确定，用 `AskUserQuestion` 询问用户选择目标工作区
 
-**{{BACKEND_PRIMARY}} 执行调用语法**：
+**调用通道路由（CCG codeagent 退役，v2.2.0+）**
+
+1. **优先 plugin spawn**（默认）：plugin 已装 → `Agent(subagent_type="codex:codex-rescue")`，session 复用通过 prompt 内 `--resume` flag 表达（subagent 映射为 codex `--resume-last`）。
+2. **降级 codeagent-wrapper**（BC fallback）：plugin 未装 → Bash 调用，保留 `resume <SESSION_ID>` 显式会话管理。
+
+**判定**：preflight `Bash` 跑 `ls ~/.claude/plugins/` 看有无 `codex@*` / `gemini@*` 子目录。
+
+**会话模型差异**：
+- **通道 A（plugin）**：session 是同一 Claude session 内的最近 codex/gemini thread（`--resume-last`）。同任务多 phase 顺序执行 OK；不支持跨任务跳点 resume by ID。
+- **通道 B（wrapper）**：显式 `SESSION_ID`，可跨流程任意复用历史 thread。
+
+---
+
+**{{BACKEND_PRIMARY}} 执行调用语法（通道 A 默认）**：
+
+**预备动作**：spawn 前主线先 Read 角色提示词（如 `~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/architect.md`）拼入 `<role>` 块。
 
 ```
-Bash({
-  command: "~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --backend {{BACKEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}- \"{{WORKDIR}}\" <<'EXEC_EOF'
-<TASK>
+Agent({
+  subagent_type: "codex:codex-rescue",
+  description: "简短描述",
+  prompt: `<role>
+${implementerRole}
+</role>
+
+<workdir>{{WORKDIR}}</workdir>
+
+<task>
 <指令内容>
-</TASK>
-EXEC_EOF",
-  run_in_background: true,
-  timeout: 3600000,
-  description: "简短描述"
+</task>
+
+<action_safety>
+- Stay strictly within the plan scope
+- Run lint/typecheck if available before reporting completion
+</action_safety>`
 })
 ```
 
-**{{BACKEND_PRIMARY}} 复用会话调用**：
+**{{BACKEND_PRIMARY}} 复用会话调用（通道 A，--resume）**：在 prompt 第一行加 `--resume`（subagent 提取为 routing flag 映射 codex `--resume-last`，不写入 task text）：
 
 ```
+Agent({
+  subagent_type: "codex:codex-rescue",
+  description: "简短描述",
+  prompt: `--resume
+
+<task>
+<指令内容（仅 delta，不重述完整 plan）>
+</task>`
+})
+```
+
+**通道 B — wrapper BC fallback**（plugin 未装时）：
+
+```
+# 新会话（保留 SESSION_ID）
 Bash({
-  command: "~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --backend {{BACKEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}resume <SESSION_ID> - \"{{WORKDIR}}\" <<'EXEC_EOF'
-<TASK>
-<指令内容>
-</TASK>
-EXEC_EOF",
+  command: "~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --backend {{BACKEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}- \"{{WORKDIR}}\" <<'EXEC_EOF'\n<TASK>\n<指令内容>\n</TASK>\nEXEC_EOF",
   run_in_background: true,
   timeout: 3600000,
-  description: "简短描述"
+  description: "简短描述 (BC)"
 })
-```
 
-**审核调用语法**（Codex ∥ Gemini 并行审查）：
-
-```
+# 复用会话
 Bash({
-  command: "~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --backend <{{BACKEND_PRIMARY}}|{{FRONTEND_PRIMARY}}> {{GEMINI_MODEL_FLAG}}- \"{{WORKDIR}}\" <<'REVIEW_EOF'
-ROLE_FILE: <角色提示词路径>
-<TASK>
-Scope: Audit the code changes made by Codex.
-Inputs:
-- The git diff (applied changes)
-- The implementation plan
-Constraints:
-- Do NOT modify any files.
-</TASK>
-OUTPUT:
-1) A prioritized list of issues (severity, file, rationale)
-2) If code changes are needed, include a Unified Diff Patch in a fenced code block.
-REVIEW_EOF",
+  command: "~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --backend {{BACKEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}resume <SESSION_ID> - \"{{WORKDIR}}\" <<'EXEC_EOF'\n<TASK>\n<指令内容>\n</TASK>\nEXEC_EOF",
   run_in_background: true,
   timeout: 3600000,
-  description: "简短描述"
+  description: "简短描述 (BC, resume)"
 })
 ```
+
+**审核调用（通道 A，双模型并行）**：参照 `/ccg:spec-review` 的 Step 3.1 pattern——`Agent(codex:codex-rescue)` + `Agent(gemini:gemini-rescue)` 同 message 并行，预读 `reviewer.md` 拼入 `<role>` 块。通道 B 同 `<<'REVIEW_EOF'... wrapper` 模式（已 deprecated）。
 
 **角色提示词**：
 
@@ -156,12 +176,21 @@ REVIEW_EOF",
 
 `[模式：执行]`
 
-**将计划转化为 Codex 结构化指令，一次性下发**：
+**将计划转化为 Codex 结构化指令，一次性下发**。按顶部「调用通道路由」选 A 或 B：
+
+**通道 A — plugin spawn（默认）**：
 
 ```
-Bash({
-  command: "~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --backend {{BACKEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}resume <CODEX_SESSION> - \"{{WORKDIR}}\" <<'EXEC_EOF'
-<TASK>
+Agent({
+  subagent_type: "codex:codex-rescue",
+  description: "Codex 全权执行：<计划标题>",
+  prompt: `${codexSessionExists ? '--resume\n' : ''}<role>
+${implementerRole}  // 主线预读 ~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/architect.md
+</role>
+
+<workdir>{{WORKDIR}}</workdir>
+
+<task>
 You are a full-stack execution agent. Implement the following plan end-to-end.
 
 ## Implementation Plan
@@ -180,48 +209,53 @@ Before coding, verify you have sufficient context:
 Implement each step from the plan in order:
 <将计划的实施步骤逐条列出>
 
-Constraints:
+### Step 3: Self-Verification
+After implementation:
+- Run lint/typecheck if available
+- Run existing tests: <从计划中提取测试命令>
+- Verify no regressions in touched modules
+</task>
+
+<action_safety>
 - Follow existing code conventions in this project
 - Handle edge cases and errors properly
 - Keep changes minimal and focused on the plan
 - Do NOT modify files outside the plan's scope
+</action_safety>
 
-### Step 3: Self-Verification
-After implementation:
-- Run lint/typecheck if available
-- Run existing tests: <从计划中提取测试命令，如无则 "run project's test suite">
-- Verify no regressions in touched modules
-
-## Output Format
-Respond with a structured report:
+<structured_output_contract>
+Respond with this structured report:
 
 ### CONTEXT_GATHERED
 <What information was searched/found, key findings from MCP tools>
 
 ### CHANGES_MADE
-For each file changed:
-- File path
-- What was changed and why
-- Lines added/removed
+For each file changed: file path / what changed / why / lines added-removed
 
 ### VERIFICATION_RESULTS
 - Lint/typecheck: pass/fail
 - Tests: pass/fail (details if fail)
-- Manual checks performed
 
 ### REMAINING_ISSUES
-<Any unresolved issues, edge cases, or suggestions>
-</TASK>
-EXEC_EOF",
-  run_in_background: true,
-  timeout: 3600000,
-  description: "Codex 全权执行：<计划标题>"
+<Any unresolved issues>
+</structured_output_contract>`
 })
 ```
 
-**📌 记录 SESSION_ID**（`CODEX_EXEC_SESSION`）
+**📌 同 Claude session 内后续 Phase 2.5（修正）会自动通过 `--resume` 接到 codex 的 last thread**（plugin 路径无显式 SESSION_ID）。
 
-如果计划中无 `CODEX_SESSION`（用户跳过了 `/ccg:plan` 的多模型分析），则使用新会话。
+**通道 B — wrapper BC fallback**：
+
+```
+Bash({
+  command: "~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --backend {{BACKEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}resume <CODEX_SESSION> - \"{{WORKDIR}}\" <<'EXEC_EOF'\n<TASK>\nYou are a full-stack execution agent. Implement the following plan end-to-end.\n\n## Implementation Plan\n<完整计划>\n\n## Output Format\n<同上结构化报告>\n</TASK>\nEXEC_EOF",
+  run_in_background: true,
+  timeout: 3600000,
+  description: "Codex 全权执行：<计划标题> (BC)"
+})
+```
+
+**📌 记录 SESSION_ID**（`CODEX_EXEC_SESSION`）供 Phase 2.5 显式 resume。
 
 事件驱动等待：spawn 完后主线 turn end，等 task-notification 自动唤醒。
 
@@ -256,12 +290,17 @@ EXEC_EOF",
 
 `[模式：追加]`
 
-**复用 Codex 会话，下发修正指令**：
+**复用 Codex 会话，下发修正指令**。按顶部「调用通道路由」选 A 或 B：
+
+**通道 A — plugin spawn（默认，--resume）**：
 
 ```
-Bash({
-  command: "~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --backend {{BACKEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}resume <CODEX_EXEC_SESSION> - \"{{WORKDIR}}\" <<'FIXEOF'
-<TASK>
+Agent({
+  subagent_type: "codex:codex-rescue",
+  description: "Codex 修正：<问题简述>",
+  prompt: `--resume
+
+<task>
 The implementation needs corrections:
 
 ## Issues Found
@@ -272,12 +311,19 @@ The implementation needs corrections:
 1. <具体修正要求>
 2. <具体修正要求>
 
-Apply fixes and re-run tests. Report results in the same format.
-</TASK>
-FIXEOF",
+Apply fixes and re-run tests. Report results in the same format as Phase 1.
+</task>`
+})
+```
+
+**通道 B — wrapper BC fallback**：
+
+```
+Bash({
+  command: "~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --backend {{BACKEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}resume <CODEX_EXEC_SESSION> - \"{{WORKDIR}}\" <<'FIXEOF'\n<TASK>\nThe implementation needs corrections:\n\n## Issues Found\n1. ...\n\n## Required Fixes\n1. ...\n\nApply fixes and re-run tests. Report results in the same format.\n</TASK>\nFIXEOF",
   run_in_background: true,
   timeout: 3600000,
-  description: "Codex 修正：<问题简述>"
+  description: "Codex 修正：<问题简述> (BC)"
 })
 ```
 

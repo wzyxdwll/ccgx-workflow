@@ -45,17 +45,58 @@ description: '按规范执行 + 多模型协作 + 归档'
 
    **工作目录**：`{{WORKDIR}}` **必须通过 Bash 执行 `pwd`（Unix）或 `cd`（Windows CMD）获取当前工作目录的绝对路径**，禁止从 `$HOME` 或环境变量推断。如果用户通过 `/add-dir` 添加了多个工作区，先确定任务相关的工作区。
 
-   For each task:
+   **调用通道路由（CCG codeagent 退役，v2.2.0+）**
+
+   1. **优先 plugin spawn**（默认）：plugin 已装 → `Agent(subagent_type="<codex:codex-rescue|gemini:gemini-rescue>")`，主线接 ≤200 token 摘要。
+   2. **降级 codeagent-wrapper**（BC fallback）：plugin 未装 → Bash 调用，保留 SESSION_ID 供 Step 7 review 复用。
+
+   **预备动作**：主线先 Read 角色提示词（这里用 `architect.md` 或对应实施角色），把内容拼入 `<role>` 块。
+
+   **通道 A — plugin spawn（默认，每 task 独立 fresh-context）**：
+
    ```
-   codeagent-wrapper --progress --backend <{{BACKEND_PRIMARY}}|{{FRONTEND_PRIMARY}}> {{GEMINI_MODEL_FLAG}}- "{{WORKDIR}}" <<'EOF'
-   TASK: <task description from tasks.md>
-   CONTEXT: <relevant code context>
-   CONSTRAINTS: <constraints from spec>
-   OUTPUT: Unified Diff Patch format ONLY
-   EOF
+   Agent({
+     subagent_type: "<codex:codex-rescue|gemini:gemini-rescue>",
+     description: "spec-impl: <task name>",
+     prompt: `<role>
+${implementerRole}
+</role>
+
+<workdir>{{WORKDIR}}</workdir>
+
+<task>
+TASK: <task description from tasks.md>
+CONTEXT: <relevant code context>
+CONSTRAINTS: <constraints from spec>
+</task>
+
+<action_safety>
+- Stay strictly within tasks.md scope
+- Do NOT introduce dependencies not in the plan
+- Prefer minimal targeted changes
+</action_safety>
+
+<structured_output_contract>
+Return Unified Diff Patch format ONLY (no preamble, no commentary).
+The diff will be reviewed before apply; do not assume it's been applied.
+</structured_output_contract>`
+   })
    ```
 
-   **会话复用**：保存返回的 `SESSION_ID:`（{{BACKEND_PRIMARY}} → `CODEX_PROTO_SESSION`，{{FRONTEND_PRIMARY}} → `GEMINI_PROTO_SESSION`），Step 7 审查时复用。
+   **通道 B — codeagent-wrapper fallback**（plugin 未装时；保留 SESSION_ID 供 Step 7 复用）：
+
+   ```
+   Bash({
+     command: "~/.claude/bin/codeagent-wrapper --progress --backend <{{BACKEND_PRIMARY}}|{{FRONTEND_PRIMARY}}> {{GEMINI_MODEL_FLAG}}- \"{{WORKDIR}}\" <<'EOF'\nTASK: <task description from tasks.md>\nCONTEXT: <relevant code context>\nCONSTRAINTS: <constraints from spec>\nOUTPUT: Unified Diff Patch format ONLY\nEOF",
+     run_in_background: true,
+     timeout: 3600000,
+     description: "spec-impl: <task name> (BC)"
+   })
+   ```
+
+   **会话模型差异**：
+   - **通道 A（plugin）**：每个 task 独立 fresh-context spawn，**无显式 SESSION_ID**。Step 7 review 时由主线把 Step 4-6 的变更摘要（diff + spec 引用）显式拼入 reviewer prompt。
+   - **通道 B（wrapper BC）**：保存返回的 `SESSION_ID:`（{{BACKEND_PRIMARY}} → `CODEX_PROTO_SESSION`，{{FRONTEND_PRIMARY}} → `GEMINI_PROTO_SESSION`），Step 7 审查 `resume <SESSION_ID>` 复用上下文。
 
 5. **Rewrite Prototype to Production Code**
    Upon receiving diff patch, **NEVER apply directly**. Rewrite by:
@@ -93,6 +134,13 @@ description: '按规范执行 + 多模型协作 + 归档'
 
    **Step 7.1**: In ONE message, spawn TWO models in parallel.
 
+   **⚠ 预备动作（spawn 前必须执行）**：`codex:codex-rescue` / `gemini:gemini-rescue` 是 thin forwarder，不会主动 Read 路径文件。主线必须在 spawn 前先 Read 两个角色提示词文件，把**内容**直接拼入下方 Agent prompt 的 `<role>` 块。
+
+   - backend role: `Read("~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/reviewer.md")` → `${backendRole}`
+   - frontend role: `Read("~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/reviewer.md")` → `${frontendRole}`
+
+   Prompt 结构按 `gpt-5-4-prompting` skill 推荐：`<role>` + `<task>` + `<grounding_rules>` + `<dig_deeper_nudge>` + `<structured_output_contract>`。
+
    **通道 A — plugin spawn（默认，无 session）**：
 
    **FIRST Agent call ({{BACKEND_PRIMARY}})**:
@@ -100,21 +148,43 @@ description: '按规范执行 + 多模型协作 + 归档'
    Agent({
      subagent_type: "codex:codex-rescue",
      description: "spec-impl: correctness/security review",
-     prompt: `ROLE_FILE: ~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/reviewer.md
+     prompt: `<role>
+${backendRole}
+</role>
 
-WORKDIR: {{WORKDIR}}
+<workdir>{{WORKDIR}}</workdir>
 
-<TASK>
-Review the implementation changes:
+<task>
+Review the implementation changes along backend dimensions:
 - Correctness: logic errors, edge cases
 - Security: injection, auth issues
 - Spec compliance: constraints satisfied
 
 变更摘要：<列出 Step 5/6 涉及的文件 + 关键 diff>
-</TASK>
 
-OUTPUT: JSON with findings.
-Return ≤200 token structured summary (plugin-native protocol).`
+Read-only review. Do NOT modify any file.
+</task>
+
+<grounding_rules>
+- Every finding must cite file:line in the listed diff
+- If a constraint was satisfied, list it in passed_checks
+- "I couldn't verify X" is acceptable; fabricating X is not
+</grounding_rules>
+
+<dig_deeper_nudge>
+- For each Critical finding, check whether the same root cause appears elsewhere in the diff
+- Prefer one well-cited Critical over five vague Warnings
+</dig_deeper_nudge>
+
+<structured_output_contract>
+Return JSON ONLY (no preamble):
+{
+  "findings": [{"severity": "Critical|Warning|Info", "dimension": "logic|security|spec_compliance", "file": "path", "line": N, "description": "...", "fix_suggestion": "..."}],
+  "passed_checks": ["..."],
+  "summary": "Overall assessment"
+}
+Return ≤200 token structured summary.
+</structured_output_contract>`
    })
    ```
 
@@ -123,21 +193,42 @@ Return ≤200 token structured summary (plugin-native protocol).`
    Agent({
      subagent_type: "gemini:gemini-rescue",
      description: "spec-impl: maintainability/patterns review",
-     prompt: `ROLE_FILE: ~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/reviewer.md
+     prompt: `<role>
+${frontendRole}
+</role>
 
-WORKDIR: {{WORKDIR}}
+<workdir>{{WORKDIR}}</workdir>
 
-<TASK>
-Review the implementation changes:
+<task>
+Review the implementation changes along maintainability/integration dimensions:
 - Maintainability: readability, complexity
 - Patterns: consistency with project style
 - Integration: cross-module impacts
 
 变更摘要：<列出 Step 5/6 涉及的文件 + 关键 diff>
-</TASK>
 
-OUTPUT: JSON with findings.
-Return ≤200 token structured summary (plugin-native protocol).`
+Read-only review. Do NOT modify any file.
+</task>
+
+<grounding_rules>
+- Every finding must cite file:line in the listed diff
+- If an aspect was clean, list it in passed_checks
+</grounding_rules>
+
+<dig_deeper_nudge>
+- Check if the same pattern issue appears in adjacent files
+- Prefer one well-cited Critical over five vague Warnings
+</dig_deeper_nudge>
+
+<structured_output_contract>
+Return JSON ONLY (no preamble):
+{
+  "findings": [{"severity": "Critical|Warning|Info", "dimension": "maintainability|patterns|integration", "file": "path", "line": N, "description": "...", "fix_suggestion": "..."}],
+  "passed_checks": ["..."],
+  "summary": "Overall assessment"
+}
+Return ≤200 token structured summary.
+</structured_output_contract>`
    })
    ```
 

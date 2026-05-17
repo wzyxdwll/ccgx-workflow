@@ -43,6 +43,13 @@ description: '双模型交叉审查（独立工具，随时可用）'
 
    **Step 3.1**: In ONE message, spawn TWO models in parallel.
 
+   **⚠ 预备动作（spawn 前必须执行）**：`codex:codex-rescue` / `gemini:gemini-rescue` 是 thin forwarder，不会主动 Read 路径文件。主线必须在 spawn 前先 Read 两个角色提示词文件，把**内容**直接拼入下方 Agent prompt 的 `<role>` 块。
+
+   - backend role: `Read("~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/reviewer.md")` → `${backendRole}`
+   - frontend role: `Read("~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/reviewer.md")` → `${frontendRole}`
+
+   Prompt 结构按 `gpt-5-4-prompting` skill 推荐（review 类任务额外加 `<grounding_rules>` + `<dig_deeper_nudge>`）。
+
    **通道 A — plugin spawn（默认）**：
 
    **FIRST Agent call ({{BACKEND_PRIMARY}})**:
@@ -50,22 +57,37 @@ description: '双模型交叉审查（独立工具，随时可用）'
    Agent({
      subagent_type: "codex:codex-rescue",
      description: "spec-review: backend/logic review",
-     prompt: `ROLE_FILE: ~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/reviewer.md
+     prompt: `<role>
+${backendRole}
+</role>
 
-WORKDIR: {{WORKDIR}}
+<workdir>{{WORKDIR}}</workdir>
 
-<TASK>
-Review proposal <proposal_id> implementation:
+<task>
+Review proposal <proposal_id> implementation along backend dimensions:
+1. Spec Compliance — Verify ALL constraints from spec are satisfied
+2. PBT Properties — Check invariants, idempotency, bounds correctly implemented
+3. Logic Correctness — Edge cases, error handling, algorithm correctness
+4. Backend Security — Injection vulnerabilities, auth checks, input validation
+5. Regression Risk — Interface compatibility, type safety, breaking changes
 
-## {{BACKEND_PRIMARY}} Review Dimensions
-1. **Spec Compliance**: Verify ALL constraints from spec are satisfied
-2. **PBT Properties**: Check invariants, idempotency, bounds are correctly implemented
-3. **Logic Correctness**: Edge cases, error handling, algorithm correctness
-4. **Backend Security**: Injection vulnerabilities, auth checks, input validation
-5. **Regression Risk**: Interface compatibility, type safety, breaking changes
-</TASK>
+Read-only review. Do NOT modify any file.
+</task>
 
-OUTPUT (JSON):
+<grounding_rules>
+- Every finding must cite file:line
+- If a constraint was satisfied, list it in passed_checks (don't omit positives)
+- "I couldn't verify X" is acceptable; fabricating X is not
+- Distinguish bug (observable failure path) from concern (style/maintainability preference)
+</grounding_rules>
+
+<dig_deeper_nudge>
+- For each Critical finding, check whether the same root cause appears elsewhere in the diff
+- Prefer one well-cited Critical over five vague Warnings
+</dig_deeper_nudge>
+
+<structured_output_contract>
+Return JSON ONLY (no preamble):
 {
   "findings": [
     {
@@ -81,8 +103,8 @@ OUTPUT (JSON):
   "passed_checks": ["List of verified constraints/properties"],
   "summary": "Overall assessment"
 }
-
-Return ≤200 token structured summary (plugin-native protocol).`
+Return ≤200 token structured summary.
+</structured_output_contract>`
    })
    ```
 
@@ -91,22 +113,36 @@ Return ≤200 token structured summary (plugin-native protocol).`
    Agent({
      subagent_type: "gemini:gemini-rescue",
      description: "spec-review: patterns/integration review",
-     prompt: `ROLE_FILE: ~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/reviewer.md
+     prompt: `<role>
+${frontendRole}
+</role>
 
-WORKDIR: {{WORKDIR}}
+<workdir>{{WORKDIR}}</workdir>
 
-<TASK>
-Review proposal <proposal_id> implementation:
+<task>
+Review proposal <proposal_id> implementation along frontend/integration dimensions:
+1. Pattern Consistency — Naming conventions, code style, project patterns
+2. Maintainability — Readability, complexity, documentation adequacy
+3. Integration Risk — Dependency changes, cross-module impacts
+4. Frontend Security — XSS, CSRF, sensitive data exposure
+5. Spec Alignment — Implementation matches spec intent (not just letter)
 
-## {{FRONTEND_PRIMARY}} Review Dimensions
-1. **Pattern Consistency**: Naming conventions, code style, project patterns
-2. **Maintainability**: Readability, complexity, documentation adequacy
-3. **Integration Risk**: Dependency changes, cross-module impacts
-4. **Frontend Security**: XSS, CSRF, sensitive data exposure
-5. **Spec Alignment**: Implementation matches spec intent (not just letter)
-</TASK>
+Read-only review. Do NOT modify any file.
+</task>
 
-OUTPUT (JSON):
+<grounding_rules>
+- Every finding must cite file:line
+- If an aspect was clean, list it in passed_checks
+- "I couldn't verify X" is acceptable; fabricating X is not
+</grounding_rules>
+
+<dig_deeper_nudge>
+- For each Critical finding, check whether the same pattern issue appears in adjacent files
+- Prefer one well-cited Critical over five vague Warnings
+</dig_deeper_nudge>
+
+<structured_output_contract>
+Return JSON ONLY (no preamble):
 {
   "findings": [
     {
@@ -122,8 +158,8 @@ OUTPUT (JSON):
   "passed_checks": ["List of verified aspects"],
   "summary": "Overall assessment"
 }
-
-Return ≤200 token structured summary (plugin-native protocol).`
+Return ≤200 token structured summary.
+</structured_output_contract>`
    })
    ```
 

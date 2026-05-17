@@ -42,6 +42,13 @@ description: '多模型分析 → 消除歧义 → 零决策可执行计划'
 
    **Step 2.1**: In ONE message, spawn TWO models in parallel.
 
+   **⚠ 预备动作（spawn 前必须执行）**：`codex:codex-rescue` / `gemini:gemini-rescue` 是 thin forwarder，不会主动 Read 路径文件。主线必须在 spawn 前先 Read 两个角色提示词文件，把**内容**直接拼入下方 Agent prompt 的 `<role>` 块。
+
+   - backend role: `Read("~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/analyzer.md")` → `${backendRole}`
+   - frontend role: `Read("~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/analyzer.md")` → `${frontendRole}`
+
+   Prompt 结构按 `gpt-5-4-prompting` skill 推荐：`<role>` + `<task>` + `<grounding_rules>` + `<structured_output_contract>`。
+
    **通道 A — plugin spawn（默认）**：
 
    **FIRST Agent call ({{BACKEND_PRIMARY}})**:
@@ -49,20 +56,37 @@ description: '多模型分析 → 消除歧义 → 零决策可执行计划'
    Agent({
      subagent_type: "codex:codex-rescue",
      description: "spec-plan: backend analysis",
-     prompt: `ROLE_FILE: ~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/analyzer.md
+     prompt: `<role>
+${backendRole}
+</role>
 
-WORKDIR: {{WORKDIR}}
+<workdir>{{WORKDIR}}</workdir>
 
-<TASK>
+<task>
 Analyze change <change_id> from backend perspective:
 - Implementation approach
 - Technical risks
 - Alternative architectures
 - Edge cases and failure modes
-</TASK>
+</task>
 
-OUTPUT: JSON with analysis.
-Return ≤200 token structured summary (plugin-native protocol).`
+<grounding_rules>
+- Cite file:line for claims about existing code
+- Mark hypotheses; don't state guesses as facts
+- For risks, distinguish "observed" (specific code path) vs "potential" (theoretical)
+</grounding_rules>
+
+<structured_output_contract>
+Return JSON ONLY (no preamble):
+{
+  "approach": "selected implementation strategy with rationale",
+  "alternatives_rejected": [{"alt": "...", "reason": "..."}],
+  "technical_risks": [{"risk": "...", "severity": "high|medium|low", "mitigation": "..."}],
+  "edge_cases": ["..."],
+  "failure_modes": ["..."]
+}
+Return ≤200 token structured summary.
+</structured_output_contract>`
    })
    ```
 
@@ -71,19 +95,33 @@ Return ≤200 token structured summary (plugin-native protocol).`
    Agent({
      subagent_type: "gemini:gemini-rescue",
      description: "spec-plan: frontend analysis",
-     prompt: `ROLE_FILE: ~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/analyzer.md
+     prompt: `<role>
+${frontendRole}
+</role>
 
-WORKDIR: {{WORKDIR}}
+<workdir>{{WORKDIR}}</workdir>
 
-<TASK>
+<task>
 Analyze change <change_id> from frontend/integration perspective:
 - Maintainability assessment
 - Scalability considerations
 - Integration conflicts
-</TASK>
+</task>
 
-OUTPUT: JSON with analysis.
-Return ≤200 token structured summary (plugin-native protocol).`
+<grounding_rules>
+- Cite file:line for claims about existing code
+- Mark hypotheses; don't state guesses as facts
+</grounding_rules>
+
+<structured_output_contract>
+Return JSON ONLY (no preamble):
+{
+  "maintainability": {"score": "good|moderate|concerning", "factors": ["..."]},
+  "scalability": [{"dimension": "...", "consideration": "..."}],
+  "integration_conflicts": [{"target": "...", "conflict": "...", "resolution": "..."}]
+}
+Return ≤200 token structured summary.
+</structured_output_contract>`
    })
    ```
 
