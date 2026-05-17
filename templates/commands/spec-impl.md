@@ -75,32 +75,94 @@ description: '按规范执行 + 多模型协作 + 归档'
    If issues found, make targeted corrections.
 
 7. **Multi-Model Review (PARALLEL)**
-   - **CRITICAL**: You MUST launch BOTH {{BACKEND_PRIMARY}} AND {{FRONTEND_PRIMARY}} in a SINGLE message with TWO Bash tool calls.
-   - **DO NOT** call one model first and wait. Launch BOTH simultaneously with `run_in_background: true`.
 
-   **Step 7.1**: In ONE message, make TWO parallel Bash calls:
+   **调用通道路由（CCG codeagent 退役，v2.2.0+）**
 
-   **FIRST Bash call ({{BACKEND_PRIMARY}})**:
+   双模型并行通道从 `Bash(codeagent-wrapper)` **默认切换**为 plugin spawn：
+
+   1. **优先 plugin spawn**（默认）：装了 `codex@openai-codex` + gemini plugin（推荐 `gemini@gemini-ccgx` fork；或上游 `gemini@google-gemini` 配 repatch 脚本）→ 用 `Agent(subagent_type="codex:codex-rescue")` + `Agent(subagent_type="gemini:gemini-rescue")` 并行，主线接 ≤200 token 摘要。
+   2. **降级 codeagent-wrapper**（BC fallback）：plugin 未装 → fallback Bash 调用，**保留 Step 4 session resume** 以维持会话上下文。
+
+   **判定**：preflight `Bash` 跑 `ls ~/.claude/plugins/` 看有无 `codex@*` / `gemini@*` 子目录。
+
+   ⚠️ spec-impl 命令在主线 context 内，**允许** `Agent(...)`——与 subagent "禁止嵌套 spawn" 约束不冲突。
+   ⚠️ **plugin 路径无 session resume 能力**：通道 A 不接 Step 4 的 SESSION_ID，review 任务作为独立无状态分析跑（review 是 read-only 审查，无需会话连续性）。
+
+   - **CRITICAL**: You MUST launch BOTH {{BACKEND_PRIMARY}} AND {{FRONTEND_PRIMARY}} in a SINGLE message with TWO parallel tool calls.
+   - **DO NOT** call one model first and wait. Launch BOTH simultaneously.
+
+   **Step 7.1**: In ONE message, spawn TWO models in parallel.
+
+   **通道 A — plugin spawn（默认，无 session）**：
+
+   **FIRST Agent call ({{BACKEND_PRIMARY}})**:
+   ```
+   Agent({
+     subagent_type: "codex:codex-rescue",
+     description: "spec-impl: correctness/security review",
+     prompt: `ROLE_FILE: ~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/reviewer.md
+
+WORKDIR: {{WORKDIR}}
+
+<TASK>
+Review the implementation changes:
+- Correctness: logic errors, edge cases
+- Security: injection, auth issues
+- Spec compliance: constraints satisfied
+
+变更摘要：<列出 Step 5/6 涉及的文件 + 关键 diff>
+</TASK>
+
+OUTPUT: JSON with findings.
+Return ≤200 token structured summary (plugin-native protocol).`
+   })
+   ```
+
+   **SECOND Agent call ({{FRONTEND_PRIMARY}}) - IN THE SAME MESSAGE**:
+   ```
+   Agent({
+     subagent_type: "gemini:gemini-rescue",
+     description: "spec-impl: maintainability/patterns review",
+     prompt: `ROLE_FILE: ~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/reviewer.md
+
+WORKDIR: {{WORKDIR}}
+
+<TASK>
+Review the implementation changes:
+- Maintainability: readability, complexity
+- Patterns: consistency with project style
+- Integration: cross-module impacts
+
+变更摘要：<列出 Step 5/6 涉及的文件 + 关键 diff>
+</TASK>
+
+OUTPUT: JSON with findings.
+Return ≤200 token structured summary (plugin-native protocol).`
+   })
+   ```
+
+   **通道 B — codeagent-wrapper fallback**（plugin 未装时降级，**保留 session resume**）：
+
    ```
    Bash({
      command: "~/.claude/bin/codeagent-wrapper --progress --backend {{BACKEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}resume <CODEX_PROTO_SESSION> - \"{{WORKDIR}}\" <<'EOF'\nReview the implementation changes:\n- Correctness: logic errors, edge cases\n- Security: injection, auth issues\n- Spec compliance: constraints satisfied\nOUTPUT: JSON with findings\nEOF",
      run_in_background: true,
      timeout: 300000,
-     description: "{{BACKEND_PRIMARY}}: correctness/security review"
+     description: "{{BACKEND_PRIMARY}}: correctness/security review (BC, resume session)"
    })
-   ```
-
-   **SECOND Bash call ({{FRONTEND_PRIMARY}}) - IN THE SAME MESSAGE**:
-   ```
    Bash({
      command: "~/.claude/bin/codeagent-wrapper --progress --backend {{FRONTEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}resume <GEMINI_PROTO_SESSION> - \"{{WORKDIR}}\" <<'EOF'\nReview the implementation changes:\n- Maintainability: readability, complexity\n- Patterns: consistency with project style\n- Integration: cross-module impacts\nOUTPUT: JSON with findings\nEOF",
      run_in_background: true,
      timeout: 300000,
-     description: "{{FRONTEND_PRIMARY}}: maintainability/patterns review"
+     description: "{{FRONTEND_PRIMARY}}: maintainability/patterns review (BC, resume session)"
    })
    ```
 
-   **Step 7.2 (事件驱动)**: spawn 两个 Bash bg 后说明 task-id 然后 **turn end**。引擎在每个 task 完成时自动发 `<task-notification>`，主线在通知触发的新 turn 处理结果。**不调 TaskOutput**。两个 task 都收到通知后才进 step 7.3。
+   > ⚠️ 通道 B `codeagent-wrapper` 已标 **deprecated**，仅为不能升级 plugin 的环境保留——但本 step 仍是 wrapper 唯一能利用 Step 4 SESSION_ID 的场景。
+
+   **Step 7.2 (事件驱动)**：
+   - **通道 A（plugin）**：两个 Agent 同 message 内 spawn，主线接 ≤200 token 摘要。Agent 完成后自动返回结果。
+   - **通道 B（BC wrapper）**：spawn 两个 Bash bg 后说明 task-id 然后 **turn end**。引擎在每个 task 完成时自动发 `<task-notification>`，主线在通知触发的新 turn 处理结果。**不调 TaskOutput**。两个 task 都收到通知后才进 step 7.3。
 
    ⛔ **禁止**：调 `TaskOutput({block: true, timeout: 600000})` (旧 freeze poll 模式) / Kill task。
    ⚠️ **失败处理**：notification status=failed / exit ≠ 0 / parse 失败 → v1.7.87 标准 2-retry / 5s / 3-attempts；3 次全失败才降级单模型。

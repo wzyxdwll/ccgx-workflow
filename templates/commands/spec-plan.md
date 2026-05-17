@@ -24,33 +24,91 @@ description: '多模型分析 → 消除歧义 → 零决策可执行计划'
    - Run `openspec status --change "<change_id>" --json` to review current state.
 
 2. **Multi-Model Implementation Analysis (PARALLEL)**
-   - **CRITICAL**: You MUST launch BOTH {{BACKEND_PRIMARY}} AND {{FRONTEND_PRIMARY}} in a SINGLE message with TWO Bash tool calls.
-   - **DO NOT** call one model first and wait. Launch BOTH simultaneously with `run_in_background: true`.
+
+   **调用通道路由（CCG codeagent 退役，v2.2.0+）**
+
+   双模型并行通道从 `Bash(codeagent-wrapper)` **默认切换**为 plugin spawn：
+
+   1. **优先 plugin spawn**（默认）：装了 `codex@openai-codex` + gemini plugin（推荐 `gemini@gemini-ccgx` fork；或上游 `gemini@google-gemini` 配 repatch 脚本）→ 用 `Agent(subagent_type="codex:codex-rescue")` + `Agent(subagent_type="gemini:gemini-rescue")` 并行，主线接 ≤200 token 摘要。
+   2. **降级 codeagent-wrapper**（BC fallback）：plugin 未装 → fallback Bash 调用，行为与 plugin 路径等价。
+
+   **判定**：preflight `Bash` 跑 `ls ~/.claude/plugins/` 看有无 `codex@*` / `gemini@*` 子目录。
+
+   ⚠️ spec-plan 命令在主线 context 内，**允许** `Agent(...)`——与 subagent "禁止嵌套 spawn" 约束不冲突。
+
+   - **CRITICAL**: You MUST launch BOTH {{BACKEND_PRIMARY}} AND {{FRONTEND_PRIMARY}} in a SINGLE message with TWO parallel tool calls.
+   - **DO NOT** call one model first and wait. Launch BOTH simultaneously.
    - **工作目录**：`{{WORKDIR}}` **必须通过 Bash 执行 `pwd`（Unix）或 `cd`（Windows CMD）获取当前工作目录的绝对路径**，禁止从 `$HOME` 或环境变量推断。如果用户通过 `/add-dir` 添加了多个工作区，先确定任务相关的工作区。
 
-   **Step 2.1**: In ONE message, make TWO parallel Bash calls:
+   **Step 2.1**: In ONE message, spawn TWO models in parallel.
 
-   **FIRST Bash call ({{BACKEND_PRIMARY}})**:
+   **通道 A — plugin spawn（默认）**：
+
+   **FIRST Agent call ({{BACKEND_PRIMARY}})**:
    ```
-   Bash({
-     command: "~/.claude/bin/codeagent-wrapper --progress --backend {{BACKEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}- \"{{WORKDIR}}\" <<'EOF'\nAnalyze change <change_id> from backend perspective:\n- Implementation approach\n- Technical risks\n- Alternative architectures\n- Edge cases and failure modes\nOUTPUT: JSON with analysis\nEOF",
-     run_in_background: true,
-     timeout: 300000,
-     description: "{{BACKEND_PRIMARY}}: backend analysis"
+   Agent({
+     subagent_type: "codex:codex-rescue",
+     description: "spec-plan: backend analysis",
+     prompt: `ROLE_FILE: ~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/analyzer.md
+
+WORKDIR: {{WORKDIR}}
+
+<TASK>
+Analyze change <change_id> from backend perspective:
+- Implementation approach
+- Technical risks
+- Alternative architectures
+- Edge cases and failure modes
+</TASK>
+
+OUTPUT: JSON with analysis.
+Return ≤200 token structured summary (plugin-native protocol).`
    })
    ```
 
-   **SECOND Bash call ({{FRONTEND_PRIMARY}}) - IN THE SAME MESSAGE**:
+   **SECOND Agent call ({{FRONTEND_PRIMARY}}) - IN THE SAME MESSAGE**:
    ```
-   Bash({
-     command: "~/.claude/bin/codeagent-wrapper --progress --backend {{FRONTEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}- \"{{WORKDIR}}\" <<'EOF'\nAnalyze change <change_id> from frontend/integration perspective:\n- Maintainability assessment\n- Scalability considerations\n- Integration conflicts\nOUTPUT: JSON with analysis\nEOF",
-     run_in_background: true,
-     timeout: 300000,
-     description: "{{FRONTEND_PRIMARY}}: frontend analysis"
+   Agent({
+     subagent_type: "gemini:gemini-rescue",
+     description: "spec-plan: frontend analysis",
+     prompt: `ROLE_FILE: ~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/analyzer.md
+
+WORKDIR: {{WORKDIR}}
+
+<TASK>
+Analyze change <change_id> from frontend/integration perspective:
+- Maintainability assessment
+- Scalability considerations
+- Integration conflicts
+</TASK>
+
+OUTPUT: JSON with analysis.
+Return ≤200 token structured summary (plugin-native protocol).`
    })
    ```
 
-   **Step 2.2 (事件驱动)**: spawn 两个 Bash bg 后说明 task-id 然后 **turn end**。引擎在每个 task 完成时自动发 `<task-notification>`，主线在通知触发的新 turn 处理结果。**不调 TaskOutput**。两个 task 都收到通知后才进 step 2.3。
+   **通道 B — codeagent-wrapper fallback**（plugin 未装时降级，并行用 `run_in_background: true`）：
+
+   ```
+   Bash({
+     command: "~/.claude/bin/codeagent-wrapper --progress --backend {{BACKEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}- \"{{WORKDIR}}\" <<'EOF'\nROLE_FILE: ~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/analyzer.md\nAnalyze change <change_id> from backend perspective:\n- Implementation approach\n- Technical risks\n- Alternative architectures\n- Edge cases and failure modes\nOUTPUT: JSON with analysis\nEOF",
+     run_in_background: true,
+     timeout: 300000,
+     description: "{{BACKEND_PRIMARY}}: backend analysis (BC)"
+   })
+   Bash({
+     command: "~/.claude/bin/codeagent-wrapper --progress --backend {{FRONTEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}- \"{{WORKDIR}}\" <<'EOF'\nROLE_FILE: ~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/analyzer.md\nAnalyze change <change_id> from frontend/integration perspective:\n- Maintainability assessment\n- Scalability considerations\n- Integration conflicts\nOUTPUT: JSON with analysis\nEOF",
+     run_in_background: true,
+     timeout: 300000,
+     description: "{{FRONTEND_PRIMARY}}: frontend analysis (BC)"
+   })
+   ```
+
+   > ⚠️ 通道 B `codeagent-wrapper` 已标 **deprecated**，仅为不能升级 plugin 的环境保留。
+
+   **Step 2.2 (事件驱动)**：
+   - **通道 A（plugin）**：两个 Agent 同 message 内 spawn，主线接 ≤200 token 摘要。Agent 完成后自动返回结果。
+   - **通道 B（BC wrapper）**：spawn 两个 Bash bg 后说明 task-id 然后 **turn end**。引擎在每个 task 完成时自动发 `<task-notification>`，主线在通知触发的新 turn 处理结果。**不调 TaskOutput**。两个 task 都收到通知后才进 step 2.3。
 
    ⛔ **禁止**：调 `TaskOutput({block: true, timeout: 600000})` (旧 freeze poll 模式) / Kill task。
    ⚠️ **失败处理**：notification status=failed / exit ≠ 0 / parse 失败 → v1.7.87 标准 2-retry / 5s / 3-attempts；3 次全失败才降级单模型。

@@ -1,6 +1,6 @@
 {
   "name": "ccgx-workflow",
-  "version": "2.1.2",
+  "version": "2.2.0",
   "description": "Multi-model orchestration for Claude Code. Codex + Gemini parallel collaboration with fresh-context subagent protocols, OS-level process isolation, and Plan-Critic-Verify quality tiers. Successor to ccg-workflow.",
   "type": "module",
   "packageManager": "pnpm@10.17.1",

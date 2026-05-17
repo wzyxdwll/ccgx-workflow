@@ -25,33 +25,130 @@ description: '双模型交叉审查（独立工具，随时可用）'
    - Load relevant spec constraints and PBT properties from `openspec/changes/<id>/specs/`.
 
 3. **Multi-Model Review (PARALLEL)**
-   - **CRITICAL**: You MUST launch BOTH {{BACKEND_PRIMARY}} AND {{FRONTEND_PRIMARY}} in a SINGLE message with TWO Bash tool calls.
-   - **DO NOT** call one model first and wait. Launch BOTH simultaneously with `run_in_background: true`.
+
+   **调用通道路由（CCG codeagent 退役，v2.2.0+）**
+
+   双模型并行通道从 `Bash(codeagent-wrapper)` **默认切换**为 plugin spawn：
+
+   1. **优先 plugin spawn**（默认）：装了 `codex@openai-codex` + gemini plugin（推荐 `gemini@gemini-ccgx` fork；或上游 `gemini@google-gemini` 配 repatch 脚本）→ 用 `Agent(subagent_type="codex:codex-rescue")` + `Agent(subagent_type="gemini:gemini-rescue")` 并行，主线接 ≤200 token 摘要。
+   2. **降级 codeagent-wrapper**（BC fallback）：plugin 未装 → fallback Bash 调用，行为与 plugin 路径等价。
+
+   **判定**：preflight `Bash` 跑 `ls ~/.claude/plugins/` 看有无 `codex@*` / `gemini@*` 子目录。
+
+   ⚠️ spec-review 命令在主线 context 内，**允许** `Agent(...)`——与 subagent "禁止嵌套 spawn" 约束不冲突。
+
+   - **CRITICAL**: You MUST launch BOTH {{BACKEND_PRIMARY}} AND {{FRONTEND_PRIMARY}} in a SINGLE message with TWO parallel tool calls.
+   - **DO NOT** call one model first and wait. Launch BOTH simultaneously.
    - **工作目录**：`{{WORKDIR}}` **必须通过 Bash 执行 `pwd`（Unix）或 `cd`（Windows CMD）获取当前工作目录的绝对路径**，禁止从 `$HOME` 或环境变量推断。如果用户通过 `/add-dir` 添加了多个工作区，先确定任务相关的工作区。
 
-   **Step 3.1**: In ONE message, make TWO parallel Bash calls:
+   **Step 3.1**: In ONE message, spawn TWO models in parallel.
 
-   **FIRST Bash call ({{BACKEND_PRIMARY}})**:
+   **通道 A — plugin spawn（默认）**：
+
+   **FIRST Agent call ({{BACKEND_PRIMARY}})**:
    ```
-   Bash({
-     command: "~/.claude/bin/codeagent-wrapper --progress --backend {{BACKEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}- \"{{WORKDIR}}\" <<'EOF'\nReview proposal <proposal_id> implementation:\n\n## {{BACKEND_PRIMARY}} Review Dimensions\n1. **Spec Compliance**: Verify ALL constraints from spec are satisfied\n2. **PBT Properties**: Check invariants, idempotency, bounds are correctly implemented\n3. **Logic Correctness**: Edge cases, error handling, algorithm correctness\n4. **Backend Security**: Injection vulnerabilities, auth checks, input validation\n5. **Regression Risk**: Interface compatibility, type safety, breaking changes\n\n## Output Format (JSON)\n{\n  \"findings\": [\n    {\n      \"severity\": \"Critical|Warning|Info\",\n      \"dimension\": \"spec_compliance|pbt|logic|security|regression\",\n      \"file\": \"path/to/file.ts\",\n      \"line\": 42,\n      \"description\": \"What is wrong\",\n      \"constraint_violated\": \"Constraint ID from spec (if applicable)\",\n      \"fix_suggestion\": \"How to fix\"\n    }\n  ],\n  \"passed_checks\": [\"List of verified constraints/properties\"],\n  \"summary\": \"Overall assessment\"\n}\nEOF",
-     run_in_background: true,
-     timeout: 300000,
-     description: "{{BACKEND_PRIMARY}}: backend/logic review"
+   Agent({
+     subagent_type: "codex:codex-rescue",
+     description: "spec-review: backend/logic review",
+     prompt: `ROLE_FILE: ~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/reviewer.md
+
+WORKDIR: {{WORKDIR}}
+
+<TASK>
+Review proposal <proposal_id> implementation:
+
+## {{BACKEND_PRIMARY}} Review Dimensions
+1. **Spec Compliance**: Verify ALL constraints from spec are satisfied
+2. **PBT Properties**: Check invariants, idempotency, bounds are correctly implemented
+3. **Logic Correctness**: Edge cases, error handling, algorithm correctness
+4. **Backend Security**: Injection vulnerabilities, auth checks, input validation
+5. **Regression Risk**: Interface compatibility, type safety, breaking changes
+</TASK>
+
+OUTPUT (JSON):
+{
+  "findings": [
+    {
+      "severity": "Critical|Warning|Info",
+      "dimension": "spec_compliance|pbt|logic|security|regression",
+      "file": "path/to/file.ts",
+      "line": 42,
+      "description": "What is wrong",
+      "constraint_violated": "Constraint ID from spec (if applicable)",
+      "fix_suggestion": "How to fix"
+    }
+  ],
+  "passed_checks": ["List of verified constraints/properties"],
+  "summary": "Overall assessment"
+}
+
+Return ≤200 token structured summary (plugin-native protocol).`
    })
    ```
 
-   **SECOND Bash call ({{FRONTEND_PRIMARY}}) - IN THE SAME MESSAGE**:
+   **SECOND Agent call ({{FRONTEND_PRIMARY}}) - IN THE SAME MESSAGE**:
    ```
-   Bash({
-     command: "~/.claude/bin/codeagent-wrapper --progress --backend {{FRONTEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}- \"{{WORKDIR}}\" <<'EOF'\nReview proposal <proposal_id> implementation:\n\n## {{FRONTEND_PRIMARY}} Review Dimensions\n1. **Pattern Consistency**: Naming conventions, code style, project patterns\n2. **Maintainability**: Readability, complexity, documentation adequacy\n3. **Integration Risk**: Dependency changes, cross-module impacts\n4. **Frontend Security**: XSS, CSRF, sensitive data exposure\n5. **Spec Alignment**: Implementation matches spec intent (not just letter)\n\n## Output Format (JSON)\n{\n  \"findings\": [\n    {\n      \"severity\": \"Critical|Warning|Info\",\n      \"dimension\": \"patterns|maintainability|integration|security|alignment\",\n      \"file\": \"path/to/file.ts\",\n      \"line\": 42,\n      \"description\": \"What is wrong\",\n      \"spec_reference\": \"Spec section (if applicable)\",\n      \"fix_suggestion\": \"How to fix\"\n    }\n  ],\n  \"passed_checks\": [\"List of verified aspects\"],\n  \"summary\": \"Overall assessment\"\n}\nEOF",
-     run_in_background: true,
-     timeout: 300000,
-     description: "{{FRONTEND_PRIMARY}}: patterns/integration review"
+   Agent({
+     subagent_type: "gemini:gemini-rescue",
+     description: "spec-review: patterns/integration review",
+     prompt: `ROLE_FILE: ~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/reviewer.md
+
+WORKDIR: {{WORKDIR}}
+
+<TASK>
+Review proposal <proposal_id> implementation:
+
+## {{FRONTEND_PRIMARY}} Review Dimensions
+1. **Pattern Consistency**: Naming conventions, code style, project patterns
+2. **Maintainability**: Readability, complexity, documentation adequacy
+3. **Integration Risk**: Dependency changes, cross-module impacts
+4. **Frontend Security**: XSS, CSRF, sensitive data exposure
+5. **Spec Alignment**: Implementation matches spec intent (not just letter)
+</TASK>
+
+OUTPUT (JSON):
+{
+  "findings": [
+    {
+      "severity": "Critical|Warning|Info",
+      "dimension": "patterns|maintainability|integration|security|alignment",
+      "file": "path/to/file.ts",
+      "line": 42,
+      "description": "What is wrong",
+      "spec_reference": "Spec section (if applicable)",
+      "fix_suggestion": "How to fix"
+    }
+  ],
+  "passed_checks": ["List of verified aspects"],
+  "summary": "Overall assessment"
+}
+
+Return ≤200 token structured summary (plugin-native protocol).`
    })
    ```
 
-   **Step 3.2 (事件驱动)**: spawn 两个 Bash bg 后说明 task-id 然后 **turn end**。引擎在每个 task 完成时自动发 `<task-notification>`，主线在通知触发的新 turn 处理结果。**不调 TaskOutput**。两个 task 都收到通知后才进 step 3.3。
+   **通道 B — codeagent-wrapper fallback**（plugin 未装时降级，并行用 `run_in_background: true`）：
+
+   ```
+   Bash({
+     command: "~/.claude/bin/codeagent-wrapper --progress --backend {{BACKEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}- \"{{WORKDIR}}\" <<'EOF'\nROLE_FILE: ~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/reviewer.md\nReview proposal <proposal_id> implementation:\n[Backend review dimensions - same as 通道 A]\nOUTPUT (JSON): [same schema as 通道 A]\nEOF",
+     run_in_background: true,
+     timeout: 300000,
+     description: "{{BACKEND_PRIMARY}}: backend/logic review (BC)"
+   })
+   Bash({
+     command: "~/.claude/bin/codeagent-wrapper --progress --backend {{FRONTEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}- \"{{WORKDIR}}\" <<'EOF'\nROLE_FILE: ~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/reviewer.md\nReview proposal <proposal_id> implementation:\n[Frontend review dimensions - same as 通道 A]\nOUTPUT (JSON): [same schema as 通道 A]\nEOF",
+     run_in_background: true,
+     timeout: 300000,
+     description: "{{FRONTEND_PRIMARY}}: patterns/integration review (BC)"
+   })
+   ```
+
+   > ⚠️ 通道 B `codeagent-wrapper` 已标 **deprecated**，仅为不能升级 plugin 的环境保留。
+
+   **Step 3.2 (事件驱动)**：
+   - **通道 A（plugin）**：两个 Agent 同 message 内 spawn，主线接 ≤200 token 摘要。Agent 完成后自动返回结果。
+   - **通道 B（BC wrapper）**：spawn 两个 Bash bg 后说明 task-id 然后 **turn end**。引擎在每个 task 完成时自动发 `<task-notification>`，主线在通知触发的新 turn 处理结果。**不调 TaskOutput**。两个 task 都收到通知后才进 step 3.3。
 
    ⛔ **禁止**：调 `TaskOutput({block: true, timeout: 600000})` (旧 freeze poll 模式) / Kill task。
    ⚠️ **失败处理**：notification status=failed / exit ≠ 0 / parse 失败 → v1.7.87 标准 2-retry / 5s / 3-attempts；3 次全失败才降级单模型。

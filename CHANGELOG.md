@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.2.0] - 2026-05-17 — 🔄 spec-* / team 系列双模型并行迁到 plugin 路径（codeagent-wrapper 收敛）
+
+### 🎯 为什么 2.2.0（一句话）
+
+`/ccg:spec-research` `/ccg:spec-plan` `/ccg:spec-review` `/ccg:spec-impl` `/ccg:team` 五条命令的双模型并行调用，**默认通道**从 `Bash(codeagent-wrapper)` 切到 `Agent(codex:codex-rescue)` + `Agent(gemini:gemini-rescue)` plugin spawn——主线 context 接 ≤200 token 摘要，错误恢复由 harness 接管，不再因 wrapper 路径错 / 二进制版本不同步 / exit 127 静默死。
+
+### 🔄 变更
+
+- **`templates/commands/spec-research.md` Step 4.1**：双 `Bash(codeagent-wrapper)` → 双通道（plugin 默认 + wrapper BC fallback）。
+- **`templates/commands/spec-plan.md` Step 2.1**：同上。
+- **`templates/commands/spec-review.md` Step 3.1**：同上。
+- **`templates/commands/spec-impl.md` Step 7.1**：双通道改造；**plugin 无 session resume 能力**，review 任务在通道 A 作为独立无状态分析跑（review 是 read-only，无需会话连续性）；通道 B 保留 `resume <SESSION_ID>` 利用 Step 4 会话。
+- **`templates/commands/team.md` Phase 2 + Phase 6**：双 `Bash(codeagent-wrapper)` → 双通道；角色编制表中两个外部模型的 spawn 方式列同步更新。
+
+### 📌 保留 wrapper 的场景（不迁移）
+
+- **`templates/commands/codex-exec.md`**：整条命令依赖 wrapper 的 `resume <CODEX_SESSION>` 做 plan→exec→fix 多轮迭代，plugin 没有等价的 session 能力。迁移=重新设计整条命令，本版本暂不动。CHANGELOG 备注：**codex-exec 是 wrapper 在主线工作流中的最后留守场景**。
+- **`templates/commands/spec-impl.md` Step 4**：实施阶段同样依赖 wrapper session resume 注入 SESSION_ID，保留原有 wrapper 调用。
+- **`templates/commands/spec-init.md`**：wrapper 用于 `--version` 工具可用性探测，非工作流并行调用，保留。
+- **`templates/commands/team-exec.md`**：Builder 协议本身就走 `Agent(team_name, model=sonnet)`，不调 wrapper。
+
+### 📌 通道判定
+
+每个迁移命令统一加入 preflight 判定：
+
+```
+Bash: ls ~/.claude/plugins/ → 看有无 codex@* / gemini@* 子目录
+- 有 → 通道 A（plugin spawn，默认）
+- 无 → 通道 B（codeagent-wrapper BC fallback）
+```
+
+通道 B 标 `deprecated`，仅为不能升级 plugin 的环境保留。
+
+### 📌 ROLE_FILE 注入方式变化
+
+- **wrapper 路径**：通过 `--prompt-file` 或 prompt 内嵌 `ROLE_FILE:` 注入角色提示词
+- **plugin 路径**：plugin 不支持 `--prompt-file`，统一在 `Agent.prompt` 字段开头写 `ROLE_FILE: <path>`，由 rescue agent 自己 Read
+
+### ✨ 副作用
+
+- 主线 context 占用大幅下降：plugin 路径 fresh-context subagent 只回传 ≤200 token 摘要，wrapper 路径下双模型 stdout 全量回流主线的问题不再触发。
+- 错误恢复更稳：plugin 路径走 Claude Code harness 标准 notification，wrapper 路径下 exit 127（二进制路径错）这种静默失败模式被自然规避。
+- 跨平台问题减少：plugin 不依赖 6 份 codeagent-wrapper 平台二进制（darwin/linux/windows × amd64/arm64）。
+
+### 📦 兼容性
+
+- 未装 codex/gemini plugin 的环境**完全不受影响**——自动降级到通道 B（wrapper），行为与 2.1.2 完全一致。
+- 装了 plugin 的环境**自动升级**到通道 A，无需用户配置。
+
+---
+
 ## [2.1.2] - 2026-05-12 — 🐛 helper idle 默认禁用（治 2.1.1 回归：误杀健康长任务）
 
 ### 修复（v2.1.1 回归）

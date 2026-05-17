@@ -70,8 +70,8 @@ TaskUpdate({ taskId: "1", owner: "architect" })
 | 📜 Dev × N | Agent Teams teammates | `Agent(team_name=T, name="dev-1")` | Sonnet | 并行编码，文件隔离 |
 | 🧪 QA | Agent Teams teammate | `Agent(team_name=T, name="qa")` | Sonnet | 写测试、跑测试、lint、typecheck |
 | 🔬 Reviewer | Agent Teams teammate | `Agent(team_name=T, name="reviewer")` | Sonnet | 综合审查，分级判决 |
-| 🔥 {{BACKEND_PRIMARY}} | 外部模型（非 teammate） | Bash + codeagent-wrapper | {{BACKEND_PRIMARY}} | 后端分析/审查（Phase 2, 6） |
-| 🔮 {{FRONTEND_PRIMARY}} | 外部模型（非 teammate） | Bash + codeagent-wrapper | {{FRONTEND_PRIMARY}} | 前端分析/审查（Phase 2, 6） |
+| 🔥 {{BACKEND_PRIMARY}} | 外部模型（非 teammate） | 默认 `Agent(codex:codex-rescue)` / BC fallback Bash codeagent-wrapper | {{BACKEND_PRIMARY}} | 后端分析/审查（Phase 2, 6） |
+| 🔮 {{FRONTEND_PRIMARY}} | 外部模型（非 teammate） | 默认 `Agent(gemini:gemini-rescue)` / BC fallback Bash codeagent-wrapper | {{FRONTEND_PRIMARY}} | 前端分析/审查（Phase 2, 6） |
 
 **8 阶段流水线**
 
@@ -156,29 +156,78 @@ Phase 8: INTEGRATION   → Lead 全量验证 + 报告 + 清理
 1. **Team 已在 Phase 0 创建**，直接使用已有的 team_name。
 
 2. **{{BACKEND_PRIMARY}} + {{FRONTEND_PRIMARY}} 并行分析（PARALLEL）**
-   - **CRITICAL**: 必须在一条消息中同时发起两个 Bash 调用，`run_in_background: true`。
 
-   **FIRST Bash call ({{BACKEND_PRIMARY}})**:
+   **调用通道路由（CCG codeagent 退役，v2.2.0+）**
+
+   双模型并行通道从 `Bash(codeagent-wrapper)` **默认切换**为 plugin spawn：
+
+   1. **优先 plugin spawn**（默认）：装了 `codex@openai-codex` + gemini plugin → 用 `Agent(subagent_type="codex:codex-rescue")` + `Agent(subagent_type="gemini:gemini-rescue")` 并行，主线接 ≤200 token 摘要。
+   2. **降级 codeagent-wrapper**（BC fallback）：plugin 未装 → fallback Bash 调用，行为与 plugin 路径等价。
+
+   **判定**：preflight `Bash` 跑 `ls ~/.claude/plugins/` 看有无 `codex@*` / `gemini@*` 子目录。
+
+   - **CRITICAL**: 必须在一条消息中同时发起两个并行调用。
+
+   **通道 A — plugin spawn（默认）**：
+
+   **FIRST Agent call ({{BACKEND_PRIMARY}})**:
+   ```
+   Agent({
+     subagent_type: "codex:codex-rescue",
+     description: "team Phase 2: 后端架构分析",
+     prompt: `ROLE_FILE: ~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/architect.md
+
+WORKDIR: {{WORKDIR}}
+
+<TASK>
+需求：<PRD 内容>
+请分析后端架构：模块边界、API 设计、数据模型、依赖关系、实施建议。
+</TASK>
+
+Return ≤200 token structured summary (plugin-native protocol).`
+   })
+   ```
+
+   **SECOND Agent call ({{FRONTEND_PRIMARY}}) - IN THE SAME MESSAGE**:
+   ```
+   Agent({
+     subagent_type: "gemini:gemini-rescue",
+     description: "team Phase 2: 前端架构分析",
+     prompt: `ROLE_FILE: ~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/architect.md
+
+WORKDIR: {{WORKDIR}}
+
+<TASK>
+需求：<PRD 内容>
+请分析前端架构：组件拆分、状态管理、路由设计、UI/UX 要点、实施建议。
+</TASK>
+
+Return ≤200 token structured summary (plugin-native protocol).`
+   })
+   ```
+
+   **通道 B — codeagent-wrapper fallback**（plugin 未装时降级，并行用 `run_in_background: true`）：
+
    ```
    Bash({
      command: "~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --backend {{BACKEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}- \"{{WORKDIR}}\" <<'EOF'\nROLE_FILE: ~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/architect.md\n<TASK>\n需求：<PRD 内容>\n请分析后端架构：模块边界、API 设计、数据模型、依赖关系、实施建议。\n</TASK>\nEOF",
      run_in_background: true,
      timeout: 3600000,
-     description: "{{BACKEND_PRIMARY}} 后端架构分析"
+     description: "{{BACKEND_PRIMARY}} 后端架构分析 (BC)"
    })
-   ```
-
-   **SECOND Bash call ({{FRONTEND_PRIMARY}}) - IN THE SAME MESSAGE**:
-   ```
    Bash({
      command: "~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --backend {{FRONTEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}- \"{{WORKDIR}}\" <<'EOF'\nROLE_FILE: ~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/architect.md\n<TASK>\n需求：<PRD 内容>\n请分析前端架构：组件拆分、状态管理、路由设计、UI/UX 要点、实施建议。\n</TASK>\nEOF",
      run_in_background: true,
      timeout: 3600000,
-     description: "{{FRONTEND_PRIMARY}} 前端架构分析"
+     description: "{{FRONTEND_PRIMARY}} 前端架构分析 (BC)"
    })
    ```
 
-   **事件驱动等待**：spawn 两个 Bash bg 后说明 task-id 然后 **turn end**。引擎在每个 task 完成时自动发 `<task-notification>`，主线在通知触发的新 turn 处理结果。**不调 TaskOutput**。两个 task 都收到通知后才进下一步。
+   > ⚠️ 通道 B `codeagent-wrapper` 已标 **deprecated**，仅为不能升级 plugin 的环境保留。
+
+   **事件驱动等待**：
+   - **通道 A（plugin）**：两个 Agent 同 message 内 spawn，主线接 ≤200 token 摘要。Agent 完成后自动返回结果。
+   - **通道 B（BC wrapper）**：spawn 两个 Bash bg 后说明 task-id 然后 **turn end**。引擎在每个 task 完成时自动发 `<task-notification>`，主线在通知触发的新 turn 处理结果。**不调 TaskOutput**。两个 task 都收到通知后才进下一步。
 
    ⛔ **禁止**：调 `TaskOutput({block: true, timeout: 600000})` (旧 freeze poll 模式) / Kill task。
    ⚠️ **失败处理**：notification status=failed / exit ≠ 0 / parse 失败 → v1.7.87 标准 2-retry / 5s / 3-attempts；3 次全失败才降级单模型。
@@ -308,29 +357,82 @@ Phase 8: INTEGRATION   → Lead 全量验证 + 报告 + 清理
    - `Bash: git diff` 获取完整变更内容。
 
 2. **{{BACKEND_PRIMARY}} + {{FRONTEND_PRIMARY}} 并行审查（PARALLEL）**
-   - 模式与 Phase 2 相同，使用 reviewer prompt：
+   - 模式与 Phase 2 相同（plugin 优先 + wrapper BC fallback），使用 reviewer prompt：
 
-   **FIRST Bash call ({{BACKEND_PRIMARY}})**:
+   **通道 A — plugin spawn（默认）**：
+
+   **FIRST Agent call ({{BACKEND_PRIMARY}})**:
    ```
-   Bash({
-     command: "~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --backend {{BACKEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}- \"{{WORKDIR}}\" <<'EOF'\nROLE_FILE: ~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/reviewer.md\n<TASK>\n审查以下变更：\n<git diff 输出或变更文件列表>\n</TASK>\nOUTPUT (JSON):\n{\n  \"findings\": [{\"severity\": \"Critical|Warning|Info\", \"dimension\": \"logic|security|performance|error_handling\", \"file\": \"path\", \"line\": N, \"description\": \"描述\", \"fix_suggestion\": \"修复建议\"}],\n  \"passed_checks\": [\"检查项\"],\n  \"summary\": \"总体评估\"\n}\nEOF",
-     run_in_background: true,
-     timeout: 3600000,
-     description: "{{BACKEND_PRIMARY}} 后端审查"
+   Agent({
+     subagent_type: "codex:codex-rescue",
+     description: "team Phase 6: 后端审查",
+     prompt: `ROLE_FILE: ~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/reviewer.md
+
+WORKDIR: {{WORKDIR}}
+
+<TASK>
+审查以下变更：
+<git diff 输出或变更文件列表>
+</TASK>
+
+OUTPUT (JSON):
+{
+  "findings": [{"severity": "Critical|Warning|Info", "dimension": "logic|security|performance|error_handling", "file": "path", "line": N, "description": "描述", "fix_suggestion": "修复建议"}],
+  "passed_checks": ["检查项"],
+  "summary": "总体评估"
+}
+
+Return ≤200 token structured summary (plugin-native protocol).`
    })
    ```
 
-   **SECOND Bash call ({{FRONTEND_PRIMARY}}) - IN THE SAME MESSAGE**:
+   **SECOND Agent call ({{FRONTEND_PRIMARY}}) - IN THE SAME MESSAGE**:
    ```
-   Bash({
-     command: "~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --backend {{FRONTEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}- \"{{WORKDIR}}\" <<'EOF'\nROLE_FILE: ~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/reviewer.md\n<TASK>\n审查以下变更：\n<git diff 输出或变更文件列表>\n</TASK>\nOUTPUT (JSON):\n{\n  \"findings\": [{\"severity\": \"Critical|Warning|Info\", \"dimension\": \"patterns|maintainability|accessibility|ux|frontend_security\", \"file\": \"path\", \"line\": N, \"description\": \"描述\", \"fix_suggestion\": \"修复建议\"}],\n  \"passed_checks\": [\"检查项\"],\n  \"summary\": \"总体评估\"\n}\nEOF",
-     run_in_background: true,
-     timeout: 3600000,
-     description: "{{FRONTEND_PRIMARY}} 前端审查"
+   Agent({
+     subagent_type: "gemini:gemini-rescue",
+     description: "team Phase 6: 前端审查",
+     prompt: `ROLE_FILE: ~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/reviewer.md
+
+WORKDIR: {{WORKDIR}}
+
+<TASK>
+审查以下变更：
+<git diff 输出或变更文件列表>
+</TASK>
+
+OUTPUT (JSON):
+{
+  "findings": [{"severity": "Critical|Warning|Info", "dimension": "patterns|maintainability|accessibility|ux|frontend_security", "file": "path", "line": N, "description": "描述", "fix_suggestion": "修复建议"}],
+  "passed_checks": ["检查项"],
+  "summary": "总体评估"
+}
+
+Return ≤200 token structured summary (plugin-native protocol).`
    })
    ```
 
-   **事件驱动等待**：spawn 两个 Bash bg 后说明 task-id 然后 **turn end**。引擎在每个 task 完成时自动发 `<task-notification>`，主线在通知触发的新 turn 处理。**不调 TaskOutput**。两个 task 都收到通知才进 step 3。
+   **通道 B — codeagent-wrapper fallback**（plugin 未装时降级）：
+
+   ```
+   Bash({
+     command: "~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --backend {{BACKEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}- \"{{WORKDIR}}\" <<'EOF'\nROLE_FILE: ~/.claude/.ccg/prompts/{{BACKEND_PRIMARY}}/reviewer.md\n<TASK>\n审查以下变更：\n<git diff 输出或变更文件列表>\n</TASK>\nOUTPUT (JSON): [same schema as 通道 A]\nEOF",
+     run_in_background: true,
+     timeout: 3600000,
+     description: "{{BACKEND_PRIMARY}} 后端审查 (BC)"
+   })
+   Bash({
+     command: "~/.claude/bin/codeagent-wrapper {{LITE_MODE_FLAG}}--progress --backend {{FRONTEND_PRIMARY}} {{GEMINI_MODEL_FLAG}}- \"{{WORKDIR}}\" <<'EOF'\nROLE_FILE: ~/.claude/.ccg/prompts/{{FRONTEND_PRIMARY}}/reviewer.md\n<TASK>\n审查以下变更：\n<git diff 输出或变更文件列表>\n</TASK>\nOUTPUT (JSON): [same schema as 通道 A]\nEOF",
+     run_in_background: true,
+     timeout: 3600000,
+     description: "{{FRONTEND_PRIMARY}} 前端审查 (BC)"
+   })
+   ```
+
+   > ⚠️ 通道 B `codeagent-wrapper` 已标 **deprecated**，仅为不能升级 plugin 的环境保留。
+
+   **事件驱动等待**：
+   - **通道 A（plugin）**：两个 Agent 同 message 内 spawn，主线接 ≤200 token 摘要。
+   - **通道 B（BC wrapper）**：spawn 两个 Bash bg 后说明 task-id 然后 **turn end**。引擎在每个 task 完成时自动发 `<task-notification>`，主线在通知触发的新 turn 处理。**不调 TaskOutput**。两个 task 都收到通知才进 step 3。
 
    ⛔ **禁止**：调 `TaskOutput({block: true, timeout: 600000})` (旧 freeze poll 模式) / Kill task。
    ⚠️ **失败处理**：notification status=failed / exit ≠ 0 / parse 失败 → v1.7.87 标准 2-retry / 5s / 3-attempts；3 次全失败才降级单模型。
