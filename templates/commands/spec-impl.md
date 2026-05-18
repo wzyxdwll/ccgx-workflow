@@ -124,7 +124,7 @@ The diff will be reviewed before apply; do not assume it's been applied.
    1. **优先 plugin spawn**（默认）：装了 `codex@openai-codex` + gemini plugin（推荐 `gemini@gemini-ccgx` fork；或上游 `gemini@google-gemini` 配 repatch 脚本）→ 用 `Agent(subagent_type="codex:codex-rescue")` + `Agent(subagent_type="gemini:gemini-rescue")` 并行，主线接 ≤200 token 摘要。
    2. **降级 codeagent-wrapper**（BC fallback）：plugin 未装 → fallback Bash 调用，**保留 Step 4 session resume** 以维持会话上下文。
 
-   **判定**：preflight `Bash` 跑 `ls ~/.claude/plugins/` 看有无 `codex@*` / `gemini@*` 子目录。
+   **判定**：preflight `Bash` 跑 `node ~/.claude/.ccg/scripts/check-plugins.cjs`（解析 Claude Code 权威 `installed_plugins.json`）。exit `0` + stdout `{"codex":"<ver>","gemini":"<ver>"}` → 通道 A（plugin 默认）；非 `0` → 通道 B（wrapper BC fallback）。
 
    ⚠️ spec-impl 命令在主线 context 内，**允许** `Agent(...)`——与 subagent "禁止嵌套 spawn" 约束不冲突。
    ⚠️ **plugin 路径无 session resume 能力**：通道 A 不接 Step 4 的 SESSION_ID，review 任务作为独立无状态分析跑（review 是 read-only 审查，无需会话连续性）。

@@ -514,6 +514,21 @@ async function installShim(ctx: InstallContext): Promise<void> {
       }
     }
 
+    // 1d. check-plugins helper (2.3.1+): Channel A / B preflight detection.
+    //     Reads ~/.claude/plugins/installed_plugins.json (Claude Code's
+    //     authoritative plugin registry) — replaces the broken
+    //     `ls ~/.claude/plugins/ | grep codex@*` glob from v2.2.0/v2.3.0,
+    //     which never matched because plugin name keys live in the JSON
+    //     file, not as filesystem subdirectories.
+    const srcCheckPlugins = join(ctx.templateDir, 'scripts', 'check-plugins.cjs')
+    if (await fs.pathExists(srcCheckPlugins)) {
+      const destCheckPlugins = join(scriptDir, 'check-plugins.cjs')
+      await fs.copy(srcCheckPlugins, destCheckPlugins, { overwrite: true })
+      if (process.platform !== 'win32') {
+        await fs.chmod(destCheckPlugins, 0o755)
+      }
+    }
+
     // 2. Write platform launcher — bake actual installDir path so launcher
     //    works regardless of CLAUDE_CONFIG_DIR / test temp dirs / custom locations.
     if (process.platform === 'win32') {

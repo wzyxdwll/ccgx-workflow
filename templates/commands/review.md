@@ -21,7 +21,7 @@ argument-hint: "[代码或描述] [--adversarial] [--fix [--all] [--auto]] [--ro
 
 双模型并行审查，交叉验证综合反馈。无参数时自动审查当前 git 变更。
 
-**双模型并行通道**：默认走 plugin spawn —— 装了 `codex@openai-codex` + gemini plugin（推荐 `gemini@gemini-ccgx` fork，含 P-1..P-21 + W1/W2/I1 patch；或上游 `gemini@google-gemini` 配 repatch 脚本）→ 用 `Agent(subagent_type="codex:codex-rescue")` + `Agent(subagent_type="gemini:gemini-rescue")` 并行，主线只接 ≤200 token 摘要；plugin 未装 → fallback 到 codeagent-wrapper 路径（BC fallback）。preflight 用 `Bash` 跑 `ls ~/.claude/plugins/` 检测，helper 见 `src/utils/plugin-detection.ts`。
+**双模型并行通道**：默认走 plugin spawn —— 装了 `codex@openai-codex` + gemini plugin（推荐 `gemini@gemini-ccgx` fork，含 P-1..P-21 + W1/W2/I1 patch；或上游 `gemini@google-gemini` 配 repatch 脚本）→ 用 `Agent(subagent_type="codex:codex-rescue")` + `Agent(subagent_type="gemini:gemini-rescue")` 并行，主线只接 ≤200 token 摘要；plugin 未装 → fallback 到 codeagent-wrapper 路径（BC fallback）。preflight `Bash` 跑 `node ~/.claude/.ccg/scripts/check-plugins.cjs`（解析 Claude Code 权威 `installed_plugins.json`，exit `0` + stdout `{"codex":"<ver>","gemini":"<ver>"}` = 两 plugin 都在）。
 
 `--adversarial` 模式下额外触发第三层"敌对视角"审查，由官方 codex plugin 的 `Agent(codex:codex-rescue)` 在 fresh context 中专门挑前两轮意见的漏洞，适合极重要 PR / 安全敏感变更。需用户已装 `codex@openai-codex` plugin，否则降级为双模型审查。
 

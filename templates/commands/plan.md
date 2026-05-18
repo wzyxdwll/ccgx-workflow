@@ -57,9 +57,7 @@ CCG 把 6 核心命令的"双模型并行"通道从 `Bash(codeagent-wrapper)` **
 1. **优先 plugin spawn 路径**（默认）：用户已装 `codex@openai-codex` 和 gemini plugin（推荐 `gemini@gemini-ccgx` fork，已含全部 patch；或上游 `gemini@google-gemini` 配 repatch）→ 用 `Agent(subagent_type="codex:codex-rescue")` + `Agent(subagent_type="gemini:gemini-rescue")` 并行 spawn，主线只接 plugin 自家 ≤200 token 摘要协议（`STATUS: ... / FINDINGS: ... / NOTES: ...`）。
 2. **降级 codeagent-wrapper 路径**（BC fallback）：plugin 未装 → fallback 到 `Bash(~/.claude/bin/codeagent-wrapper --backend ... resume ... <<'EOF' ... EOF)`，与 plugin 路径行为等价。
 
-**判断方法**：preflight 用 `Bash` 跑 `ls ~/.claude/plugins/ 2>/dev/null | grep -E '^codex@'` 与 `... | grep -E '^gemini@'` 各一次。匹配到对应行 → plugin 已装。两个 plugin 独立判定，可分别 mix-and-match（仅 codex plugin 装了 → backend 走 plugin、frontend 走 codeagent）。
-
-**单一真相源**：plugin 检测逻辑 helper 见 `src/utils/plugin-detection.ts`（导出 `detectPlugin` / `detectPluginAvailability` / `bothPluginsInstalled`）。命令模板把判定结果渲染到执行计划，`Agent(...)` 调用与 `Bash(...)` 调用的具体语法见下面"多模型调用规范"段。
+**判断方法**：preflight `Bash` 跑 `node ~/.claude/.ccg/scripts/check-plugins.cjs`（解析 Claude Code 权威 `installed_plugins.json`）。返回 JSON `{"codex":"<ver>"|null,"gemini":"<ver>"|null}`，两个 plugin 独立判定，可分别 mix-and-match（仅 codex plugin 装了 → backend 走 plugin、frontend 走 codeagent）。exit `0` = 两 plugin 都在；非 `0` = 至少一个缺。`Agent(...)` 调用与 `Bash(...)` 调用的具体语法见下面"多模型调用规范"段。
 
 **为什么默认 plugin**：nested-spawn 测试证明 plugin advisor 摘要协议（≤200 token）压制了 codeagent stdout 全文回灌主线的痛点，主线 context 增量从 +5%/调用 降到 +1.5%/调用。详见 `.ccg-research/07-multimodel-collaboration-rethink.md`。
 

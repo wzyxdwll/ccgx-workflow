@@ -44,7 +44,7 @@ subagent_freshness: required
 1. **优先 plugin spawn**（默认）：plugin 已装 → `Agent(subagent_type="<codex:codex-rescue|gemini:gemini-rescue>")`。session 复用通过 prompt 内 `--resume` flag 表达（subagent 映射为 codex/gemini `--resume-last`，**注意是 last，不是 by-id**）。
 2. **降级 codeagent-wrapper**（BC fallback）：plugin 未装 → Bash 调用，保留 `resume <SESSION_ID>` 显式会话管理。
 
-**判定**：preflight `Bash` 跑 `ls ~/.claude/plugins/` 看有无 `codex@*` / `gemini@*` 子目录。
+**判定**：preflight `Bash` 跑 `node ~/.claude/.ccg/scripts/check-plugins.cjs`（解析 Claude Code 权威 `installed_plugins.json`）。exit `0` + stdout `{"codex":"<ver>","gemini":"<ver>"}` → 通道 A（plugin 默认）；非 `0` → 通道 B（wrapper BC fallback）。
 
 ---
 

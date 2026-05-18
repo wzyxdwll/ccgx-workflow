@@ -47,11 +47,10 @@ argument-hint: "<topic> [--max-rounds N] [--layer backend|frontend|fullstack]"
 
 1. 读 `$ARGUMENTS`，第一个非 flag token 即 topic（用引号包裹整段任务描述）
 2. 解析 `--max-rounds N` / `--layer X`
-3. **检测 plugin 可用性（纯目录探测，禁止运行时探活）**：
-   - 用 `Bash` 跑 `ls ~/.claude/plugins/ 2>/dev/null` 找 `codex@*` / `gemini@*` 前缀子目录
-   - 子目录内须含 `SKILL.md` / `plugin.json` / `package.json` / `manifest.json` 任一 marker → 标 `installed: true`
+3. **检测 plugin 可用性（解析 installed_plugins.json，禁止运行时探活）**：
+   - 用 `Bash` 跑 `node ~/.claude/.ccg/scripts/check-plugins.cjs`（解析 Claude Code 权威 `~/.claude/plugins/installed_plugins.json` 注册表）
+   - 返回 JSON `{"codex":"<ver>"|null,"gemini":"<ver>"|null}` + exit code（`0` = 两 plugin 都在；非 `0` = 至少一个缺）→ 各自标 `installed: true/false`
    - ⛔ **严禁**调用 `/gemini:status` / `/codex:status` / 任何 broker / runtime / health 探活——broker 是**懒启动**的，启动后才有；当前 `brokerRunning: false` 不代表 plugin 不可用
-   - 等价 helper：`detectPluginAvailability()`（`src/utils/plugin-detection.ts:156`）
    - 任一 plugin 真未装 → 该模型走 general-purpose 降级路径
 4. 调用 helper：`debateStateMachine(topic, { maxRounds, layer, pluginsAvailable })` 得到 `DebateRoundPlan[]`
 

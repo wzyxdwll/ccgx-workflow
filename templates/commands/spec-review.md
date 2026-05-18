@@ -33,7 +33,7 @@ description: '双模型交叉审查（独立工具，随时可用）'
    1. **优先 plugin spawn**（默认）：装了 `codex@openai-codex` + gemini plugin（推荐 `gemini@gemini-ccgx` fork；或上游 `gemini@google-gemini` 配 repatch 脚本）→ 用 `Agent(subagent_type="codex:codex-rescue")` + `Agent(subagent_type="gemini:gemini-rescue")` 并行，主线接 ≤200 token 摘要。
    2. **降级 codeagent-wrapper**（BC fallback）：plugin 未装 → fallback Bash 调用，行为与 plugin 路径等价。
 
-   **判定**：preflight `Bash` 跑 `ls ~/.claude/plugins/` 看有无 `codex@*` / `gemini@*` 子目录。
+   **判定**：preflight `Bash` 跑 `node ~/.claude/.ccg/scripts/check-plugins.cjs`（解析 Claude Code 权威 `installed_plugins.json`）。exit `0` + stdout `{"codex":"<ver>","gemini":"<ver>"}` → 通道 A（plugin 默认）；非 `0` → 通道 B（wrapper BC fallback）。
 
    ⚠️ spec-review 命令在主线 context 内，**允许** `Agent(...)`——与 subagent "禁止嵌套 spawn" 约束不冲突。
 

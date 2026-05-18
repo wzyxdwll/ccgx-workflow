@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.3.1] - 2026-05-18 — 🐛 修正 plugin 检测路径（v2.2.0/v2.3.0 关键回归）+ 新增 check-plugins helper
+
+### 🎯 为什么 2.3.1（一句话）
+
+v2.2.0/v2.3.0 在 14 个命令模板里写的 preflight `ls ~/.claude/plugins/` 看 `codex@*` / `gemini@*` 子目录**完全不工作**——这种命名 (`codex@openai-codex`) 只存在于 `installed_plugins.json` 的 JSON keys 里，文件系统上是 `cache/openai-codex/codex/1.0.4/` 嵌套结构。后果：preflight 永远返回「未装」 → 永远走通道 B（wrapper BC）→ **通道 A（plugin spawn）从未被真正调用**，v2.2.0/v2.3.0 升级实际等于没升。
+
+### 🐛 修复（v2.2.0/v2.3.0 关键回归）
+
+- **plugin 检测路径错误**：`~/.claude/plugins/` 顶层只有 `cache/` `marketplaces/` `installed_plugins.json` 等管理结构，**没有** `codex@*` / `gemini@*` 命名的子目录。authoritative 信息源是 `installed_plugins.json`（JSON keys 形如 `"codex@openai-codex"`、`"gemini@gemini-ccgx"`）。
+
+### ✨ 新功能
+
+- **新增 `templates/scripts/check-plugins.cjs`**（Node helper，零依赖）：
+  - 读 Claude Code 权威 `~/.claude/plugins/installed_plugins.json`
+  - 输出 stdout JSON `{"codex":"<version>"|null,"gemini":"<version>"|null}`（含 `error` 字段以反映 registry 缺失/解析错）
+  - exit code: `0` = 两 plugin 都在, `1` = 至少一个缺, `2` = 注册表缺失或解析失败
+  - 跨平台稳：Node 是 ccgx 必装依赖，不依赖 grep / PowerShell 差异
+- **`src/utils/installer.ts` `installShim()` 加入 check-plugins.cjs 复制**：写入 `~/.claude/.ccg/scripts/check-plugins.cjs`，沿用现有 invoke-model / ccg-phase-runner-launcher / ccgx-call-plugin 三件套同样的复制模式
+
+### 🔄 变更
+
+**14 个命令模板的 preflight 段落统一替换**：
+- `ls ~/.claude/plugins/` 看子目录句式（7 个）：spec-research / spec-plan / spec-review / spec-impl / team / workflow / codex-exec
+- `ls ... helper 见 src/utils/plugin-detection.ts` 句式（3 个）：analyze / optimize / test —— 顺手清除 phantom 引用（那个 helper file 从未存在）
+- `ls ... | grep -E '^codex@'` 句式（2 个）：execute / plan
+- 5 行 markdown 块（1 个）：debate
+- 内嵌长行 phrase（1 个）：review
+- 全部改为 `node ~/.claude/.ccg/scripts/check-plugins.cjs`
+
+### 📌 边缘 case 兜底
+
+不另写 lazy fallback——已有的「notification status=failed / exit ≠ 0 / parse 失败 → v1.7.87 标准 2-retry / 5s / 3-attempts；3 次全失败才降级单模型」机制天然覆盖：
+- plugin 注册了但文件损坏 → Agent spawn 失败 → 走 retry → 降级 wrapper
+- plugin token / 凭据过期 → 同上
+- schema 演进导致 helper 解析失败 → exit 2 → 走通道 B → wrapper 也失败的话 retry 兜底
+
+### 📦 兼容性
+
+- **已装 plugin 的用户**：之前 v2.2.0/v2.3.0 实际走通道 B（wrapper），本版本起真正走通道 A（plugin spawn），主线 context 占用降低（≤200 token 摘要）+ 错误恢复由 harness 接管
+- **未装 plugin 的用户**：行为不变（仍降级通道 B）
+- 不影响 npm package size（helper 单文件 ~1.4KB）
+
+---
+
 ## [2.3.0] - 2026-05-17 — 🔄 完成全量 plugin 迁移（workflow / codex-exec / spec-impl Step 4）+ 修正 ROLE_FILE 注入
 
 ### 🎯 为什么 2.3.0（一句话）
